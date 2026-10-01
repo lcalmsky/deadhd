@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# 자립형 스크립트다. ~/.agent-lanes 의 다른 파일이나 개인 스크립트를 참조하지 않는다.
 set -euo pipefail
 
 mode_arg=

@@ -71,6 +71,7 @@ cp -r deadhd/skills/deadhd ~/.claude/skills/
 | 입력 | 동작 |
 |---|---|
 | `/deadhd` | 진행 상황 페이지를 브라우저 탭으로 엽니다 (`-h` 와 같음) |
+| `/deadhd -o` | Orca 아티팩트(공유 링크가 있는 웹 페이지)로 게시합니다. orca CLI 로그인이 필요하고, 실패하면 브라우저 탭으로 엽니다 |
 | `/deadhd -c` | Claude 아티팩트로 게시합니다 |
 | `/deadhd setup` | 기본 열기 위치를 다시 고릅니다 |
 | `/deadhd --open <모드>` | 이번 실행만 다른 위치로 엽니다 |
@@ -105,6 +106,8 @@ cp -r deadhd/skills/deadhd ~/.claude/skills/
 | `sakura` | 사쿠라: 벚꽃 분홍 라이트 테마, 손글씨 제목 |
 
 설정 파일은 `~/.config/deadhd/config.json` 이고 `XDG_CONFIG_HOME` 을 지정하면 그 아래에 만들어집니다. `/deadhd setup` 으로 언제든 열기 위치와 테마를 다시 고를 수 있습니다.
+
+`~/.config/deadhd/writing-rules.md` 를 두면 페이지 문장을 쓸 때 그 파일의 작성 규칙을 따릅니다. 없으면 기본 규칙(제목은 명사구, 분야 용어 사용, 의인화 금지)을 씁니다. 자기 작성 가이드 파일에 심볼릭 링크로 연결해도 됩니다.
 
 긴 작업을 시작한 뒤 한 번 호출하면, 이후 단계의 상태가 바뀔 때마다 Claude 가 데이터를 갱신합니다. 데이터 형식의 전체 예시는 [`skills/deadhd/example.json`](skills/deadhd/example.json) 에 있습니다.
 

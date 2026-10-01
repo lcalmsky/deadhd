@@ -16,7 +16,7 @@ A status page for the task running in this session. The reader glanced away for 
 
 - `off`: stop updating the page (see Keep it updated). Reply in one line and stop.
 - `-h` (default): open the page in a browser tab beside the terminal.
-- `-o`: publish as an Orca artifact. Needs the eli5o delivery script (see Deliver); without it, fall back to `-h` and say so.
+- `-o`: publish as an Orca artifact (a shareable web page) with the `orca` CLI. Without it, or when publishing fails, fall back to `-h` and say so.
 - `-c`: publish as a Claude artifact with the `Artifact` tool. Without that tool, fall back to `-h` and say so.
 - `setup`: ask for the default open location and save it (see Setup). After saving, reply in one line and stop.
 - `--open <mode>`: use this mode for this run only, instead of the saved default. Pass it to open.sh as `--mode <mode>`.
@@ -87,7 +87,7 @@ Each item:
 
 Writing rules for all text in the data:
 
-- If `~/.agent-lanes/write-like-me/SKILL.md` exists, follow its Rules.
+- If `${XDG_CONFIG_HOME:-~/.config}/deadhd/writing-rules.md` exists, follow it. It is an optional user file (it may be a symlink to the user's own writing standard).
 - Otherwise: titles, labels, `sub`, and captions are noun phrases, never questions or sentences. Use the field's established terms (측정한다, 검증한다) instead of casual paraphrases. Do not personify systems, documents, or metrics. Write in the user's language.
 
 ## Render
@@ -102,11 +102,7 @@ It applies the saved theme on its own, and the `--theme` value instead when this
 
 On the first render only:
 
-- For `-o`, if `~/.agent-lanes/eli5o/scripts/deliver.sh` exists, run it and handle its output and fallbacks exactly as `~/.agent-lanes/eli5o/SKILL.md` does, including the `-c` / `fallback: claude-artifact` step:
-
-  ```bash
-  ~/.agent-lanes/eli5o/scripts/deliver.sh -o --label "deadhd <task, a few words>" /tmp/deadhd-<slug>.html
-  ```
+- For `-o`, run `bash <skill-dir>/share.sh /tmp/deadhd-<slug>.html`. On `shared: <url>`, give the user the URL. On `fallback: browser`, run the `-h` step instead and say that publishing failed, with the `skip:` reason.
 
 - Otherwise, for `-h` run `bash <skill-dir>/open.sh [--mode <mode>] /tmp/deadhd-<slug>.html`, where `<mode>` is the `--open` value when one was given. It takes the mode from `--mode`, else the saved default, else `auto`, and prints `opened: orca-tab|browser|desktop|none <path>`. On `none`, give the user the path to open. On `desktop`, write that absolute path as its own line in the reply and tell the user to press it in the Claude desktop app to open the page.
 - For `-c`, publish the HTML file with the `Artifact` tool.
@@ -117,8 +113,8 @@ After the first render, update the JSON and rerun `render.py` whenever an item c
 
 - The open tab reloads itself every 15 seconds and plays the completion effect on items that became `done`.
 - Do not run the delivery or open script again.
-- For a Claude artifact or an Orca artifact, republish only at the end of the task or when the user asks, not at every change.
-- On the first render and when the task ends, reread the data once against the writing rules (the write-like-me Procedure when that file exists). Skip this on intermediate updates.
+- For a Claude artifact or an Orca artifact, republish only at the end of the task or when the user asks, not at every change. Republish an Orca artifact with `bash <skill-dir>/share.sh --update /tmp/deadhd-<slug>.html`.
+- On the first render and when the task ends, reread the data once against the writing rules (the writing-rules file's procedure when it has one). Skip this on intermediate updates.
 - An update is part of the work, not a report: do not mention it in chat.
 
 ## Reply

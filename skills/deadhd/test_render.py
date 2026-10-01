@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -502,6 +503,103 @@ class ConfigScriptTest(unittest.TestCase):
     def test_usage_error_exits_2(self):
         self.assertEqual(self.run_config('get').returncode, 2)
         self.assertEqual(self.run_config().returncode, 2)
+
+
+class ShareScriptTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='progress-share-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def write_file(self, name='page.html'):
+        path = os.path.join(self.tmp, name)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write('<!doctype html><html></html>')
+        return path
+
+    def make_orca(self, out, rc=0, log_path=None):
+        d = os.path.join(self.tmp, 'bin')
+        os.makedirs(d, exist_ok=True)
+        path = os.path.join(d, 'orca')
+        lines = ['#!/bin/sh']
+        if log_path is not None:
+            lines.append('printf "%%s\\n" "$*" >> %s' % shlex.quote(log_path))
+        lines.append('printf "%%s\\n" %s' % shlex.quote(out))
+        lines.append('exit %d' % rc)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines) + '\n')
+        os.chmod(path, 0o755)
+        return d
+
+    def bare_path(self):
+        d = os.path.join(self.tmp, 'bare-bin')
+        os.makedirs(d, exist_ok=True)
+        for tool in ('bash', 'python3'):
+            link = os.path.join(d, tool)
+            if not os.path.exists(link):
+                os.symlink(shutil.which(tool), link)
+        return d
+
+    def run_share(self, args, prefix=None, path=None):
+        env = dict(os.environ)
+        if path is not None:
+            env['PATH'] = path
+        else:
+            env['PATH'] = prefix + os.pathsep + env.get('PATH', '')
+        return subprocess.run(
+            ['bash', os.path.join(HERE, 'share.sh')] + list(args),
+            capture_output=True, text=True, env=env,
+        )
+
+    def test_success_prints_share_url(self):
+        page = self.write_file()
+        d = self.make_orca('{"ok":true,"result":{"shareUrl":"https://example.com/a"}}')
+        r = self.run_share([page], prefix=d)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), 'shared: https://example.com/a')
+
+    def test_update_passes_update_arguments(self):
+        page = self.write_file()
+        log = os.path.join(self.tmp, 'args.log')
+        d = self.make_orca(
+            '{"ok":true,"result":{"shareUrl":"https://example.com/b"}}', log_path=log
+        )
+        r = self.run_share(['--update', page], prefix=d)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(log, encoding='utf-8') as f:
+            recorded = f.read().strip()
+        self.assertEqual(recorded, 'artifacts update %s --json' % page)
+
+    def test_failure_json_falls_back_to_browser(self):
+        page = self.write_file()
+        d = self.make_orca('{"ok":false,"error":{"code":"unauthorized"}}', rc=1)
+        r = self.run_share([page], prefix=d)
+        self.assertEqual(r.returncode, 3)
+        self.assertEqual(r.stdout.strip(), 'fallback: browser')
+        self.assertIn('unauthorized', r.stderr)
+
+    def test_missing_orca_falls_back_to_browser(self):
+        page = self.write_file()
+        r = self.run_share([page], path=self.bare_path())
+        self.assertEqual(r.returncode, 3)
+        self.assertEqual(r.stdout.strip(), 'fallback: browser')
+        self.assertIn('orca not found', r.stderr)
+
+    def test_missing_file_exits_2(self):
+        page = os.path.join(self.tmp, 'nope.html')
+        r = self.run_share([page], prefix=self.make_orca('{"ok":true}'))
+        self.assertEqual(r.returncode, 2)
+        self.assertTrue(r.stderr.strip())
+
+
+class SkillDocTest(unittest.TestCase):
+    def test_skill_md_has_no_personal_paths(self):
+        # 검사 대상 문자열을 조각으로 만들어, 이 파일 자신이 저장소 grep 에 걸리지 않게 한다.
+        needles = ('agent' + '-lanes', 'eli' + '5o', 'write' + '-like' + '-me')
+        with open(os.path.join(HERE, 'SKILL.md'), encoding='utf-8') as f:
+            text = f.read()
+        for needle in needles:
+            with self.subTest(needle=needle):
+                self.assertNotIn(needle, text)
 
 
 if __name__ == '__main__':
