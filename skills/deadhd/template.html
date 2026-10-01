@@ -1,0 +1,808 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="15">
+<title>__PROGRESS_TITLE__</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&display=swap" rel="stylesheet">
+<style>
+@property --angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+
+:root {
+  --bg: #f6f7fb;
+  --bg-2: #eceef6;
+  --card: rgba(255,255,255,.78);
+  --card-line: rgba(20,24,40,.08);
+  --ink: #141828;
+  --ink-2: #4a5068;
+  --ink-3: #8a90a6;
+  --done: #10b981;
+  --done-2: #34d399;
+  --now: #f59e0b;
+  --now-2: #fbbf24;
+  --side: #8b5cf6;
+  --left: #a3a8bb;
+  --blocked: #ef4444;
+  --blocked-2: #f87171;
+  --track: rgba(20,24,40,.08);
+  --scroll: rgba(20,24,40,.22);
+  --scroll-hover: rgba(20,24,40,.38);
+  --glow-a: rgba(16,185,129,.18);
+  --glow-b: rgba(139,92,246,.14);
+  --glow-c: rgba(245,158,11,.12);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #07080d;
+    --bg-2: #0d0f18;
+    --card: rgba(22,25,38,.72);
+    --card-line: rgba(255,255,255,.07);
+    --ink: #f3f4f8;
+    --ink-2: #b4b9cc;
+    --ink-3: #6f7590;
+    --left: #4b5068;
+    --track: rgba(255,255,255,.07);
+    --scroll: rgba(255,255,255,.16);
+    --scroll-hover: rgba(255,255,255,.3);
+    --glow-a: rgba(16,185,129,.22);
+    --glow-b: rgba(139,92,246,.20);
+    --glow-c: rgba(245,158,11,.14);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #07080d; --bg-2: #0d0f18; --card: rgba(22,25,38,.72); --card-line: rgba(255,255,255,.07);
+  --ink: #f3f4f8; --ink-2: #b4b9cc; --ink-3: #6f7590; --left: #4b5068; --track: rgba(255,255,255,.07);
+  --scroll: rgba(255,255,255,.16); --scroll-hover: rgba(255,255,255,.3);
+  --glow-a: rgba(16,185,129,.22); --glow-b: rgba(139,92,246,.20); --glow-c: rgba(245,158,11,.14);
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { --f-body: "Gowun Dodum", sans-serif; --f-head: var(--f-body); --f-mono: ui-monospace, "SF Mono", monospace; --head-w: 400; --head-ls: -.01em; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--f-body), -apple-system, "Apple SD Gothic Neo", sans-serif;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+.mono { font-family: var(--f-mono); font-size: .92em; }
+
+/* ---------- 배경 ---------- */
+.aurora, .stars { position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: 0; transition: opacity .8s; }
+.aurora i {
+  position: absolute; width: 60vmax; height: 60vmax; border-radius: 50%;
+  filter: blur(80px);
+}
+.aurora i:nth-child(1) { background: var(--glow-a); top: -25vmax; left: -15vmax; }
+.aurora i:nth-child(2) { background: var(--glow-b); top: 10vmax; right: -25vmax; }
+.aurora i:nth-child(3) { background: var(--glow-c); bottom: -30vmax; left: 20vmax; }
+.stars b {
+  position: absolute; width: 2px; height: 2px; border-radius: 50%; background: #fff;
+  opacity: .5;
+}
+[data-fx="max"] .aurora { opacity: 1; }
+[data-fx="max"] .stars { opacity: 1; }
+
+/* ---------- 레이아웃 ---------- */
+main { position: relative; z-index: 1; max-width: 1040px; margin: 0 auto; padding: 40px 16px 80px; }
+
+.eyebrow {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 500; color: var(--now);
+  padding: 4px 12px 4px 10px; border-radius: 999px;
+  background: color-mix(in srgb, var(--now) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--now) 30%, transparent);
+}
+.eyebrow .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--now); box-shadow: 0 0 0 0 var(--now); }
+
+h1 {
+  font-size: clamp(26px, 4.2vw, 40px); line-height: 1.3; font-weight: 900; letter-spacing: -.02em;
+  margin: 16px 0 12px;
+  font-family: var(--f-head); font-weight: var(--head-w); letter-spacing: var(--head-ls);
+}
+h1 .key { color: var(--done); }
+h1 .key a { color: inherit; text-decoration: none; }
+[data-fx="max"] h1 .shine {
+  background: linear-gradient(100deg, var(--ink) 40%, #fff 50%, var(--ink) 60%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+
+.goal {
+  display: grid; grid-template-columns: max-content 1fr; column-gap: 12px; row-gap: 6px;
+  margin: 4px 0 16px; padding: 2px 0 2px 16px;
+  border-left: 3px solid;
+  border-image: linear-gradient(var(--done), var(--side)) 1;
+}
+.goal-row { display: contents; }
+.goal-row p { margin: 0; font-size: 16px; color: var(--ink-2); line-height: 1.6; }
+.goal-tag {
+  align-self: start; margin-top: 3px; text-align: center;
+  font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  color: var(--done); background: color-mix(in srgb, var(--done) 14%, transparent);
+  white-space: nowrap;
+}
+.goal-tag.end { color: var(--side); background: color-mix(in srgb, var(--side) 14%, transparent); }
+
+.meta { display: flex; flex-wrap: wrap; gap: 8px; color: var(--ink-3); font-size: 14px; }
+.meta .chip {
+  padding: 2px 10px; border-radius: 6px; background: var(--track); color: var(--ink-2);
+}
+
+/* ---------- 진행 바 ---------- */
+.progress { display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: center; margin: 32px 0 12px; }
+.bar { position: relative; height: 12px; border-radius: 999px; background: var(--track); overflow: visible; }
+.bar .fill {
+  position: absolute; inset: 0 auto 0 0; width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #059669, var(--done-2));
+  overflow: hidden;
+}
+.bar .tip {
+  position: absolute; top: 50%; left: 0; width: 18px; height: 18px; margin: -9px 0 0 -9px;
+  border-radius: 50%; background: #d1fae5;
+  box-shadow: 0 0 12px 4px color-mix(in srgb, var(--done-2) 70%, transparent);
+  opacity: 0;
+}
+[data-fx="max"] .bar .tip { opacity: 1; }
+.count { font-size: 15px; color: var(--ink-3); white-space: nowrap; }
+.count b {
+  font-family: var(--f-mono); font-size: 34px; font-weight: 600; color: var(--ink);
+  letter-spacing: -.03em;
+}
+[data-fx="max"] .count b {
+  background: linear-gradient(135deg, var(--done-2), #a7f3d0);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+
+.tally { display: flex; flex-wrap: wrap; gap: 8px; font-size: 13px; }
+.tally span { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
+.tally i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+/* ---------- 흐름 ---------- */
+.flow {
+  margin: 36px 0 48px; padding: 20px 16px;
+  border-radius: 20px; background: var(--card); border: 1px solid var(--card-line);
+  backdrop-filter: blur(16px);
+  overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: thin; scrollbar-color: var(--scroll) transparent;
+}
+.flow::-webkit-scrollbar { height: 8px; }
+.flow::-webkit-scrollbar-track { background: transparent; margin: 0 16px; }
+.flow::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 999px; }
+.flow::-webkit-scrollbar-thumb:hover { background: var(--scroll-hover); }
+.canvas { position: relative; margin: 0 auto; }
+.lane-band {
+  position: absolute; left: 0; right: 0; border-radius: 14px;
+  background: color-mix(in srgb, var(--track) 55%, transparent);
+  border: 1px dashed var(--card-line);
+}
+.lane-label {
+  position: absolute; left: 14px; top: 10px;
+  font-size: 11px; letter-spacing: .14em; color: var(--ink-3); font-family: var(--f-mono);
+}
+.edges { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+.edge { fill: none; stroke: var(--track); stroke-width: 3; stroke-linecap: round; }
+.edge.done { stroke: var(--done); }
+.edge.active { stroke: var(--now); stroke-dasharray: 2 7; }
+.edge.side { stroke: var(--side); stroke-dasharray: 2 7; opacity: .8; }
+.edge.blocked { stroke: var(--blocked); stroke-dasharray: 2 7; }
+[data-fx="max"] .edge.done { filter: drop-shadow(0 0 4px color-mix(in srgb, var(--done) 70%, transparent)); }
+.fnode {
+  position: absolute; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px;
+  transform: translate(-50%, -26px); z-index: 1;
+}
+
+.node {
+  position: relative; width: 52px; height: 52px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 20px; font-weight: 700;
+  border: 3px solid var(--left); color: var(--left); background: var(--bg-2);
+  z-index: 1;
+}
+.fnode.done .node {
+  background: linear-gradient(135deg, #059669, var(--done-2)); border-color: transparent; color: #fff;
+}
+[data-fx="max"] .fnode.done .node {
+  box-shadow: 0 0 18px color-mix(in srgb, var(--done) 55%, transparent);
+}
+.fnode.now .node {
+  background: linear-gradient(135deg, #f97316, var(--now-2)); border-color: transparent; color: #fff;
+  animation: heartbeat 1.5s ease-in-out infinite;
+}
+.fnode.now .node::before, .fnode.now .node::after {
+  content: ""; position: absolute; inset: -3px; border-radius: 50%;
+  border: 2px solid var(--now); animation: ripple 1.5s ease-out infinite;
+}
+.fnode.now .node::after { animation-delay: .75s; }
+[data-fx="max"] .fnode.now .node { box-shadow: 0 0 30px 6px color-mix(in srgb, var(--now) 55%, transparent); }
+@keyframes heartbeat {
+  0%, 100% { transform: scale(1); }
+  14% { transform: scale(1.14); }
+  28% { transform: scale(1); }
+  42% { transform: scale(1.09); }
+  56% { transform: scale(1); }
+}
+@keyframes ripple { from { transform: scale(1); opacity: .9; } to { transform: scale(2); opacity: 0; } }
+.fnode.side .node { border-color: var(--side); color: var(--side); box-shadow: 0 0 12px color-mix(in srgb, var(--side) 35%, transparent); }
+.fnode.blocked .node {
+  background: linear-gradient(135deg, #dc2626, var(--blocked-2)); border-color: transparent; color: #fff;
+  box-shadow: 0 0 24px 4px color-mix(in srgb, var(--blocked) 45%, transparent);
+}
+
+.fnode .label { font-size: 14px; line-height: 1.35; font-weight: 700; }
+.fnode .sub { font-size: 12px; color: var(--ink-3); }
+.fnode.now .sub { color: var(--now); font-weight: 500; }
+.fnode.side .sub { color: var(--side); }
+.fnode.blocked .sub { color: var(--blocked); font-weight: 500; }
+.fnode.left .label { color: var(--ink-3); }
+
+/* ---------- 스파클 ---------- */
+.spark {
+  position: absolute; width: 10px; height: 10px; pointer-events: none; z-index: 3;
+  background: radial-gradient(circle, #fff 0 20%, transparent 60%);
+  clip-path: polygon(50% 0, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0 50%, 40% 40%);
+  animation: sparkle 1.2s ease-out forwards;
+}
+@keyframes sparkle {
+  0% { transform: scale(0) rotate(0); opacity: 0; }
+  30% { transform: scale(1.4) rotate(45deg); opacity: 1; }
+  100% { transform: scale(0) rotate(120deg); opacity: 0; }
+}
+.burst {
+  position: absolute; width: 8px; height: 8px; border-radius: 50%; pointer-events: none; z-index: 4;
+  animation: burst 1s cubic-bezier(.1,.8,.3,1) forwards;
+}
+@keyframes burst {
+  0% { transform: translate(0,0) scale(1); opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)) scale(0); opacity: 0; }
+}
+
+/* ---------- 섹션 ---------- */
+h2 { font-size: 20px; font-weight: 700; margin: 40px 0 16px; display: flex; align-items: center; gap: 10px; }
+h2 .ic { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font-size: 14px; }
+h2.done .ic { background: color-mix(in srgb, var(--done) 18%, transparent); color: var(--done); }
+h2.now .ic { background: color-mix(in srgb, var(--now) 18%, transparent); color: var(--now); }
+h2.left .ic { background: var(--track); color: var(--ink-3); }
+h2.blocked .ic { background: color-mix(in srgb, var(--blocked) 18%, transparent); color: var(--blocked); }
+
+.card {
+  position: relative; padding: 20px 22px; margin-bottom: 12px;
+  border-radius: 16px; background: var(--card); border: 1px solid var(--card-line);
+  backdrop-filter: blur(16px);
+  transition: transform .25s, box-shadow .25s;
+}
+.card:hover { transform: translateY(-2px); box-shadow: 0 12px 32px rgba(0,0,0,.18); }
+.card h3 { margin: 0 0 6px; font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.card p { margin: 0; color: var(--ink-2); font-size: 15px; }
+.card .ev { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.card .ev span {
+  font-size: 12px; padding: 3px 9px; border-radius: 6px;
+  background: var(--track); color: var(--ink-3);
+  display: inline-flex; align-items: center;
+}
+.card .ev .mono { font-size: 11.5px; }
+.card .ev a { color: inherit; text-decoration: none; }
+.card .ev a span { background: var(--track); }
+.card .ev a:hover span { color: var(--ink-2); }
+.card.done h3::before { content: "✓"; color: var(--done); }
+[data-fx="max"] .card.done h3::before { text-shadow: 0 0 10px var(--done); }
+.badge { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 999px; }
+.badge.side { color: var(--side); background: color-mix(in srgb, var(--side) 14%, transparent); }
+
+.card.now { border-color: color-mix(in srgb, var(--now) 45%, transparent); }
+.card.now h3::before { content: "▶"; color: var(--now); font-size: 12px; }
+[data-fx="max"] .card.now {
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(var(--bg-2), var(--bg-2)) padding-box,
+    conic-gradient(from var(--angle), transparent 0 60%, var(--now) 75%, #fde68a 80%, var(--now) 85%, transparent 100%) border-box;
+  box-shadow: 0 0 40px -8px color-mix(in srgb, var(--now) 50%, transparent);
+}
+
+.card.left { opacity: .72; }
+.card.left h3::before { content: "○"; color: var(--ink-3); }
+.card.side { opacity: 1; }
+.card.side h3::before { content: "◐"; color: var(--side); }
+
+.card.blocked { border-color: color-mix(in srgb, var(--blocked) 45%, transparent); }
+.card.blocked h3::before { content: "!"; color: var(--blocked); }
+[data-fx="max"] .card.blocked { box-shadow: 0 0 40px -8px color-mix(in srgb, var(--blocked) 45%, transparent); }
+
+/* ---------- 카드 안 그림 ---------- */
+.ic-sm { width: 13px; height: 13px; flex: none; vertical-align: -2px; margin-right: 4px; opacity: .8; }
+
+.substeps { display: flex; align-items: center; gap: 0; margin: 16px 0 4px; flex-wrap: wrap; row-gap: 10px; }
+.sub-s { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-3); }
+.sub-s i {
+  width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+  font-style: normal; font-size: 11px; font-weight: 700;
+  border: 2px solid var(--left); color: var(--left);
+}
+.sub-s.ok { color: var(--ink-2); }
+.sub-s.ok i { background: var(--done); border-color: var(--done); color: #fff; box-shadow: 0 0 10px color-mix(in srgb, var(--done) 60%, transparent); }
+.sub-s.run { color: var(--now); font-weight: 700; }
+.sub-s.run i { background: var(--now); border-color: var(--now); color: #fff; box-shadow: 0 0 14px color-mix(in srgb, var(--now) 70%, transparent); }
+.sub-s.blocked { color: var(--blocked); font-weight: 700; }
+.sub-s.blocked i { background: var(--blocked); border-color: var(--blocked); color: #fff; box-shadow: 0 0 10px color-mix(in srgb, var(--blocked) 60%, transparent); }
+.sub-line { width: 28px; height: 2px; margin: 0 8px; background: var(--track); border-radius: 2px; }
+.sub-line.ok { background: linear-gradient(90deg, var(--done), var(--done-2)); }
+.sub-line.run { background: linear-gradient(90deg, var(--done-2), var(--now)); }
+
+.viz { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 16px; }
+.stat {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px 10px 10px; border-radius: 12px;
+  background: color-mix(in srgb, var(--track) 70%, transparent);
+}
+.stat .t { font-size: 12px; color: var(--ink-3); line-height: 1.4; }
+.stat .t b { display: block; font-size: 18px; color: var(--ink); font-family: var(--f-mono); letter-spacing: -.02em; }
+.ring { width: 46px; height: 46px; transform: rotate(-90deg); }
+.ring circle { fill: none; stroke-width: 5; }
+.ring .bg { stroke: var(--track); }
+.ring .fg { stroke: var(--done); stroke-linecap: round; stroke-dasharray: 113.1; stroke-dashoffset: 113.1; animation: draw 1.4s .3s cubic-bezier(.2,.8,.2,1) forwards; filter: drop-shadow(0 0 4px var(--done)); }
+@keyframes draw { to { stroke-dashoffset: var(--off, 0); } }
+.stat .big-ic { width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; background: color-mix(in srgb, var(--done) 16%, transparent); color: var(--done); }
+.stat .big-ic svg { width: 24px; height: 24px; }
+
+.compare { flex: 1 1 280px; padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--track) 70%, transparent); }
+.compare .cap { font-size: 12px; color: var(--ink-3); margin-bottom: 8px; }
+.cmp-row { display: grid; grid-template-columns: 88px 1fr 48px; align-items: center; gap: 10px; font-size: 12.5px; margin: 6px 0; }
+.cmp-row .track { height: 10px; border-radius: 99px; background: var(--track); overflow: hidden; }
+.cmp-row .val { height: 100%; width: 0; border-radius: inherit; animation: grow 1.2s .4s cubic-bezier(.2,.8,.2,1) forwards; }
+.cmp-row.win .val { background: linear-gradient(90deg, var(--side), #c4b5fd); box-shadow: 0 0 12px var(--side); }
+.cmp-row.lose .val { background: var(--left); }
+.cmp-row.risk .val { background: linear-gradient(90deg, #f97316, #ef4444); box-shadow: 0 0 12px #ef4444; }
+.cmp-row .num { font-family: var(--f-mono); text-align: right; color: var(--ink-2); }
+.cmp-row.win .num { color: var(--side); font-weight: 700; }
+.cmp-row.risk .num { color: #f87171; font-weight: 700; }
+@keyframes grow { to { width: var(--w); } }
+
+/* 처음 볼 때만 입장 애니메이션을 재생한다 (새로고침 시 최종 상태로 바로 그린다) */
+body.no-entrance .ring .fg { animation: none; stroke-dashoffset: var(--off, 0); }
+body.no-entrance .cmp-row .val { animation: none; width: var(--w); }
+
+footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: center; }
+
+/* ---------- 모바일 ---------- */
+@media (max-width: 720px) {
+  main { padding-top: 28px; }
+  .progress { grid-template-columns: 1fr; gap: 8px; }
+  .goal { grid-template-columns: 1fr; row-gap: 4px; }
+  .goal-tag { justify-self: start; }
+  .goal-row:not(:first-child) .goal-tag { margin-top: 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body data-fx="max">
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-pr" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="4" cy="3.5" r="1.8"/><circle cx="4" cy="12.5" r="1.8"/><circle cx="12" cy="12.5" r="1.8"/><path d="M4 5.3v5.4M12 10.7V6.5a2 2 0 0 0-2-2H7.5M9 3l-1.5 1.5L9 6"/></symbol>
+  <symbol id="i-commit" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.6"/><path d="M1 8h4.4M10.6 8H15"/></symbol>
+  <symbol id="i-test" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 1.5h4M7 1.5v4.2L3 13a1.2 1.2 0 0 0 1 1.8h8a1.2 1.2 0 0 0 1-1.8L9 5.7V1.5"/><path d="M4.8 10h6.4"/></symbol>
+  <symbol id="i-ticket" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M2 4.5h12v2.2a1.4 1.4 0 0 0 0 2.6v2.2H2V9.3a1.4 1.4 0 0 0 0-2.6z"/><path d="M6 4.5v7" stroke-dasharray="1.4 1.4"/></symbol>
+  <symbol id="i-file" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M3.5 1.5h6l3 3v10h-9z"/><path d="M9.5 1.5v3h3M5.5 8.5h5M5.5 11h5"/></symbol>
+  <symbol id="i-deploy" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5c2.5 1.5 3.7 4 3.5 7.5l-2 2h-3l-2-2C4.3 5.5 5.5 3 8 1.5z"/><circle cx="8" cy="6" r="1.2"/><path d="M5.5 11.5 4 14.5M10.5 11.5l1.5 3"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5 13.5 4v4c0 3.2-2.3 5.6-5.5 6.5C4.8 13.6 2.5 11.2 2.5 8V4z"/><path d="m5.5 8 1.8 1.8L10.8 6"/></symbol>
+</svg>
+<div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+<div class="stars" aria-hidden="true" id="stars"></div>
+
+<main>
+  <span class="eyebrow" id="eyebrow"><span class="dot"></span><span id="eyebrowText"></span></span>
+  <h1 id="h1"></h1>
+  <div class="goal" id="goal"></div>
+  <div class="meta" id="meta"></div>
+
+  <div class="progress">
+    <div class="bar"><div class="fill"></div><div class="tip"></div></div>
+    <div class="count"><b id="countB">0/0</b> 완료</div>
+  </div>
+  <div class="tally" id="tally"></div>
+
+  <div id="blocked"></div>
+
+  <section class="flow" id="flow" aria-label="단계 흐름"><div class="canvas" id="canvas"></div></section>
+
+  <div id="cards"></div>
+
+  <footer id="footer" hidden></footer>
+</main>
+
+<script id="progress-data" type="application/json">__PROGRESS_DATA__</script>
+<script>
+(() => {
+  const body = document.body;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const $ = id => document.getElementById(id);
+  const NS = 'http://www.w3.org/2000/svg';
+  const NODE_ICON = { done: '✓', now: '▶', side: '◐', left: '○', blocked: '!' };
+  const ANIM_KEY = { done: 'sub-s ok', now: 'sub-s run', blocked: 'sub-s blocked' };
+  const ANIM_GLYPH = { done: '✓', now: '▶', side: '◐', blocked: '!' };
+
+  const el = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = String(text);
+    return n;
+  };
+  const iconEl = (name, cls) => {
+    const svg = document.createElementNS(NS, 'svg');
+    if (cls) svg.setAttribute('class', cls);
+    const use = document.createElementNS(NS, 'use');
+    use.setAttribute('href', '#i-' + name);
+    svg.appendChild(use);
+    return svg;
+  };
+  const linkEl = (href, node) => {
+    const a = document.createElement('a');
+    a.href = href; a.target = '_blank'; a.rel = 'noopener';
+    a.appendChild(node);
+    return a;
+  };
+
+  let data;
+  try {
+    // render.py 는 script 태그가 조기에 닫히지 않게 데이터의 `<!--` 를 `<\!--` 로 바꿔 넣는다.
+    // JSON 에서 유효한 이스케이프가 아니므로 여기서 되돌린다.
+    data = JSON.parse($('progress-data').textContent.replace(/<\\!/g, '<!'));
+  } catch (err) {
+    console.error('progress: 데이터를 읽지 못했다', err);
+    return;
+  }
+
+  const KEY = 'progress:' + (data.key || '') + ':' + (data.title || '');
+  const store = {
+    get(k) { try { const v = sessionStorage.getItem(k); return v == null ? null : JSON.parse(v); } catch (e) { return null; } },
+    set(k, v) { try { sessionStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* 저장 불가 환경에서는 매번 처음 보는 것으로 취급한다 */ } }
+  };
+
+  const items = (data.items || []).map(it => Object.assign({}, it));
+  const nextCol = {};
+  items.forEach(it => {
+    it.lane = Number.isFinite(it.lane) ? it.lane : 0;
+    const base = nextCol[it.lane] == null ? 0 : nextCol[it.lane];
+    if (it.col == null) it.col = base;
+    nextCol[it.lane] = Math.max(base, it.col) + 1;
+  });
+  const byState = st => items.filter(i => i.state === st);
+  const doneList = byState('done'), nowList = byState('now'), blockedList = byState('blocked');
+  const sideList = byState('side'), leftList = byState('left');
+  const total = items.length;
+  const lanes = Array.isArray(data.lanes) ? data.lanes : [];
+  const laneCount = Math.max(lanes.length, items.reduce((m, i) => Math.max(m, i.lane + 1), 1));
+
+  let edges = Array.isArray(data.edges) ? data.edges : null;
+  if (!edges) {
+    edges = [];
+    const perLane = {};
+    items.forEach(it => { (perLane[it.lane] = perLane[it.lane] || []).push(it); });
+    Object.keys(perLane).forEach(k => {
+      const arr = perLane[k].slice().sort((a, b) => a.col - b.col);
+      for (let i = 0; i + 1 < arr.length; i++) edges.push([arr[i].id, arr[i + 1].id]);
+    });
+  }
+
+  // ---- 배경 ----
+  const stars = $('stars');
+  for (let i = 0; i < 60; i++) {
+    const st = document.createElement('b');
+    st.style.left = Math.random() * 100 + '%';
+    st.style.top = Math.random() * 100 + '%';
+    stars.appendChild(st);
+  }
+
+  // ---- 머리말 ----
+  const eyebrow = $('eyebrow');
+  if (nowList.length) $('eyebrowText').textContent = nowList[0].label + ' 진행 중';
+  else if (blockedList.length) $('eyebrowText').textContent = blockedList[0].label + ' 막힘';
+  else if (total && doneList.length === total) $('eyebrowText').textContent = '모든 단계 완료';
+  else eyebrow.hidden = true;
+
+  const h1 = $('h1');
+  if (data.key) {
+    const k = el('span', 'key');
+    k.appendChild(data.keyHref ? linkEl(data.keyHref, document.createTextNode(data.key)) : document.createTextNode(data.key));
+    h1.appendChild(k);
+    h1.appendChild(document.createTextNode(' '));
+  }
+  h1.appendChild(el('span', 'shine', data.title || ''));
+
+  const meta = $('meta');
+  if (data.updated) meta.appendChild(el('span', null, '마지막 갱신 ' + data.updated));
+  (data.meta || []).forEach(m => meta.appendChild(el('span', 'chip mono', m)));
+  if (!meta.children.length) meta.hidden = true;
+
+  const goal = $('goal');
+  const goalRow = (tag, tagCls, text) => {
+    const row = el('div', 'goal-row');
+    row.appendChild(el('span', tagCls ? 'goal-tag ' + tagCls : 'goal-tag', tag));
+    row.appendChild(el('p', null, text));
+    goal.appendChild(row);
+  };
+  if (data.goal) goalRow('목표', null, data.goal);
+  if (data.doneWhen) goalRow('완료 조건', 'end', data.doneWhen);
+  if (!goal.children.length) goal.hidden = true;
+
+  // ---- 진행 바와 집계 ----
+  const pct = total ? (doneList.length / total * 100) : 0;
+  document.querySelector('.bar .fill').style.width = pct.toFixed(2) + '%';
+  document.querySelector('.bar .tip').style.left = pct.toFixed(2) + '%';
+  $('countB').textContent = doneList.length + '/' + total;
+
+  const tally = $('tally');
+  [['done', '완료'], ['now', '진행'], ['blocked', '막힘'], ['side', '병행'], ['left', '대기']].forEach(([k, t]) => {
+    const c = byState(k).length;
+    if (!c) return;
+    const s = el('span');
+    const dot = el('i');
+    dot.style.background = 'var(--' + k + ')';
+    s.appendChild(dot);
+    s.appendChild(document.createTextNode(t + ' ' + c));
+    tally.appendChild(s);
+  });
+
+  // ---- 막힌 작업 ----
+  const blockedWrap = $('blocked');
+  if (blockedList.length) {
+    const h = el('h2', 'blocked');
+    h.appendChild(el('span', 'ic', '⚠'));
+    h.appendChild(document.createTextNode('막힌 작업'));
+    blockedWrap.appendChild(h);
+    blockedList.forEach(it => blockedWrap.appendChild(cardEl(it, it.state)));
+  }
+
+  // ---- 흐름도 ----
+  const COLW = 150, LANEH = 150, PADX = 75, NODE_R = 26;
+  const canvasEl = $('canvas');
+  const pos = {};
+
+  if (laneCount > 1) {
+    lanes.slice(0, laneCount).forEach((name, i) => {
+      const band = el('div', 'lane-band');
+      band.style.top = (i * LANEH + 4) + 'px';
+      band.style.height = (LANEH - 8) + 'px';
+      band.appendChild(el('span', 'lane-label', name));
+      canvasEl.appendChild(band);
+    });
+  }
+
+  const cols = items.reduce((m, i) => Math.max(m, i.col), 0) + 1;
+  const W = PADX * 2 + (cols - 1) * COLW;
+  const H = laneCount * LANEH;
+  canvasEl.style.width = W + 'px';
+  canvasEl.style.height = H + 'px';
+  items.forEach(it => { pos[it.id] = { x: PADX + it.col * COLW, y: it.lane * LANEH + 62 }; });
+
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('class', 'edges');
+  svg.setAttribute('width', W);
+  svg.setAttribute('height', H);
+  edges.forEach(pair => {
+    const p = pos[pair[0]], q = pos[pair[1]];
+    if (!p || !q) return;
+    const x1 = p.x + NODE_R + 4, x2 = q.x - NODE_R - 4, y1 = p.y, y2 = q.y;
+    const mx = (x1 + x2) / 2;
+    const d = y1 === y2 ? `M${x1} ${y1} L${x2} ${y2}` : `M${x1} ${y1} C${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
+    const from = items.find(i => i.id === pair[0]).state;
+    const to = items.find(i => i.id === pair[1]).state;
+    const cls = (from === 'blocked' || to === 'blocked') ? 'blocked'
+      : (from === 'done' && to === 'done') ? 'done'
+      : (from === 'done' && to === 'now') ? 'active'
+      : (from === 'side' || to === 'side') ? 'side' : '';
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('class', 'edge ' + cls);
+    svg.appendChild(path);
+  });
+  canvasEl.appendChild(svg);
+
+  items.forEach(it => {
+    const node = el('div', 'fnode ' + it.state);
+    node.dataset.id = it.id;
+    node.style.left = pos[it.id].x + 'px';
+    node.style.top = pos[it.id].y + 'px';
+    node.style.width = (COLW - 16) + 'px';
+    node.appendChild(el('div', 'node', NODE_ICON[it.state] || '○'));
+    node.appendChild(el('div', 'label', it.label));
+    node.appendChild(el('div', 'sub', it.sub || ''));
+    canvasEl.appendChild(node);
+  });
+
+  // ---- 카드 ----
+  const cards = $('cards');
+  function section(headCls, glyph, title, list, cardCls) {
+    const h = el('h2', headCls);
+    h.appendChild(el('span', 'ic', glyph));
+    h.appendChild(document.createTextNode(title));
+    cards.appendChild(h);
+    list.forEach(it => cards.appendChild(cardEl(it, cardCls(it))));
+  }
+  if (nowList.length) section('now', '▶', '진행 중인 작업', nowList, () => 'now');
+  if (doneList.length) section('done', '✓', '완료된 작업', doneList, () => 'done');
+  const rest = sideList.concat(leftList);
+  if (rest.length) section('left', '○', '남은 작업', rest, it => it.state === 'side' ? 'left side' : 'left');
+  if (Array.isArray(data.changes) && data.changes.length) {
+    const h = el('h2', 'left');
+    h.appendChild(el('span', 'ic', 'Δ'));
+    h.appendChild(document.createTextNode('바뀐 판단'));
+    cards.appendChild(h);
+    data.changes.forEach(c => {
+      const card = el('div', 'card');
+      if (c.title) card.appendChild(el('h3', null, c.title));
+      if (c.body) card.appendChild(el('p', null, c.body));
+      cards.appendChild(card);
+    });
+  }
+
+  const footer = $('footer');
+  if (data.footer) footer.textContent = data.footer;
+  else footer.hidden = true;
+
+  function cardEl(it, cls) {
+    const card = el('div', cls ? 'card ' + cls : 'card');
+    const h3 = el('h3');
+    h3.appendChild(document.createTextNode(it.title || it.label || ''));
+    if (it.badge) h3.appendChild(el('span', it.state === 'side' ? 'badge side' : 'badge', it.badge));
+    card.appendChild(h3);
+    if (it.body) card.appendChild(el('p', null, it.body));
+    if (Array.isArray(it.substeps) && it.substeps.length) card.appendChild(substepsEl(it.substeps));
+    if ((Array.isArray(it.stats) && it.stats.length) || (Array.isArray(it.compare) && it.compare.length)) card.appendChild(vizEl(it));
+    if (Array.isArray(it.evidence) && it.evidence.length) card.appendChild(evEl(it.evidence));
+    return card;
+  }
+
+  function substepsEl(subs) {
+    const wrap = el('div', 'substeps');
+    subs.forEach((s, i) => {
+      const st = s.state || 'left';
+      const step = el('div', ANIM_KEY[st] || 'sub-s');
+      const ic = el('i');
+      ic.textContent = ANIM_GLYPH[st] || String(i + 1);
+      step.appendChild(ic);
+      step.appendChild(document.createTextNode(s.label == null ? '' : String(s.label)));
+      wrap.appendChild(step);
+      if (i < subs.length - 1) {
+        const nx = subs[i + 1].state || 'left';
+        const lc = (st === 'done' && nx === 'done') ? 'sub-line ok'
+          : (st === 'done' && nx === 'now') ? 'sub-line run' : 'sub-line';
+        wrap.appendChild(el('div', lc));
+      }
+    });
+    return wrap;
+  }
+
+  function vizEl(it) {
+    const viz = el('div', 'viz');
+    (it.stats || []).forEach(st => viz.appendChild(statEl(st)));
+    (it.compare || []).forEach(c => viz.appendChild(compareEl(c)));
+    return viz;
+  }
+
+  function statEl(st) {
+    const wrap = el('div', 'stat');
+    const value = st.value == null ? '' : String(st.value);
+    if (st.kind === 'ring') {
+      const totalN = Number(st.total) || 0;
+      const ratio = totalN > 0 ? Math.min(1, Math.max(0, (Number(st.value) || 0) / totalN)) : 0;
+      const off = (113.1 * (1 - ratio)).toFixed(1);
+      const ring = document.createElementNS(NS, 'svg');
+      ring.setAttribute('class', 'ring');
+      ring.setAttribute('viewBox', '0 0 46 46');
+      ['bg', 'fg'].forEach(k => {
+        const c = document.createElementNS(NS, 'circle');
+        c.setAttribute('class', k);
+        c.setAttribute('cx', '23'); c.setAttribute('cy', '23'); c.setAttribute('r', '18');
+        if (k === 'fg') c.style.setProperty('--off', off);
+        ring.appendChild(c);
+      });
+      wrap.appendChild(ring);
+    } else if (st.icon) {
+      const big = el('div', 'big-ic');
+      big.appendChild(iconEl(st.icon));
+      wrap.appendChild(big);
+    }
+    const t = el('div', 't');
+    t.appendChild(el('b', null, st.kind === 'ring' ? value + ' / ' + (st.total == null ? '' : st.total) : value));
+    t.appendChild(document.createTextNode(st.label == null ? '' : String(st.label)));
+    wrap.appendChild(t);
+    return wrap;
+  }
+
+  function compareEl(c) {
+    const wrap = el('div', 'compare');
+    if (c.caption) wrap.appendChild(el('div', 'cap', c.caption));
+    (c.rows || []).forEach(r => {
+      const row = el('div', 'cmp-row' + (r.tone ? ' ' + r.tone : ''));
+      row.appendChild(el('span', null, r.label == null ? '' : String(r.label)));
+      const track = el('div', 'track');
+      const val = el('div', 'val');
+      val.style.setProperty('--w', Math.min(100, Math.max(0, Number(r.value) || 0)) + '%');
+      track.appendChild(val);
+      row.appendChild(track);
+      row.appendChild(el('span', 'num', (r.value == null ? '' : String(r.value)) + '%'));
+      wrap.appendChild(row);
+    });
+    return wrap;
+  }
+
+  function evEl(list) {
+    const wrap = el('div', 'ev');
+    list.forEach(ev => {
+      const s = el('span', ev.mono ? 'mono' : null);
+      if (ev.icon) s.appendChild(iconEl(ev.icon, 'ic-sm'));
+      s.appendChild(document.createTextNode(ev.text == null ? '' : String(ev.text)));
+      wrap.appendChild(ev.href ? linkEl(ev.href, s) : s);
+    });
+    return wrap;
+  }
+
+  // ---- 완료 효과 ----
+  function sparkleOn(node) {
+    const fr = canvasEl.getBoundingClientRect(), r = node.getBoundingClientRect();
+    const sp = el('span', 'spark');
+    const size = 8 + Math.random() * 10;
+    sp.style.width = sp.style.height = size + 'px';
+    sp.style.left = (r.left - fr.left + Math.random() * r.width - size / 2) + 'px';
+    sp.style.top = (r.top - fr.top + Math.random() * r.height - size / 2) + 'px';
+    canvasEl.appendChild(sp);
+    sp.addEventListener('animationend', () => sp.remove());
+  }
+
+  function burstAt(node) {
+    const fr = canvasEl.getBoundingClientRect(), r = node.getBoundingClientRect();
+    const cx = r.left - fr.left + r.width / 2, cy = r.top - fr.top + r.height / 2;
+    const colors = ['#34d399', '#a7f3d0', '#fbbf24', '#fff', '#c4b5fd'];
+    for (let i = 0; i < 28; i++) {
+      const p = el('span', 'burst');
+      const a = (Math.PI * 2 * i) / 28 + Math.random() * .3;
+      const dist = 40 + Math.random() * 60;
+      p.style.left = (cx - 4) + 'px';
+      p.style.top = (cy - 4) + 'px';
+      p.style.background = colors[i % colors.length];
+      p.style.setProperty('--dx', Math.cos(a) * dist + 'px');
+      p.style.setProperty('--dy', Math.sin(a) * dist + 'px');
+      canvasEl.appendChild(p);
+      p.addEventListener('animationend', () => p.remove());
+    }
+    for (let i = 0; i < 8; i++) setTimeout(() => sparkleOn(node), i * 60);
+  }
+
+  // ---- 새로고침 대응 ----
+  const saved = store.get(KEY + ':states');
+  if (saved) body.classList.add('no-entrance');
+
+  const scrollLeft = store.get(KEY + ':scroll');
+  const flow = $('flow');
+  if (typeof scrollLeft === 'number') flow.scrollLeft = scrollLeft;
+  let scrollTimer = null;
+  flow.addEventListener('scroll', () => {
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(() => store.set(KEY + ':scroll', flow.scrollLeft), 200);
+  });
+
+  if (saved && !reduce) {
+    items.filter(it => it.state === 'done' && saved[it.id] !== 'done').forEach(it => {
+      const node = canvasEl.querySelector('.fnode[data-id="' + it.id + '"] > .node');
+      if (node) burstAt(node);
+    });
+  }
+
+  const states = Object.assign({}, saved || {});
+  items.forEach(it => { states[it.id] = it.state; });
+  store.set(KEY + ':states', states);
+})();
+</script>
+</body>
+</html>

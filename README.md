@@ -1,0 +1,106 @@
+<h1 align="center"><img src="docs/logo.png" alt="deadhd" width="420"></h1>
+
+<p align="center"><b>dead + ADHD</b><br>ADHD를 무찌르기 위한 Claude Code 진행 상황 스킬</p>
+
+<p align="center"><i>A Claude Code skill that shows a live checklist page of what each session has done, is doing now, and has left.</i></p>
+
+Claude Code 세션을 여러 개 띄워 놓고 일하다 보면, 다른 세션을 보고 돌아왔을 때 이 세션이 어디까지 진행했는지 놓치기 쉽습니다. deadhd 는 세션의 진행 상황을 체크리스트 페이지로 띄워 두고, 터미널 로그를 거슬러 올라가지 않아도 한눈에 확인할 수 있게 해 주는 스킬입니다. 이름은 dead 와 ADHD 를 겹쳐 만들었습니다.
+
+![터미널 옆 인앱 브라우저에 진행 페이지를 띄운 화면](docs/hero.png)
+
+## 사용 장면
+
+[Orca](https://onorca.dev) 처럼 인앱 브라우저를 갖춘 터미널 앱에서 Claude Code 를 쓰면서, 진행 상황 페이지를 터미널 옆 패널에 띄워 두는 용도로 만들었습니다. 작업 중인 세션에서 `/deadhd` 를 입력하면 완료한 단계, 진행 중인 단계, 남은 단계를 흐름도와 카드로 정리한 페이지가 열리고, 작업이 진행되는 동안 페이지가 계속 갱신됩니다. 긴 작업을 맡겨 두고 자리를 비웠다가 돌아와도 터미널 로그를 거슬러 올라가지 않고 페이지 한 장으로 진행 상황을 확인할 수 있습니다.
+
+Orca 안에서 실행하면 기본 설정(`auto`)으로 터미널 옆 탭에 바로 열립니다. Orca 를 쓰지 않는 환경에서는 시스템 브라우저나 Claude 데스크톱 앱의 인앱 브라우저로 열 수 있습니다. 열기 위치는 [설정](#설정)에서 고릅니다.
+
+## 테마
+
+| 다크 테마 | 라이트 테마 |
+|---|---|
+| ![deadhd 다크 테마 예시](docs/screenshot-dark.png) | ![deadhd 라이트 테마 예시](docs/screenshot-light.png) |
+
+## 동작 방식
+
+- 완료 표시는 세션의 실행 결과로 확인된 단계에만 붙습니다. 테스트 통과, 파일 작성, PR 머지처럼 결과가 남은 단계만 `done` 으로 분류하고, 시도했지만 검증하지 못한 단계는 `now` 또는 `blocked` 로 표시합니다.
+- 각 단계에는 근거가 되는 파일 경로, PR, 커밋, 테스트 통과 건수가 함께 표시됩니다.
+- 페이지 디자인은 `template.html` 에 고정되어 있고, 모델은 JSON 데이터만 작성합니다. `render.py` 가 데이터를 검증한 뒤 HTML 을 생성합니다.
+- 열어 둔 탭은 15초마다 새로 고쳐지고, 새로 완료된 단계에는 완료 효과가 재생됩니다.
+
+## 요구 사항
+
+- [Claude Code](https://code.claude.com)
+- `python3` (표준 라이브러리만 사용)
+
+## 설치
+
+### 플러그인으로 설치
+
+Claude Code 에서 다음 명령을 실행합니다.
+
+```
+/plugin marketplace add lcalmsky/deadhd
+/plugin install deadhd@deadhd
+```
+
+플러그인으로 설치하면 호출 이름은 `/deadhd:deadhd` 입니다.
+
+### Orca 에서 설치
+
+[Orca](https://onorca.dev) 를 사용한다면 [공유 링크](https://share.onorca.dev/skills/share/shr_64855ceea482706ce6f4104fd636a01bd04a659d1a7409ae) 를 열고 `Open in Orca` 를 누릅니다. Orca 에서 포함된 파일을 확인한 뒤 설치 위치를 고를 수 있습니다. 설치하면 호출 이름은 `/deadhd` 입니다.
+
+### 스킬 폴더로 설치
+
+```bash
+git clone https://github.com/lcalmsky/deadhd.git
+cp -r deadhd/skills/deadhd ~/.claude/skills/
+```
+
+이 방식으로 설치하면 호출 이름은 `/deadhd` 입니다.
+
+## 사용법
+
+| 입력 | 동작 |
+|---|---|
+| `/deadhd` | 진행 상황 페이지를 브라우저 탭으로 엽니다 (`-h` 와 같음) |
+| `/deadhd -c` | Claude 아티팩트로 게시합니다 |
+| `/deadhd setup` | 기본 열기 위치를 다시 고릅니다 |
+| `/deadhd --open <모드>` | 이번 실행만 다른 위치로 엽니다 |
+| `/deadhd --theme <테마>` | 이번 실행만 다른 테마로 렌더합니다 |
+| `/deadhd off` | 페이지 갱신을 중지합니다 |
+
+명령 대신 "진행 상황 띄워줘", "체크리스트로 보여줘" 처럼 요청해도 됩니다.
+
+## 설정
+
+처음 실행할 때 열기 위치와 테마를 한 번 묻습니다. 고른 값은 다음 실행부터 그대로 쓰입니다.
+
+| 값 | 동작 |
+|---|---|
+| `auto` | Orca 안에서 실행 중이면 Orca 탭으로, 아니면 시스템 브라우저로 엽니다 |
+| `orca` | `orca` 명령이 있으면 Orca 탭으로 엽니다 |
+| `browser` | Orca 를 건너뛰고 시스템 브라우저로 엽니다 |
+| `desktop` | 페이지를 열지 않고 경로만 출력합니다. Claude 데스크톱 앱에서 그 경로를 누르면 인앱 브라우저 패널로 열립니다 |
+
+테마는 다음 값을 씁니다.
+
+| 값 | 동작 |
+|---|---|
+| `system` | 운영체제의 라이트/다크 설정을 따릅니다 (권장) |
+| `light` | 항상 라이트 테마로 표시합니다 |
+| `dark` | 항상 다크 테마로 표시합니다 |
+
+설정 파일은 `~/.config/deadhd/config.json` 이고 `XDG_CONFIG_HOME` 을 지정하면 그 아래에 만들어집니다. `/deadhd setup` 으로 언제든 열기 위치와 테마를 다시 고를 수 있습니다.
+
+긴 작업을 시작한 뒤 한 번 호출하면, 이후 단계의 상태가 바뀔 때마다 Claude 가 데이터를 갱신합니다. 데이터 형식의 전체 예시는 [`skills/deadhd/example.json`](skills/deadhd/example.json) 에 있습니다.
+
+## 테스트
+
+```bash
+cd skills/deadhd
+python3 -m pytest -q test_render.py
+```
+
+## 라이선스
+
+[MIT](LICENSE)

@@ -1,0 +1,217 @@
+{
+  "key": "FEED-2048",
+  "keyHref": "https://example.atlassian.net/browse/FEED-2048",
+  "title": "실시간 추천 피드 v2 출시와 카나리 배포",
+  "goal": "추천 피드 v2 를 카나리 5% 로 배포해 지연과 이탈 지표를 확인한 뒤 전체 출시 여부를 판정한다. 랭킹 서비스와 클라이언트 캐시 계층을 함께 올려 응답 지연과 재진입 체감 속도를 비교한다.",
+  "doneWhen": "추천 API v2 와 피드 UI 가 카나리 5% 에서 지표 기준을 통과하고 출시 판정이 기록된다.",
+  "updated": "2026-10-01 17:30 KST",
+  "meta": ["feed-recsys-v2", "prod canary 5%", "client 4.12.0"],
+  "lanes": ["백엔드", "클라이언트", "인프라·검증"],
+  "items": [
+    {
+      "id": "plan",
+      "lane": 0,
+      "col": 0,
+      "label": "계획·승인",
+      "sub": "완료",
+      "state": "done",
+      "title": "출시 범위 확정과 승인",
+      "body": "대상은 prod 카나리 5% 이고, 종료 조건은 추천 API v2 와 피드 UI 배포 후 지표 확인이다. 설계 검토 1회와 코드 검토 2회를 거쳐 승인되었다.",
+      "evidence": [
+        {"icon": "file", "text": "feed-v2-plan.md", "mono": true},
+        {"text": "prod 카나리 5% 허용"},
+        {"text": "전체 출시는 지표 확인 이후 별도 작업"}
+      ]
+    },
+    {
+      "id": "rank",
+      "lane": 0,
+      "col": 1,
+      "label": "랭킹 서비스",
+      "sub": "완료",
+      "state": "done",
+      "title": "랭킹 서비스 v2 의 staging 배포와 검증",
+      "body": "후보 생성과 재정렬 단계를 분리해 구현했고, 기존 경로와 병행 실행해 결과를 로그로 기록했다. staging 실호출 18회가 모두 지연 기준 안에 들어왔다.",
+      "stats": [
+        {"kind": "ring", "value": 18, "total": 18, "label": "실호출 통과"},
+        {"kind": "number", "icon": "test", "value": "3,204", "label": "테스트 통과"},
+        {"kind": "number", "icon": "deploy", "value": "10.01-4", "label": "staging 배포 버전"}
+      ],
+      "evidence": [
+        {"icon": "pr", "text": "feed-api#2210", "mono": true, "href": "https://github.com/example/feed-api/pull/2210"},
+        {"icon": "commit", "text": "4f1c9ab7d2", "mono": true, "href": "https://github.com/example/feed-api/commit/4f1c9ab7d2"}
+      ]
+    },
+    {
+      "id": "store",
+      "lane": 0,
+      "col": 2,
+      "label": "피처 스토어",
+      "sub": "완료",
+      "state": "done",
+      "title": "피처 스토어 연동과 캐시 워밍",
+      "body": "사용자 임베딩과 상호작용 피처를 피처 스토어에서 읽도록 바꿨고, 배포 시점에 상위 사용자 캐시를 미리 채운다. 캐시 적중률 96.4% 를 기록했다.",
+      "evidence": [
+        {"icon": "ticket", "text": "FEED-2051", "mono": true, "href": "https://example.atlassian.net/browse/FEED-2051"},
+        {"icon": "commit", "text": "c17d40e9a8", "mono": true, "href": "https://github.com/example/feed-api/commit/c17d40e9a8"},
+        {"icon": "check", "text": "cache-hit 96.4%"}
+      ]
+    },
+    {
+      "id": "api",
+      "lane": 0,
+      "col": 3,
+      "label": "추천 API v2 검증",
+      "sub": "지적 반영 중",
+      "state": "now",
+      "title": "추천 API v2 의 배포 전 검증",
+      "body": "지연 예산 검증과 보안 리뷰를 통과했고, 캐시 만료 처리와 폴백 경로에 대한 지적을 반영하고 있다. 반영이 끝나면 카나리 배포를 시작한다.",
+      "substeps": [
+        {"label": "지연 예산 검증", "state": "done"},
+        {"label": "보안 리뷰", "state": "done"},
+        {"label": "캐시·폴백 지적 반영", "state": "now"},
+        {"label": "카나리 배포", "state": "left"},
+        {"label": "지표 확인", "state": "left"}
+      ],
+      "evidence": [
+        {"icon": "commit", "text": "feat/FEED-2048 8b27e0f31c", "mono": true, "href": "https://github.com/example/feed-api/commit/8b27e0f31c"},
+        {"icon": "test", "text": "만료·폴백 회귀 테스트 46건 통과"}
+      ]
+    },
+    {
+      "id": "rollout",
+      "lane": 0,
+      "col": 4,
+      "label": "카나리 5% 배포",
+      "sub": "대기",
+      "state": "left",
+      "title": "카나리 5% 배포와 지표 관찰",
+      "body": "추천 API v2 와 피드 UI 를 카나리 5% 에 배포하고 24시간 동안 지연과 이탈 지표를 관찰한다. 기준을 벗어나면 즉시 이전 버전으로 복귀한다."
+    },
+    {
+      "id": "decision",
+      "lane": 0,
+      "col": 5,
+      "label": "출시 판정",
+      "sub": "대기",
+      "state": "left",
+      "title": "전체 출시 판정",
+      "body": "카나리 지표와 클라이언트 배포 상태를 대조해 전체 출시 여부를 판정한다.",
+      "evidence": [
+        {"icon": "file", "text": "release-criteria.md", "mono": true}
+      ]
+    },
+    {
+      "id": "ui",
+      "lane": 1,
+      "col": 2,
+      "label": "피드 UI 개편",
+      "sub": "완료",
+      "state": "done",
+      "title": "피드 UI 개편과 이벤트 수집",
+      "body": "추천 이유 표시와 무한 스크롤을 새 응답 형식에 맞춰 구현했고, 노출·클릭 이벤트를 수집 경로에 연결했다.",
+      "stats": [
+        {"kind": "number", "icon": "test", "value": "1,187", "label": "클라이언트 테스트"},
+        {"kind": "number", "icon": "deploy", "value": "4.12.0-rc1", "label": "빌드 버전"}
+      ],
+      "evidence": [
+        {"icon": "pr", "text": "feed-client#870", "mono": true, "href": "https://github.com/example/feed-client/pull/870"},
+        {"icon": "commit", "text": "2ae6f1d904", "mono": true, "href": "https://github.com/example/feed-client/commit/2ae6f1d904"}
+      ]
+    },
+    {
+      "id": "cache",
+      "lane": 1,
+      "col": 3,
+      "label": "캐시 계층 도입",
+      "sub": "설계 검토",
+      "state": "side",
+      "title": "클라이언트 캐시 계층 도입",
+      "body": "피드 응답을 로컬에 저장해 재진입 시 즉시 그리는 방식을 검토했고, 만료 정책 두 안을 비교해 채택안을 정했다.",
+      "badge": "병행 · 설계 검토",
+      "compare": [
+        {
+          "caption": "재진입 체감 지연 · 3안 × 200회",
+          "rows": [
+            {"label": "로컬 캐시 (B)", "value": 92, "tone": "win"},
+            {"label": "메모리 캐시", "value": 64, "tone": "lose"}
+          ]
+        },
+        {
+          "caption": "만료 전 노출된 이전 추천 비율",
+          "rows": [
+            {"label": "위험 구간", "value": 7.8, "tone": "risk"}
+          ]
+        }
+      ],
+      "evidence": [
+        {"icon": "file", "text": "cache-policy.md", "mono": true},
+        {"text": "만료 정책 2안 비교 완료"}
+      ]
+    },
+    {
+      "id": "ship",
+      "lane": 1,
+      "col": 4,
+      "label": "앱 배포",
+      "sub": "차단",
+      "state": "blocked",
+      "title": "클라이언트 앱 배포 보류",
+      "body": "스토어 심사에서 추천 이유 문구의 근거 표시 요건이 지적되어 앱 배포가 보류되었다. 문구를 조정한 빌드를 다시 제출해야 한다.",
+      "substeps": [
+        {"label": "빌드 제출", "state": "done"},
+        {"label": "심사 지적 수신", "state": "blocked"},
+        {"label": "문구 조정", "state": "left"},
+        {"label": "재제출", "state": "left"}
+      ],
+      "evidence": [
+        {"icon": "ticket", "text": "FEED-2063", "mono": true, "href": "https://example.atlassian.net/browse/FEED-2063"},
+        {"icon": "file", "text": "review-reply.md", "mono": true}
+      ]
+    },
+    {
+      "id": "harness",
+      "lane": 2,
+      "col": 2,
+      "label": "부하 측정 하네스",
+      "sub": "완료",
+      "state": "done",
+      "title": "부하 측정 하네스 구성",
+      "body": "카나리 지표를 같은 조건에서 비교할 수 있게 부하 측정 하네스를 구성했고, 기준선 트래픽에서 p95 지연과 오류율을 수집한다.",
+      "evidence": [
+        {"icon": "file", "text": "load-harness.yaml", "mono": true},
+        {"icon": "check", "text": "기준선 측정 3회 통과"}
+      ]
+    },
+    {
+      "id": "canary",
+      "lane": 2,
+      "col": 3,
+      "label": "카나리 파이프라인",
+      "sub": "구성 중",
+      "state": "side",
+      "title": "카나리 파이프라인 구성",
+      "body": "트래픽 5% 를 새 버전으로 보내고 지표를 자동으로 비교하는 파이프라인을 구성한다. 기준을 벗어난 지표가 검출되면 이전 버전으로 자동 복귀한다.",
+      "badge": "병행 · 구성",
+      "evidence": [
+        {"icon": "pr", "text": "infra#455", "mono": true, "href": "https://github.com/example/infra/pull/455"},
+        {"icon": "file", "text": "canary-values.yaml", "mono": true}
+      ]
+    }
+  ],
+  "edges": [
+    ["plan", "rank"], ["rank", "store"], ["store", "api"], ["api", "rollout"], ["rollout", "decision"],
+    ["rank", "ui"], ["rank", "harness"], ["ui", "cache"], ["cache", "ship"],
+    ["cache", "rollout"], ["harness", "canary"], ["canary", "rollout"]
+  ],
+  "changes": [
+    {
+      "title": "재진입 캐시를 로컬 캐시(B)로 확정",
+      "body": "3안 × 200회 비교에서 로컬 캐시가 92% 로 메모리 캐시(64%)보다 높아, 채택안을 로컬 캐시로 바꿨다."
+    },
+    {
+      "title": "앱 배포를 카나리 지표 확인 이후로 이동",
+      "body": "스토어 심사 지적이 남아 있어, 클라이언트 배포를 카나리 지표 확인 뒤로 미뤘다."
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "deadhd",
+  "version": "1.0.0",
+  "description": "Show a live checklist page of what the current Claude Code session has done, is doing now, and has left.",
+  "author": {
+    "name": "lcalmsky",
+    "url": "https://github.com/lcalmsky"
+  },
+  "homepage": "https://github.com/lcalmsky/deadhd",
+  "repository": "https://github.com/lcalmsky/deadhd",
+  "license": "MIT",
+  "keywords": ["progress", "checklist", "status", "html", "claude-code"]
+}
