@@ -1,5 +1,6 @@
 {
   "name": "deadhd",
+  "description": "deadhd: a Claude Code skill that shows a live checklist page of each session's progress.",
   "owner": {
     "name": "lcalmsky",
     "url": "https://github.com/lcalmsky"
