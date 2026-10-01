@@ -16,9 +16,9 @@ Orca 안에서 실행하면 기본 설정(`auto`)으로 터미널 옆 탭에 바
 
 ## 테마
 
-| 다크 테마 | 라이트 테마 |
-|---|---|
-| ![deadhd 다크 테마 예시](docs/screenshot-dark.png) | ![deadhd 라이트 테마 예시](docs/screenshot-light.png) |
+같은 진행 상황을 여러 테마로 렌더한 화면입니다. `/deadhd setup` 에서 기본 테마를 고르거나, `/deadhd --theme <테마>` 로 이번 실행만 바꿀 수 있습니다.
+
+![deadhd 테마 갤러리](docs/themes.png)
 
 ## 동작 방식
 
@@ -58,6 +58,14 @@ cp -r deadhd/skills/deadhd ~/.claude/skills/
 
 이 방식으로 설치하면 호출 이름은 `/deadhd` 입니다.
 
+## 업데이트
+
+| 설치 방식 | 업데이트 방법 |
+|---|---|
+| 플러그인 | 서드파티 마켓플레이스는 자동 업데이트가 기본으로 꺼져 있습니다. `/plugin` 에서 deadhd 를 골라 **Update now** 를 누르거나 `claude plugin update deadhd@deadhd` 를 실행합니다. `/plugin` 의 Marketplaces 탭에서 deadhd 마켓플레이스의 **Enable auto-update** 를 켜 두면 새 버전이 자동으로 설치됩니다. 업데이트 뒤에는 `/reload-plugins` 를 실행하거나 새 세션을 시작합니다 |
+| Orca | 공유 링크를 다시 열어 설치합니다 |
+| 스킬 폴더 | 클론한 저장소에서 `git pull` 한 뒤 `skills/deadhd` 를 다시 복사합니다 |
+
 ## 사용법
 
 | 입력 | 동작 |
@@ -88,7 +96,13 @@ cp -r deadhd/skills/deadhd ~/.claude/skills/
 |---|---|
 | `system` | 운영체제의 라이트/다크 설정을 따릅니다 (권장) |
 | `light` | 항상 라이트 테마로 표시합니다 |
-| `dark` | 항상 다크 테마로 표시합니다 |
+| `dark` | 항상 다크 테마(오로라)로 표시합니다 |
+| `neon` | 사이버펑크 네온: 검보라 배경에 시안·마젠타·형광 노랑 |
+| `synthwave` | 신스웨이브 선셋: 진보라 위 핑크·오렌지 레트로 노을 |
+| `matrix` | 매트릭스 터미널: 검정 위 초록 단색, 모든 글자 고정폭 |
+| `nord` | 노르드 아크틱: 오래 띄워 둬도 눈이 덜 피곤한 차분한 톤 |
+| `paper` | 페이퍼 노트북: 따뜻한 종이 질감의 라이트 테마, 명조 제목 |
+| `sakura` | 사쿠라: 벚꽃 분홍 라이트 테마, 손글씨 제목 |
 
 설정 파일은 `~/.config/deadhd/config.json` 이고 `XDG_CONFIG_HOME` 을 지정하면 그 아래에 만들어집니다. `/deadhd setup` 으로 언제든 열기 위치와 테마를 다시 고를 수 있습니다.
 
