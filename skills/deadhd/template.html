@@ -7,7 +7,7 @@
 <title>__PROGRESS_TITLE__</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Do+Hyeon&family=Gaegu:wght@700&family=Gowun+Batang:wght@400;700&family=Gowun+Dodum&display=swap" rel="stylesheet">
 <style>
 @property --angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
 
@@ -33,6 +33,13 @@
   --glow-a: rgba(16,185,129,.18);
   --glow-b: rgba(139,92,246,.14);
   --glow-c: rgba(245,158,11,.12);
+  --done-deep: #059669;
+  --now-deep: #f97316;
+  --now-hi: #fde68a;
+  --side-hi: #c4b5fd;
+  --blocked-deep: #dc2626;
+  --tip: #d1fae5;
+  --count-end: #059669;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -50,6 +57,7 @@
     --glow-a: rgba(16,185,129,.22);
     --glow-b: rgba(139,92,246,.20);
     --glow-c: rgba(245,158,11,.14);
+    --count-end: #a7f3d0;
   }
 }
 :root[data-theme="dark"] {
@@ -57,7 +65,91 @@
   --ink: #f3f4f8; --ink-2: #b4b9cc; --ink-3: #6f7590; --left: #4b5068; --track: rgba(255,255,255,.07);
   --scroll: rgba(255,255,255,.16); --scroll-hover: rgba(255,255,255,.3);
   --glow-a: rgba(16,185,129,.22); --glow-b: rgba(139,92,246,.20); --glow-c: rgba(245,158,11,.14);
+  --count-end: #a7f3d0;
 }
+:root[data-theme="neon"] {
+  --bg: #07000f; --bg-2: #120424; --card: rgba(28,8,52,.72); --card-line: rgba(255,43,214,.18);
+  --ink: #f5f0ff; --ink-2: #c9b8ee; --ink-3: #7d6aa8;
+  --done: #00e5ff; --done-2: #7af4ff; --done-deep: #0097b2;
+  --now: #ff2bd6; --now-2: #ff7ae6; --now-deep: #c4009f; --now-hi: #ff7ae6;
+  --side: #e8ff00; --side-hi: #c9b8ee; --left: #4a3a6a;
+  --blocked: #ff3b5c; --blocked-2: #ff7a8e; --blocked-deep: #d10032;
+  --track: color-mix(in srgb, var(--ink) 9%, transparent);
+  --scroll: color-mix(in srgb, var(--ink) 22%, transparent);
+  --scroll-hover: color-mix(in srgb, var(--ink) 38%, transparent);
+  --glow-a: rgba(0,229,255,.22); --glow-b: rgba(255,43,214,.22); --glow-c: rgba(232,255,0,.10);
+  --tip: #7af4ff; --count-end: #7af4ff;
+}
+:root[data-theme="synthwave"] {
+  --bg: #1a0b2e; --bg-2: #241040; --card: rgba(46,20,78,.7); --card-line: rgba(255,110,199,.16);
+  --ink: #fff1fb; --ink-2: #e3b8dd; --ink-3: #9a74a8;
+  --done: #2de2e6; --done-2: #8ff3f5; --done-deep: #139ea2;
+  --now: #ff9f1c; --now-2: #ffc36b; --now-deep: #e8590c; --now-hi: #ffc36b;
+  --side: #ff6ec7; --side-hi: #e3b8dd; --left: #5b3f7a;
+  --blocked: #ff1f5a; --blocked-2: #ff6b91; --blocked-deep: #c2003c;
+  --track: color-mix(in srgb, var(--ink) 9%, transparent);
+  --scroll: color-mix(in srgb, var(--ink) 22%, transparent);
+  --scroll-hover: color-mix(in srgb, var(--ink) 38%, transparent);
+  --glow-a: rgba(255,110,199,.26); --glow-b: rgba(255,159,28,.20); --glow-c: rgba(45,226,230,.14);
+  --tip: #8ff3f5; --count-end: #8ff3f5;
+}
+:root[data-theme="matrix"] {
+  --bg: #000000; --bg-2: #020a03; --card: rgba(0,20,6,.78); --card-line: rgba(0,255,65,.16);
+  --ink: #c8ffd0; --ink-2: #6fdc84; --ink-3: #2f7a3f;
+  --done: #00ff41; --done-2: #7dff9b; --done-deep: #00a82b;
+  --now: #d4ff00; --now-2: #ecff7a; --now-deep: #9ab800; --now-hi: #ecff7a;
+  --side: #00c8ff; --side-hi: #6fdc84; --left: #1f4a29;
+  --blocked: #ff3030; --blocked-2: #ff7a7a; --blocked-deep: #b80000;
+  --track: color-mix(in srgb, var(--ink) 9%, transparent);
+  --scroll: color-mix(in srgb, var(--ink) 22%, transparent);
+  --scroll-hover: color-mix(in srgb, var(--ink) 38%, transparent);
+  --glow-a: rgba(0,255,65,.16); --glow-b: rgba(0,255,65,.08); --glow-c: rgba(212,255,0,.06);
+  --tip: #7dff9b; --count-end: #7dff9b;
+}
+:root[data-theme="nord"] {
+  --bg: #242933; --bg-2: #2e3440; --card: rgba(59,66,82,.72); --card-line: rgba(216,222,233,.08);
+  --ink: #eceff4; --ink-2: #d8dee9; --ink-3: #8a93a6;
+  --done: #a3be8c; --done-2: #c3d9ae; --done-deep: #7f9a68;
+  --now: #ebcb8b; --now-2: #f3dcae; --now-deep: #d08770; --now-hi: #f3dcae;
+  --side: #b48ead; --side-hi: #d8dee9; --left: #4c566a;
+  --blocked: #bf616a; --blocked-2: #d98d94; --blocked-deep: #a1444d;
+  --track: color-mix(in srgb, var(--ink) 9%, transparent);
+  --scroll: color-mix(in srgb, var(--ink) 22%, transparent);
+  --scroll-hover: color-mix(in srgb, var(--ink) 38%, transparent);
+  --glow-a: rgba(136,192,208,.16); --glow-b: rgba(180,142,173,.14); --glow-c: rgba(235,203,139,.08);
+  --tip: #c3d9ae; --count-end: #c3d9ae;
+}
+:root[data-theme="paper"] {
+  --bg: #fbf6ea; --bg-2: #f3ecdb; --card: rgba(255,252,244,.85); --card-line: rgba(80,60,30,.12);
+  --ink: #2b2520; --ink-2: #5c5247; --ink-3: #9a8f80;
+  --done: #2f855a; --done-2: #48bb78; --done-deep: #22543d;
+  --now: #dd6b20; --now-2: #f6ad55; --now-deep: #c05621; --now-hi: #f6ad55;
+  --side: #6b46c1; --side-hi: #5c5247; --left: #c9bfae;
+  --blocked: #c53030; --blocked-2: #fc8181; --blocked-deep: #9b2c2c;
+  --track: color-mix(in srgb, var(--ink) 9%, transparent);
+  --scroll: color-mix(in srgb, var(--ink) 22%, transparent);
+  --scroll-hover: color-mix(in srgb, var(--ink) 38%, transparent);
+  --glow-a: rgba(246,173,85,.16); --glow-b: rgba(107,70,193,.08); --glow-c: rgba(47,133,90,.10);
+  --tip: #48bb78; --count-end: #22543d;
+}
+:root[data-theme="sakura"] {
+  --bg: #fff5f8; --bg-2: #ffe9f0; --card: rgba(255,255,255,.8); --card-line: rgba(214,51,108,.12);
+  --ink: #3d1f2b; --ink-2: #7a4a5c; --ink-3: #b88a9b;
+  --done: #e64980; --done-2: #f783ac; --done-deep: #c2255c;
+  --now: #f59f00; --now-2: #ffd43b; --now-deep: #e67700; --now-hi: #ffd43b;
+  --side: #7950f2; --side-hi: #7a4a5c; --left: #e2c6d0;
+  --blocked: #d9480f; --blocked-2: #ff8a50; --blocked-deep: #b8380a;
+  --track: color-mix(in srgb, var(--ink) 9%, transparent);
+  --scroll: color-mix(in srgb, var(--ink) 22%, transparent);
+  --scroll-hover: color-mix(in srgb, var(--ink) 38%, transparent);
+  --glow-a: rgba(247,131,172,.22); --glow-b: rgba(121,80,242,.10); --glow-c: rgba(255,212,59,.14);
+  --tip: #f783ac; --count-end: #c2255c;
+}
+[data-theme="neon"] body { --f-head: "Black Han Sans"; }
+[data-theme="synthwave"] body { --f-head: "Do Hyeon"; }
+[data-theme="matrix"] body { --f-body: var(--f-mono); --f-head: var(--f-mono); }
+[data-theme="paper"] body { --f-head: "Gowun Batang"; }
+[data-theme="sakura"] body { --f-head: "Gaegu"; }
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -143,12 +235,12 @@ h1 .key a { color: inherit; text-decoration: none; }
 .bar .fill {
   position: absolute; inset: 0 auto 0 0; width: 0;
   border-radius: inherit;
-  background: linear-gradient(90deg, #059669, var(--done-2));
+  background: linear-gradient(90deg, var(--done-deep), var(--done-2));
   overflow: hidden;
 }
 .bar .tip {
   position: absolute; top: 50%; left: 0; width: 18px; height: 18px; margin: -9px 0 0 -9px;
-  border-radius: 50%; background: #d1fae5;
+  border-radius: 50%; background: var(--tip);
   box-shadow: 0 0 12px 4px color-mix(in srgb, var(--done-2) 70%, transparent);
   opacity: 0;
 }
@@ -159,7 +251,7 @@ h1 .key a { color: inherit; text-decoration: none; }
   letter-spacing: -.03em;
 }
 [data-fx="max"] .count b {
-  background: linear-gradient(135deg, var(--done-2), #a7f3d0);
+  background: linear-gradient(135deg, var(--done-2), var(--count-end));
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 
@@ -208,13 +300,13 @@ h1 .key a { color: inherit; text-decoration: none; }
   z-index: 1;
 }
 .fnode.done .node {
-  background: linear-gradient(135deg, #059669, var(--done-2)); border-color: transparent; color: #fff;
+  background: linear-gradient(135deg, var(--done-deep), var(--done-2)); border-color: transparent; color: #fff;
 }
 [data-fx="max"] .fnode.done .node {
   box-shadow: 0 0 18px color-mix(in srgb, var(--done) 55%, transparent);
 }
 .fnode.now .node {
-  background: linear-gradient(135deg, #f97316, var(--now-2)); border-color: transparent; color: #fff;
+  background: linear-gradient(135deg, var(--now-deep), var(--now-2)); border-color: transparent; color: #fff;
   animation: heartbeat 1.5s ease-in-out infinite;
 }
 .fnode.now .node::before, .fnode.now .node::after {
@@ -233,7 +325,7 @@ h1 .key a { color: inherit; text-decoration: none; }
 @keyframes ripple { from { transform: scale(1); opacity: .9; } to { transform: scale(2); opacity: 0; } }
 .fnode.side .node { border-color: var(--side); color: var(--side); box-shadow: 0 0 12px color-mix(in srgb, var(--side) 35%, transparent); }
 .fnode.blocked .node {
-  background: linear-gradient(135deg, #dc2626, var(--blocked-2)); border-color: transparent; color: #fff;
+  background: linear-gradient(135deg, var(--blocked-deep), var(--blocked-2)); border-color: transparent; color: #fff;
   box-shadow: 0 0 24px 4px color-mix(in srgb, var(--blocked) 45%, transparent);
 }
 
@@ -303,7 +395,7 @@ h2.blocked .ic { background: color-mix(in srgb, var(--blocked) 18%, transparent)
   border: 1.5px solid transparent;
   background:
     linear-gradient(var(--bg-2), var(--bg-2)) padding-box,
-    conic-gradient(from var(--angle), transparent 0 60%, var(--now) 75%, #fde68a 80%, var(--now) 85%, transparent 100%) border-box;
+    conic-gradient(from var(--angle), transparent 0 60%, var(--now) 75%, var(--now-hi) 80%, var(--now) 85%, transparent 100%) border-box;
   box-shadow: 0 0 40px -8px color-mix(in srgb, var(--now) 50%, transparent);
 }
 
@@ -357,12 +449,12 @@ h2.blocked .ic { background: color-mix(in srgb, var(--blocked) 18%, transparent)
 .cmp-row { display: grid; grid-template-columns: 88px 1fr 48px; align-items: center; gap: 10px; font-size: 12.5px; margin: 6px 0; }
 .cmp-row .track { height: 10px; border-radius: 99px; background: var(--track); overflow: hidden; }
 .cmp-row .val { height: 100%; width: 0; border-radius: inherit; animation: grow 1.2s .4s cubic-bezier(.2,.8,.2,1) forwards; }
-.cmp-row.win .val { background: linear-gradient(90deg, var(--side), #c4b5fd); box-shadow: 0 0 12px var(--side); }
+.cmp-row.win .val { background: linear-gradient(90deg, var(--side), var(--side-hi)); box-shadow: 0 0 12px var(--side); }
 .cmp-row.lose .val { background: var(--left); }
-.cmp-row.risk .val { background: linear-gradient(90deg, #f97316, #ef4444); box-shadow: 0 0 12px #ef4444; }
+.cmp-row.risk .val { background: linear-gradient(90deg, var(--now-deep), var(--blocked)); box-shadow: 0 0 12px var(--blocked); }
 .cmp-row .num { font-family: var(--f-mono); text-align: right; color: var(--ink-2); }
 .cmp-row.win .num { color: var(--side); font-weight: 700; }
-.cmp-row.risk .num { color: #f87171; font-weight: 700; }
+.cmp-row.risk .num { color: var(--blocked-2); font-weight: 700; }
 @keyframes grow { to { width: var(--w); } }
 
 /* 처음 볼 때만 입장 애니메이션을 재생한다 (새로고침 시 최종 상태로 바로 그린다) */

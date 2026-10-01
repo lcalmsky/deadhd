@@ -7,7 +7,7 @@ import tempfile
 
 ALLOWED = {
     'open': ('auto', 'orca', 'browser', 'desktop'),
-    'theme': ('system', 'light', 'dark'),
+    'theme': ('system', 'light', 'dark', 'neon', 'synthwave', 'matrix', 'nord', 'paper', 'sakura'),
 }
 KEYS = '|'.join(ALLOWED)
 

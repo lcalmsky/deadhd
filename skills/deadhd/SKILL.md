@@ -1,7 +1,7 @@
 ---
 name: deadhd
 description: Show a live checklist page of what this session has done, is doing now, and has left, opened beside the terminal and kept updated while the task runs. Use when the user types /deadhd or $deadhd, or asks "지금 뭐 하고 있어", "진행 상황 띄워줘", "체크리스트로 보여줘".
-argument-hint: "[setup] [-h|-o|-c] [--open auto|orca|browser|desktop] [--theme system|light|dark] [off]"
+argument-hint: "[setup] [-h|-o|-c] [--open auto|orca|browser|desktop] [--theme system|light|dark|neon|synthwave|matrix|nord|paper|sakura] [off]"
 ---
 
 # deadhd
@@ -20,7 +20,7 @@ A status page for the task running in this session. The reader glanced away for 
 - `-c`: publish as a Claude artifact with the `Artifact` tool. Without that tool, fall back to `-h` and say so.
 - `setup`: ask for the default open location and save it (see Setup). After saving, reply in one line and stop.
 - `--open <mode>`: use this mode for this run only, instead of the saved default. Pass it to open.sh as `--mode <mode>`.
-- `--theme <theme>`: render with this theme for this run only, instead of the saved one. Pass it to render.py as `--theme <theme>`.
+- `--theme <theme>`: render with this theme for this run only, instead of the saved one. One of `system`, `light`, `dark`, `neon`, `synthwave`, `matrix`, `nord`, `paper`, `sakura`. Pass it to render.py as `--theme <theme>`.
 
 ## Setup
 
@@ -33,11 +33,21 @@ Open location, four choices:
 - `browser`: the system browser.
 - `desktop`: print the path in chat; press it in the Claude desktop app to open the page in the in-app browser.
 
-Theme, three choices:
+Theme, four choices:
 
 - `system` (recommended): follow the operating system's light and dark setting.
-- `light`: always the light theme.
 - `dark`: always the dark theme.
+- `light`: always the light theme.
+- `more themes`: show the extra themes below and take the answer by name.
+
+`AskUserQuestion` allows at most four choices, which is why `more themes` is one of them. When the user picks it, list these in plain text, one line each with its description, and take the theme name as the answer:
+
+- `neon` — cyberpunk neon: near-black violet with cyan, magenta, and fluorescent yellow.
+- `synthwave` — 80s sunset: deep violet under a pink-and-orange gradient.
+- `matrix` — green terminal: monochrome green on black, every glyph monospaced.
+- `nord` — calm arctic: muted northern palette, easy on the eyes over a long session.
+- `paper` — warm paper, light: cream stock with a serif heading, reads like a document.
+- `sakura` — cherry blossom, light: pink light theme with a handwritten heading.
 
 Save the answers with `python3 <skill-dir>/config.py set open <value>` and `python3 <skill-dir>/config.py set theme <value>`. Calling the skill with `setup` asks both questions again.
 
@@ -83,7 +93,7 @@ Writing rules for all text in the data:
 ## Render
 
 ```bash
-python3 <skill-dir>/render.py [--theme system|light|dark] /tmp/deadhd-<slug>.json /tmp/deadhd-<slug>.html
+python3 <skill-dir>/render.py [--theme system|light|dark|neon|synthwave|matrix|nord|paper|sakura] /tmp/deadhd-<slug>.json /tmp/deadhd-<slug>.html
 ```
 
 It applies the saved theme on its own, and the `--theme` value instead when this run has one. It validates the data and exits 1 with the reason when a field is wrong; fix the JSON and rerun. Reuse the same two paths for the rest of this conversation. Never edit the HTML by hand.

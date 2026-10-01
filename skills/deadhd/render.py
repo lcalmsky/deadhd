@@ -11,13 +11,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE = os.path.join(HERE, 'template.html')
 STATES = ('done', 'now', 'side', 'left', 'blocked')
 STATE_SET = frozenset(STATES)
-THEMES = ('system', 'light', 'dark')
 HTML_OPEN = '<html lang="ko">'
-USAGE = '사용법: render.py [--theme system|light|dark] <data.json> <out.html>'
 
 # 같은 디렉터리의 config.py 를 읽으려면 HERE 가 먼저 있어야 한다.
 sys.path.insert(0, HERE)
 import config
+
+THEMES = config.ALLOWED['theme']
+USAGE = '사용법: render.py [--theme %s] <data.json> <out.html>' % '|'.join(THEMES)
 
 
 def die(msg):
@@ -107,7 +108,7 @@ def main(argv):
             die(USAGE)
         theme, rest = rest[1], rest[2:]
     if theme is not None and theme not in THEMES:
-        die('알 수 없는 테마: %s (system/light/dark 중 하나)' % theme)
+        die('알 수 없는 테마: %s (%s 중 하나)' % (theme, '/'.join(THEMES)))
     if len(rest) != 2:
         die(USAGE)
     if theme is None:

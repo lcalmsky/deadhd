@@ -15,6 +15,15 @@ TEMPLATE = os.path.join(HERE, 'template.html')
 EXAMPLE = os.path.join(HERE, 'example.json')
 MISSING_CONFIG = os.path.join(tempfile.gettempdir(), 'deadhd-no-such-config', 'config.json')
 
+EXTRA_THEMES = ('neon', 'synthwave', 'matrix', 'nord', 'paper', 'sakura')
+THEME_TOKENS = (
+    '--bg', '--bg-2', '--card', '--card-line', '--ink', '--ink-2', '--ink-3',
+    '--done', '--done-2', '--done-deep', '--now', '--now-2', '--now-deep', '--now-hi',
+    '--side', '--side-hi', '--left', '--blocked', '--blocked-2', '--blocked-deep',
+    '--track', '--tip', '--count-end', '--scroll', '--scroll-hover',
+    '--glow-a', '--glow-b', '--glow-c',
+)
+
 
 def run_render(data_path, out_path, theme=None, config_path=None):
     env = dict(os.environ)
@@ -237,6 +246,49 @@ class RenderThemeTest(unittest.TestCase):
         self.assertIn('nope', r.stderr)
         self.assertFalse(os.path.exists(out))
 
+    def test_extra_themes_set_html_attribute(self):
+        for theme in EXTRA_THEMES:
+            with self.subTest(theme=theme):
+                r, out = self.render(theme=theme)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(self.rendered_tag(out), '<html lang="ko" data-theme="%s">' % theme)
+
+
+class TemplateThemeTest(unittest.TestCase):
+    def setUp(self):
+        with open(TEMPLATE, encoding='utf-8') as f:
+            self.tpl = f.read()
+
+    def block(self, theme):
+        m = re.search(r':root\[data-theme="%s"\]\s*\{(.*?)\}' % theme, self.tpl, re.S)
+        self.assertIsNotNone(m, ':root[data-theme="%s"] 블록을 찾지 못했다' % theme)
+        return m.group(1)
+
+    def test_extra_theme_blocks_exist_once(self):
+        for theme in EXTRA_THEMES:
+            with self.subTest(theme=theme):
+                self.assertEqual(self.tpl.count(':root[data-theme="%s"]' % theme), 1)
+
+    def test_theme_blocks_come_after_dark_blocks(self):
+        last_dark = self.tpl.index(':root[data-theme="dark"]')
+        for theme in EXTRA_THEMES:
+            with self.subTest(theme=theme):
+                self.assertGreater(self.tpl.index(':root[data-theme="%s"]' % theme), last_dark)
+
+    def test_theme_blocks_define_every_token(self):
+        for theme in EXTRA_THEMES:
+            body = self.block(theme)
+            for token in THEME_TOKENS:
+                with self.subTest(theme=theme, token=token):
+                    self.assertIn(token + ':', body)
+
+    def test_css_rules_do_not_hardcode_state_colors(self):
+        style = re.search(r'<style>(.*?)</style>', self.tpl, re.S).group(1)
+        body = re.sub(r':root[^{]*\{[^}]*\}', '', style)
+        for color in ('#059669', '#f97316', '#dc2626'):
+            with self.subTest(color=color):
+                self.assertNotIn(color, body)
+
 
 class OpenScriptTest(unittest.TestCase):
     def setUp(self):
@@ -421,6 +473,12 @@ class ConfigScriptTest(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
         self.assertIn('nope', r.stderr)
         self.assertFalse(os.path.exists(self.path))
+
+    def test_theme_set_accepts_extra_theme(self):
+        r = self.run_config('set', 'theme', 'neon')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('saved: theme=neon', r.stdout)
+        self.assertEqual(self.run_config('get', 'theme').stdout.strip(), 'neon')
 
     def test_theme_set_preserves_open_value(self):
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
