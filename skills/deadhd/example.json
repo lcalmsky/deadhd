@@ -1,11 +1,22 @@
 {
   "key": "SHOP-128",
   "keyHref": "https://example.atlassian.net/browse/SHOP-128",
+  "links": {
+    "SHOP-128": "https://example.atlassian.net/browse/SHOP-128",
+    "SHOP-130": "https://example.atlassian.net/browse/SHOP-130",
+    "SHOP-131": "https://example.atlassian.net/browse/SHOP-131",
+    "SHOP-132": "https://example.atlassian.net/browse/SHOP-132",
+    "shop-api#4120": "https://github.com/example/shop-api/pull/4120",
+    "shop-api#4131": "https://github.com/example/shop-api/pull/4131"
+  },
   "title": "결제 웹훅 재시도 큐 도입과 스테이징 검증",
   "goal": "결제 웹훅 유실을 줄이기 위해 재시도 큐와 데드레터 처리를 도입하고, 전환 전에 실제 주문 흐름에서 재처리 결과가 맞는지 로그로 확인한다.",
   "doneWhen": "결제 웹훅 재시도 큐가 staging 에 배포되고 실호출 검증을 통과한다.",
   "updated": "2026-10-01 09:30 KST",
-  "meta": ["webhook-retry-20261001", "staging"],
+  "meta": [
+    "webhook-retry-20261001",
+    {"text": "staging", "href": "https://github.com/example/shop-api/actions/runs/1234567890"}
+  ],
   "lanes": ["본선", "병행"],
   "items": [
     {
@@ -19,6 +30,8 @@
       "body": "대상은 staging, 종료 조건은 재시도 큐 배포 후 실호출 검증이다. 설계 검토 1회와 코드 검토 2회를 거쳐 승인되었다.",
       "evidence": [
         {"icon": "file", "text": "design-consensus.md", "mono": true},
+        {"icon": "doc", "text": "설계 문서 (Notion)", "href": "https://www.notion.so/example/shop-api-webhook-retry-design-1a2b3c4d"},
+        {"icon": "chat", "text": "Slack #shop-deploy 스레드", "href": "https://example.slack.com/archives/C0123456/p1727740000000100"},
         {"text": "staging 실호출 허용"},
         {"text": "부하 측정 제외"},
         {"text": "prod 는 큐 도입 이후 별도 작업"}
@@ -41,7 +54,9 @@
       "evidence": [
         {"icon": "pr", "text": "shop-api#4120", "mono": true, "href": "https://github.com/example/shop-api/pull/4120"},
         {"icon": "commit", "text": "9a95d3c864", "mono": true, "href": "https://github.com/example/shop-api/commit/9a95d3c864"},
-        {"icon": "pr", "text": "shop-api#4131", "mono": true, "href": "https://github.com/example/shop-api/pull/4131"}
+        {"icon": "pr", "text": "shop-api#4131", "mono": true, "href": "https://github.com/example/shop-api/pull/4131"},
+        {"icon": "run", "text": "GitHub Actions run 1234567890", "mono": true, "href": "https://github.com/example/shop-api/actions/runs/1234567890"},
+        {"icon": "chart", "text": "Datadog 재시도 큐 대시보드", "href": "https://app.datadoghq.com/dashboard/abc-def/webhook-retry"}
       ]
     },
     {
@@ -54,7 +69,7 @@
       "title": "S1 종결",
       "body": "SHOP-128 에 결과를 보고하고 STAGING 완료로 전이했으며, 하위 작업 3건을 종료했다. 배포 증거 묶음 검증도 통과했다.",
       "evidence": [
-        {"icon": "ticket", "text": "Jira 댓글 41877"},
+        {"icon": "ticket", "text": "Jira 댓글 41877", "href": "https://example.atlassian.net/browse/SHOP-128?focusedCommentId=41877"},
         {"icon": "ticket", "text": "SHOP-130·131·132 완료"},
         {"icon": "check", "text": "evidence-bundle.json passed", "mono": true},
         {"icon": "file", "text": "작업 로그 2026-10-01"}
@@ -70,7 +85,7 @@
       "title": "S2 중복 결제 방지의 배포 전 검증",
       "body": "/verify PASS, 성능 리뷰 APPROVE 를 받았다. 보안(결제 키 마스킹 보강)과 테스트 지적을 반영하고 있으며, 반영이 끝나면 staging 에 배포하고 주문 결제 흐름을 실호출로 검증한다.",
       "substeps": [
-        {"label": "/verify PASS", "state": "done"},
+        {"label": "/verify PASS", "state": "done", "href": "https://github.com/example/shop-api/actions/runs/1234555555"},
         {"label": "성능 리뷰", "state": "done"},
         {"label": "보안·테스트 지적 반영", "state": "now"},
         {"label": "staging 배포", "state": "left"},

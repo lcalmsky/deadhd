@@ -26,6 +26,18 @@ def die(msg):
     sys.exit(1)
 
 
+def is_http_url(value):
+    return isinstance(value, str) and value.lower().startswith(('http://', 'https://'))
+
+
+def check_hrefs(problems, where, entries):
+    if not isinstance(entries, list):
+        return
+    for j, entry in enumerate(entries):
+        if isinstance(entry, dict) and entry.get('href') is not None and not is_http_url(entry['href']):
+            problems.append('%s[%d].href 가 http(s) URL 이 아니다' % (where, j))
+
+
 def validate(data):
     problems = []
     if not isinstance(data, dict):
@@ -38,6 +50,39 @@ def validate(data):
         value = data.get(field)
         if value is not None and not isinstance(value, str):
             problems.append(field + ' 이 문자열이 아니다')
+
+    key_href = data.get('keyHref')
+    if key_href is not None and not is_http_url(key_href):
+        problems.append('keyHref 가 http(s) URL 이 아니다')
+
+    links = data.get('links')
+    if links is not None:
+        if not isinstance(links, dict):
+            problems.append('links 가 객체가 아니다')
+        else:
+            for k, v in links.items():
+                if not isinstance(k, str) or not k:
+                    problems.append('links 의 키가 비어 있지 않은 문자열이 아니다')
+                if not is_http_url(v):
+                    problems.append('links[%s] 가 http(s) URL 이 아니다' % k)
+
+    meta = data.get('meta')
+    if meta is not None:
+        if not isinstance(meta, list):
+            problems.append('meta 가 배열이 아니다')
+        else:
+            for j, m in enumerate(meta):
+                where = 'meta[%d]' % j
+                if isinstance(m, str):
+                    continue
+                if not isinstance(m, dict):
+                    problems.append(where + ' 가 문자열 또는 객체가 아니다')
+                    continue
+                if not isinstance(m.get('text'), str):
+                    problems.append(where + '.text 가 문자열이 아니다')
+                href = m.get('href')
+                if href is not None and not is_http_url(href):
+                    problems.append(where + '.href 가 http(s) URL 이 아니다')
 
     items = data.get('items')
     if not isinstance(items, list) or not items:
@@ -63,6 +108,8 @@ def validate(data):
             problems.append('%s.state 가 %s 중 하나가 아니다 (값: %r)' % (where, '/'.join(STATES), state))
         if state == 'now':
             now_count += 1
+        check_hrefs(problems, where + '.evidence', it.get('evidence'))
+        check_hrefs(problems, where + '.substeps', it.get('substeps'))
 
     duplicated = sorted({x for x in ids if ids.count(x) > 1})
     if duplicated:
@@ -83,6 +130,12 @@ def validate(data):
                 for x in e:
                     if x not in known:
                         problems.append('edges[%d] 가 없는 id 를 가리킨다: %s' % (j, x))
+
+    changes = data.get('changes')
+    if isinstance(changes, list):
+        for j, c in enumerate(changes):
+            if isinstance(c, dict):
+                check_hrefs(problems, 'changes[%d].evidence' % j, c.get('evidence'))
 
     if problems:
         die('\n'.join(problems))

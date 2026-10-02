@@ -60,6 +60,7 @@ Build the list from this session's own record: the user's requests, tool results
 - An item is `done` only when a tool result in this session shows it done (a passing test, a written file, a merged PR). Work that was attempted but not verified is `now` or `blocked`, never `done`.
 - If the context was compacted, use the summary and say so in `footer`.
 - Group small steps into items a non-developer understands. Five to nine items in total is the target; one tool call is never an item.
+- Collect the URL of every source you touch, not just its name: Jira issues and comments, PRs, commits, GitHub Actions runs (the `url` field of tool results, `gh run view --json url`), deploys, Slack thread permalinks, Notion and Confluence pages, Datadog dashboards, logs and traces, and web pages.
 
 ## Write the data
 
@@ -67,12 +68,13 @@ Write `/tmp/deadhd-<task-slug>.json`. `<skill-dir>/example.json` is a complete e
 
 | Field | Content |
 |---|---|
-| `key`, `keyHref` | Ticket key and its Jira link, when the task has one |
+| `key`, `keyHref` | Ticket key and its Jira link, when the task has one. Register the key in `links` as well, so every mention in the text is linked |
 | `title` | The task as a formal noun phrase, e.g. `결제 웹훅 재시도 큐 도입과 스테이징 검증`. Not the user's request quoted |
 | `goal` | One or two sentences under the title: why this task exists and what changes when it is done. Always fill it |
 | `doneWhen` | The completion condition in one sentence, e.g. `결제 웹훅 재시도 큐가 staging 에 배포되고 실호출 검증을 통과한다.` |
 | `updated` | Current time with timezone, e.g. `2026-09-30 14:30 KST` |
-| `meta` | Identifiers shown as monospace chips: program id, target environment, branch |
+| `meta` | Identifiers shown as monospace chips: program id, target environment, branch. Each entry is a string, or `{"text": ..., "href": ...}` when the chip itself opens a link |
+| `links` | Identifiers that appear in the text and have a URL: `{"SHOP-130": "https://...", "shop-api#4120": "https://..."}`. Every occurrence in the text below becomes a link, and a bare `http(s)://` URL is linked on its own |
 | `lanes` | Only when work runs on more than one track (repositories, a parallel branch). Omit for a single line |
 | `items` | One per step, in flow order. Fields below |
 | `edges` | Only when the flow is not a straight line per lane: a branch, a merge, a cross-repository dependency |
@@ -82,8 +84,31 @@ Each item:
 
 - `id`, `label` (short, for the flow picture), `sub` (one to three words under the node), `state`: `done`, `now` (exactly one while work is running), `side` (running in parallel), `left`, `blocked` (failed or waiting on the user).
 - `title` and `body`: the card. `body` is one or two sentences: what and why for `now`, what happened for `done`, what is needed for `blocked`.
-- `evidence`: file paths, PR, commit, test counts, Jira comments, each with an `icon` and `href` when a link exists. Jira keys and PR numbers always get `href`.
-- Draw numbers instead of writing them. A pass count goes in `stats` as `ring`; a single large number goes in `stats` as `number`; an A-versus-B measurement or a risk ratio goes in `compare`. A sequence of sub-steps inside the current item goes in `substeps`.
+- `evidence`: file paths, PR, commit, test counts, Jira comments, each with an `icon` and an `href` when the identifier has a URL.
+- Draw numbers instead of writing them. A pass count goes in `stats` as `ring`; a single large number goes in `stats` as `number`; an A-versus-B measurement or a risk ratio goes in `compare`. A sequence of sub-steps inside the current item goes in `substeps`; a sub-step with a URL carries its own `href`.
+
+Link rules:
+
+- An identifier with a URL is always shown as a link. Card evidence carries `href`; an identifier inside a sentence (a Jira key, a PR number) goes in `links`, so it is linked wherever it appears; a meta chip that links somewhere is `{"text": ..., "href": ...}`.
+- A source you read while investigating — Slack thread, Notion or Confluence page, dashboard, web page — gets its own `evidence` entry on that item, with an `icon` and `href`.
+- Never invent a URL. Use one that appeared in this session's tool results, or one that follows deterministically from a confirmed base (Jira base plus key, GitHub repository plus PR number or commit). When the URL is not knowable, leave the identifier as plain text.
+
+The `icon` on an evidence entry or a `stats` `number`:
+
+| `icon` | Use for |
+|---|---|
+| `pr` | Pull request |
+| `commit` | Commit |
+| `test` | Test run or result |
+| `ticket` | Jira issue or comment |
+| `file` | File |
+| `deploy` | Deployment |
+| `check` | Verification or check result |
+| `run` | CI run (GitHub Actions run) |
+| `chat` | Messenger thread (Slack) |
+| `doc` | Document page (Notion, Confluence) |
+| `link` | Any other link |
+| `chart` | Monitoring dashboard, logs, traces (Datadog) |
 
 Writing rules for all text in the data:
 

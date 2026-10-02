@@ -384,6 +384,10 @@ h2.blocked .ic { background: color-mix(in srgb, var(--blocked) 18%, transparent)
 .card .ev a { color: inherit; text-decoration: none; }
 .card .ev a span { background: var(--track); }
 .card .ev a:hover span { color: var(--ink-2); }
+
+/* 본문에 섞인 링크: 본문 색을 따르되 밑줄과 hover 색으로 링크임을 드러낸다. */
+.lnk { color: inherit; text-decoration: underline dotted; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.lnk:hover { color: var(--now); text-decoration-style: solid; }
 .card.done h3::before { content: "✓"; color: var(--done); }
 [data-fx="max"] .card.done h3::before { text-shadow: 0 0 10px var(--done); }
 .badge { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 999px; }
@@ -487,6 +491,11 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
   <symbol id="i-file" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M3.5 1.5h6l3 3v10h-9z"/><path d="M9.5 1.5v3h3M5.5 8.5h5M5.5 11h5"/></symbol>
   <symbol id="i-deploy" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5c2.5 1.5 3.7 4 3.5 7.5l-2 2h-3l-2-2C4.3 5.5 5.5 3 8 1.5z"/><circle cx="8" cy="6" r="1.2"/><path d="M5.5 11.5 4 14.5M10.5 11.5l1.5 3"/></symbol>
   <symbol id="i-check" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5 13.5 4v4c0 3.2-2.3 5.6-5.5 6.5C4.8 13.6 2.5 11.2 2.5 8V4z"/><path d="m5.5 8 1.8 1.8L10.8 6"/></symbol>
+  <symbol id="i-run" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M6.6 5.4 10.8 8l-4.2 2.6z"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4.5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H7.6l-3 2.8v-2.8H4.5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.5C6.8 2.6 5.2 2.3 3 2.5v9c2.2-.2 3.8.1 5 1 1.2-.9 2.8-1.2 5-1v-9c-2.2-.2-3.8.1-5 1z"/><path d="M8 3.5v9"/></symbol>
+  <symbol id="i-link" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 9.5 9.5 6.5"/><path d="M7.2 4.8 8.6 3.4a2.6 2.6 0 0 1 3.7 3.7l-1.4 1.4"/><path d="M8.8 11.2 7.4 12.6a2.6 2.6 0 0 1-3.7-3.7l1.4-1.4"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 2.5v11h12"/><path d="M4.5 10.5 7 7l2.5 2L13 4.5"/></symbol>
 </svg>
 <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
 <div class="stars" aria-hidden="true" id="stars"></div>
@@ -537,12 +546,40 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
     svg.appendChild(use);
     return svg;
   };
-  const linkEl = (href, node) => {
+  // http(s) 밖의 스킴은 링크로 만들지 않고 텍스트로만 그린다.
+  const httpHref = href => (typeof href === 'string' && /^https?:\/\//i.test(href)) ? href : null;
+  const linkEl = (href, node, cls) => {
+    const safe = httpHref(href);
+    if (!safe) return node;
     const a = document.createElement('a');
-    a.href = href; a.target = '_blank'; a.rel = 'noopener';
+    if (cls) a.className = cls;
+    a.href = safe; a.target = '_blank'; a.rel = 'noopener';
     a.appendChild(node);
     return a;
   };
+
+  function linkify(text) {
+    const frag = document.createDocumentFragment();
+    const s = text == null ? '' : String(text);
+    let last = 0, m;
+    LINK_RE.lastIndex = 0;
+    while ((m = LINK_RE.exec(s)) !== null) {
+      const isUrl = m[2] !== undefined;
+      let label = m[0];
+      let end = m.index + label.length;
+      if (isUrl) {
+        const trimmed = label.replace(/[.,;:!?]+$/, '');
+        end -= label.length - trimmed.length;
+        label = trimmed;
+      }
+      frag.appendChild(document.createTextNode(s.slice(last, m.index)));
+      frag.appendChild(linkEl(isUrl ? label : LINKS[m[1]], document.createTextNode(label), 'lnk'));
+      last = end;
+      LINK_RE.lastIndex = end;
+    }
+    frag.appendChild(document.createTextNode(s.slice(last)));
+    return frag;
+  }
 
   let data;
   try {
@@ -553,6 +590,13 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
     console.error('progress: 데이터를 읽지 못했다', err);
     return;
   }
+
+  const LINKS = (data.links && typeof data.links === 'object' && !Array.isArray(data.links)) ? data.links : {};
+  const escapeRe = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const KEY_PAT = Object.keys(LINKS).sort((a, b) => b.length - a.length).map(escapeRe).join('|');
+  // 키는 앞뒤가 영숫자·_·- 가 아닌 경계에서만 잡는다 (SHOP-13 이 SHOP-130 안에서 걸리지 않게).
+  const KEY_GROUP = KEY_PAT ? '(?<![A-Za-z0-9_-])(?:' + KEY_PAT + ')(?![A-Za-z0-9_-])' : null;
+  const LINK_RE = new RegExp('(' + (KEY_GROUP || '(?!)') + ')|(https?://[^\\s<>"\')\\]]+)', 'g');
 
   const KEY = 'progress:' + (data.key || '') + ':' + (data.title || '');
   const store = {
@@ -613,14 +657,25 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
 
   const meta = $('meta');
   if (data.updated) meta.appendChild(el('span', null, '마지막 갱신 ' + data.updated));
-  (data.meta || []).forEach(m => meta.appendChild(el('span', 'chip mono', m)));
+  (data.meta || []).forEach(m => {
+    const obj = (m && typeof m === 'object' && !Array.isArray(m)) ? m : null;
+    if (obj && obj.href) {
+      meta.appendChild(linkEl(obj.href, document.createTextNode(obj.text == null ? '' : String(obj.text)), 'chip mono lnk'));
+      return;
+    }
+    const chip = el('span', 'chip mono');
+    chip.appendChild(linkify(obj ? obj.text : m));
+    meta.appendChild(chip);
+  });
   if (!meta.children.length) meta.hidden = true;
 
   const goal = $('goal');
   const goalRow = (tag, tagCls, text) => {
     const row = el('div', 'goal-row');
     row.appendChild(el('span', tagCls ? 'goal-tag ' + tagCls : 'goal-tag', tag));
-    row.appendChild(el('p', null, text));
+    const p = el('p');
+    p.appendChild(linkify(text));
+    row.appendChild(p);
     goal.appendChild(row);
   };
   if (data.goal) goalRow('목표', null, data.goal);
@@ -732,23 +787,40 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
     cards.appendChild(h);
     data.changes.forEach(c => {
       const card = el('div', 'card');
-      if (c.title) card.appendChild(el('h3', null, c.title));
-      if (c.body) card.appendChild(el('p', null, c.body));
+      if (c.title) {
+        const h3 = el('h3');
+        h3.appendChild(linkify(c.title));
+        card.appendChild(h3);
+      }
+      if (c.body) {
+        const p = el('p');
+        p.appendChild(linkify(c.body));
+        card.appendChild(p);
+      }
+      if (Array.isArray(c.evidence) && c.evidence.length) card.appendChild(evEl(c.evidence));
       cards.appendChild(card);
     });
   }
 
   const footer = $('footer');
-  if (data.footer) footer.textContent = data.footer;
+  if (data.footer) footer.appendChild(linkify(data.footer));
   else footer.hidden = true;
 
   function cardEl(it, cls) {
     const card = el('div', cls ? 'card ' + cls : 'card');
     const h3 = el('h3');
-    h3.appendChild(document.createTextNode(it.title || it.label || ''));
-    if (it.badge) h3.appendChild(el('span', it.state === 'side' ? 'badge side' : 'badge', it.badge));
+    h3.appendChild(linkify(it.title || it.label || ''));
+    if (it.badge) {
+      const badge = el('span', it.state === 'side' ? 'badge side' : 'badge');
+      badge.appendChild(linkify(it.badge));
+      h3.appendChild(badge);
+    }
     card.appendChild(h3);
-    if (it.body) card.appendChild(el('p', null, it.body));
+    if (it.body) {
+      const p = el('p');
+      p.appendChild(linkify(it.body));
+      card.appendChild(p);
+    }
     if (Array.isArray(it.substeps) && it.substeps.length) card.appendChild(substepsEl(it.substeps));
     if ((Array.isArray(it.stats) && it.stats.length) || (Array.isArray(it.compare) && it.compare.length)) card.appendChild(vizEl(it));
     if (Array.isArray(it.evidence) && it.evidence.length) card.appendChild(evEl(it.evidence));
@@ -763,7 +835,8 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
       const ic = el('i');
       ic.textContent = ANIM_GLYPH[st] || String(i + 1);
       step.appendChild(ic);
-      step.appendChild(document.createTextNode(s.label == null ? '' : String(s.label)));
+      const label = s.label == null ? '' : String(s.label);
+      step.appendChild(s.href ? linkEl(s.href, document.createTextNode(label), 'lnk') : linkify(label));
       wrap.appendChild(step);
       if (i < subs.length - 1) {
         const nx = subs[i + 1].state || 'left';
@@ -834,7 +907,8 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
     list.forEach(ev => {
       const s = el('span', ev.mono ? 'mono' : null);
       if (ev.icon) s.appendChild(iconEl(ev.icon, 'ic-sm'));
-      s.appendChild(document.createTextNode(ev.text == null ? '' : String(ev.text)));
+      const text = ev.text == null ? '' : String(ev.text);
+      s.appendChild(ev.href ? document.createTextNode(text) : linkify(text));
       wrap.appendChild(ev.href ? linkEl(ev.href, s) : s);
     });
     return wrap;

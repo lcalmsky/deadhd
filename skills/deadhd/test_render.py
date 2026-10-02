@@ -58,6 +58,294 @@ def parse_block(block):
     return json.loads(block.replace('<\\/', '</').replace('<\\!--', '<!--'))
 
 
+NODE = shutil.which('node')
+
+# 렌더된 HTML 의 본문 스크립트를 그대로 실행해 linkify 가 만든 <a> 를 꺼낸다.
+# 링크 동작은 스크립트 전체가 돌아야 만들어지므로, 스크립트가 요구하는 만큼의
+# 가짜 DOM 만 node 쪽에 세우고 함수 정의를 줄 번호로 잘라내지 않는다.
+LINKIFY_HARNESS = r'''
+const fs = require('fs');
+const code0 = fs.readFileSync(process.argv[2], 'utf8');
+const rawData = fs.readFileSync(process.argv[3], 'utf8');
+
+function textOf(n) {
+  if (n.tag === '#text') return n.text;
+  let s = '';
+  for (const k of n.children) s += textOf(k);
+  return s;
+}
+
+function textNode(s) {
+  const n = new El('#text');
+  n.text = String(s);
+  return n;
+}
+
+function El(tag) {
+  this.tag = tag;
+  this.tagName = tag === '#text' ? '#text' : tag.toUpperCase();
+  this.children = [];
+  this.attrs = {};
+  this.dataset = {};
+  this.hidden = false;
+  this.text = '';
+  this.id = '';
+  this.href = null;
+  this._cls = '';
+  const self = this;
+  this.style = { setProperty: function (k, v) { this[k] = v; } };
+  this.classList = { add: function (c) { self._cls = self._cls ? self._cls + ' ' + c : c; } };
+}
+
+Object.defineProperty(El.prototype, 'className', {
+  get: function () { return this._cls; },
+  set: function (v) { this._cls = String(v); }
+});
+
+Object.defineProperty(El.prototype, 'textContent', {
+  get: function () { return textOf(this); },
+  set: function (v) {
+    v = String(v);
+    this.children = v === '' ? [] : [textNode(v)];
+  }
+});
+
+El.prototype.appendChild = function (c) {
+  if (c.tag === '#fragment') {
+    for (const k of c.children) this.children.push(k);
+    return c;
+  }
+  this.children.push(c);
+  return c;
+};
+El.prototype.setAttribute = function (k, v) {
+  this.attrs[k] = String(v);
+  if (k === 'class') this._cls = String(v);
+};
+El.prototype.addEventListener = function () {};
+El.prototype.remove = function () {};
+El.prototype.getBoundingClientRect = function () { return { left: 0, top: 0, width: 0, height: 0 }; };
+El.prototype.querySelector = function () { return null; };
+
+function makeDocument(raw) {
+  const byId = new Map();
+  const queries = new Map();
+  const doc = {
+    body: new El('body'),
+    createElement: function (t) { return new El(t); },
+    createElementNS: function (ns, t) { return new El(t); },
+    createTextNode: function (t) { return textNode(t); },
+    createDocumentFragment: function () { return new El('#fragment'); },
+    getElementById: function (id) {
+      if (!byId.has(id)) { const e = new El('div'); e.id = id; byId.set(id, e); }
+      return byId.get(id);
+    },
+    querySelector: function (sel) {
+      if (!queries.has(sel)) { const e = new El('div'); e.sel = sel; queries.set(sel, e); }
+      return queries.get(sel);
+    }
+  };
+  doc.getElementById('progress-data').textContent = raw;
+  doc._byId = byId;
+  return doc;
+}
+
+function serialize(n) {
+  if (n.tag === '#text') return { t: '#text', text: n.text };
+  const o = { t: n.tagName, text: textOf(n) };
+  if (n.id) o.id = n.id;
+  if (n.className) o.cls = n.className;
+  if (n.href != null) o.href = n.href;
+  if (n.sel) o.sel = n.sel;
+  if (n.children.length) o.kids = n.children.map(serialize);
+  return o;
+}
+
+const probeSrc = "\n  globalThis.__linkProbe = { httpHref: httpHref, linkElInfo: function (h) { var n = linkEl(h, document.createTextNode('t'), 'lnk'); return { tag: n.tagName, href: n.href == null ? null : n.href }; } };\n";
+const idx = code0.lastIndexOf('})();');
+if (idx < 0) throw new Error('IIFE 끝을 찾지 못했다');
+const code = code0.slice(0, idx) + probeSrc + code0.slice(idx);
+
+const doc = makeDocument(rawData);
+const ss = {
+  _m: {},
+  getItem: function (k) { return Object.prototype.hasOwnProperty.call(this._m, k) ? this._m[k] : null; },
+  setItem: function (k, v) { this._m[k] = String(v); }
+};
+const run = new Function('document', 'matchMedia', 'sessionStorage', code);
+run(doc, function () { return { matches: false }; }, ss);
+
+const probe = globalThis.__linkProbe;
+function info(h) { return probe.linkElInfo(h); }
+
+const nodes = {};
+for (const entry of doc._byId) {
+  if (entry[0] === 'progress-data') continue;
+  nodes[entry[0]] = serialize(entry[1]);
+}
+
+process.stdout.write(JSON.stringify({
+  probe: {
+    httpHref_javascript: probe.httpHref('javascript:alert(1)'),
+    httpHref_http: probe.httpHref('http://ok.test/x'),
+    httpHref_upper: probe.httpHref('HTTPS://OK.test/y'),
+    httpHref_null: probe.httpHref(null),
+    link_javascript: info('javascript:alert(1)'),
+    link_data: info('data:text/html,x'),
+    link_ftp: info('ftp://example.com/x'),
+    link_mailto: info('mailto:a@b.c'),
+    link_http: info('http://ok.test/x'),
+    link_upper: info('HTTPS://OK.test/y'),
+    link_null: info(null),
+    link_number: info(123)
+  },
+  nodes: nodes
+}));
+'''
+
+
+def script_block(html):
+    blocks = re.findall(r'<script>(.*?)</script>', html, re.S)
+    assert len(blocks) == 1, '본문 script 블록이 정확히 하나가 아니다: %d개' % len(blocks)
+    return blocks[0]
+
+
+def run_linkify_harness(html):
+    with tempfile.TemporaryDirectory(prefix='progress-linkify-') as d:
+        files = {}
+        for name, text in (
+            ('harness.js', LINKIFY_HARNESS),
+            ('script.js', script_block(html)),
+            ('data.txt', data_block(html)),
+        ):
+            path = os.path.join(d, name)
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(text)
+            files[name] = path
+        r = subprocess.run(
+            [NODE, files['harness.js'], files['script.js'], files['data.txt']],
+            capture_output=True, text=True, cwd=d,
+        )
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)
+
+
+def iter_nodes(node):
+    yield node
+    for kid in node.get('kids', ()):
+        yield from iter_nodes(kid)
+
+
+class TemplateLinkifyTest(unittest.TestCase):
+    def setUp(self):
+        if NODE is None:
+            self.skipTest('node 가 없어 템플릿 스크립트를 실행할 수 없다')
+        self.tmp = tempfile.mkdtemp(prefix='progress-linkify-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def run_data(self, data):
+        path = os.path.join(self.tmp, 'data.json')
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+        out = os.path.join(self.tmp, 'out.html')
+        r = run_render(path, out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding='utf-8') as f:
+            return run_linkify_harness(f.read())
+
+    def links(self, result):
+        found = []
+        for tree in result['nodes'].values():
+            for node in iter_nodes(tree):
+                if node['t'] == 'A':
+                    found.append((node.get('href'), node['text']))
+        return found
+
+    def body_texts(self, result):
+        card = result['nodes'].get('cards', {})
+        return [n['text'] for n in iter_nodes(card) if n['t'] == 'P']
+
+    def data_with_text(self, text, links=None, evidence=None):
+        item = {'id': 'a', 'label': 'L', 'state': 'done', 'body': text}
+        if evidence is not None:
+            item['evidence'] = evidence
+        data = {'title': 'T', 'items': [item]}
+        if links is not None:
+            data['links'] = links
+        return data
+
+    def test_longest_key_wins_and_boundaries_hold(self):
+        text = 'SHOP-130 와 SHOP-13 그리고 SHOP-1300'
+        links = {'SHOP-13': 'https://x.test/13', 'SHOP-130': 'https://x.test/130'}
+        result = self.run_data(self.data_with_text(text, links))
+        self.assertEqual(self.links(result), [
+            ('https://x.test/130', 'SHOP-130'),
+            ('https://x.test/13', 'SHOP-13'),
+        ])
+        self.assertIn(text, self.body_texts(result))
+
+    def test_adjacent_word_chars_are_not_linked(self):
+        text = 'xSHOP-13 그리고 SHOP-13_a'
+        links = {'SHOP-13': 'https://x.test/13'}
+        result = self.run_data(self.data_with_text(text, links))
+        self.assertEqual(self.links(result), [])
+
+    def test_regex_special_keys_match_only_themselves(self):
+        text = 'shop-api#4120 와 a.b(1) 와 xshop-api#4120 그리고 a.b(1)2'
+        links = {'shop-api#4120': 'https://gh.test/4120', 'a.b(1)': 'https://gh.test/ab1'}
+        result = self.run_data(self.data_with_text(text, links))
+        self.assertEqual(self.links(result), [
+            ('https://gh.test/4120', 'shop-api#4120'),
+            ('https://gh.test/ab1', 'a.b(1)'),
+        ])
+        self.assertIn(text, self.body_texts(result))
+
+    def test_bare_url_drops_trailing_punctuation(self):
+        text = '자세한 건 https://example.com/a?b=1. 참고'
+        result = self.run_data(self.data_with_text(text))
+        self.assertEqual(self.links(result), [
+            ('https://example.com/a?b=1', 'https://example.com/a?b=1'),
+        ])
+        self.assertIn(text, self.body_texts(result))
+
+    def test_url_links_work_without_links_map(self):
+        text = 'SHOP-9999 그리고 https://example.com/x 참고'
+        for links in (None, {}):
+            with self.subTest(links=links):
+                result = self.run_data(self.data_with_text(text, links))
+                self.assertEqual(self.links(result), [
+                    ('https://example.com/x', 'https://example.com/x'),
+                ])
+
+    def test_non_http_href_makes_no_anchor(self):
+        result = self.run_data(self.data_with_text('평범한 본문', {}))
+        probe = result['probe']
+        self.assertIsNone(probe['httpHref_javascript'])
+        self.assertIsNone(probe['httpHref_null'])
+        self.assertEqual(probe['httpHref_http'], 'http://ok.test/x')
+        self.assertEqual(probe['httpHref_upper'], 'HTTPS://OK.test/y')
+        for key in ('link_javascript', 'link_data', 'link_ftp', 'link_mailto', 'link_null', 'link_number'):
+            with self.subTest(href=key):
+                self.assertNotEqual(probe[key]['tag'], 'A')
+                self.assertIsNone(probe[key]['href'])
+        self.assertEqual(probe['link_http'], {'tag': 'A', 'href': 'http://ok.test/x'})
+        self.assertEqual(probe['link_upper'], {'tag': 'A', 'href': 'HTTPS://OK.test/y'})
+
+    def test_evidence_href_text_does_not_nest_anchor(self):
+        links = {'SHOP-13': 'https://x.test/13'}
+        evidence = [{'text': 'SHOP-13 티켓 확인', 'href': 'https://tracker.test/9'}]
+        result = self.run_data(self.data_with_text('증거는 아래와 같다', links, evidence))
+        anchors = [
+            node for tree in result['nodes'].values()
+            for node in iter_nodes(tree) if node['t'] == 'A'
+        ]
+        self.assertEqual(len(anchors), 1)
+        anchor = anchors[0]
+        self.assertEqual(anchor.get('href'), 'https://tracker.test/9')
+        self.assertEqual(anchor['text'], 'SHOP-13 티켓 확인')
+        self.assertFalse(any(n['t'] == 'A' for n in iter_nodes(anchor) if n is not anchor))
+
+
 class RenderTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix='progress-test-')
@@ -182,6 +470,101 @@ class RenderTest(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         with open(out, encoding='utf-8') as f:
             self.assertEqual(f.read(), before)
+
+    def test_links_and_meta_object_carry_into_page(self):
+        data = load_example()
+        data['links'] = {'SHOP-999': 'https://example.atlassian.net/browse/SHOP-999'}
+        data['meta'] = ['webhook-retry-20261001', {'text': 'staging', 'href': 'https://example.com/deploy/1'}]
+        out = self.out()
+        r = run_render(self.write_data(data), out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding='utf-8') as f:
+            parsed = parse_block(data_block(f.read()))
+        self.assertEqual(parsed['links'], {'SHOP-999': 'https://example.atlassian.net/browse/SHOP-999'})
+        self.assertEqual(parsed['meta'][1], {'text': 'staging', 'href': 'https://example.com/deploy/1'})
+
+    def test_links_value_must_be_http_url(self):
+        data = load_example()
+        data['links'] = {'SHOP-130': 'javascript:alert(1)'}
+        out = self.out()
+        r = run_render(self.write_data(data), out)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('links[SHOP-130]', r.stderr)
+        self.assertIn('http(s)', r.stderr)
+        self.assertFalse(os.path.exists(out))
+
+    def test_links_must_be_object(self):
+        data = load_example()
+        data['links'] = ['https://example.com']
+        out = self.out()
+        r = run_render(self.write_data(data), out)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('links', r.stderr)
+        self.assertFalse(os.path.exists(out))
+
+    def test_links_key_must_not_be_empty(self):
+        data = load_example()
+        data['links'] = {'': 'https://example.com'}
+        out = self.out()
+        r = run_render(self.write_data(data), out)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('links', r.stderr)
+        self.assertFalse(os.path.exists(out))
+
+    def test_hrefs_must_be_http_urls(self):
+        def bad_key_href(d):
+            d['keyHref'] = 'javascript:alert(1)'
+
+        def bad_meta_href(d):
+            d['meta'] = [{'text': 'staging', 'href': 'ftp://example.com/deploy'}]
+
+        def bad_evidence_href(d):
+            d['items'][1]['evidence'][0]['href'] = 'mailto:ops@example.com'
+
+        def bad_substep_href(d):
+            d['items'][3]['substeps'][0]['href'] = 'file:///etc/passwd'
+
+        def bad_changes_evidence_href(d):
+            d['changes'][0]['evidence'] = [{'text': '측정 대시보드', 'href': 'javascript:alert(1)'}]
+
+        cases = (
+            ('keyHref', bad_key_href, 'keyHref'),
+            ('meta[0].href', bad_meta_href, 'meta[0].href'),
+            ('items[1].evidence[0].href', bad_evidence_href, 'items[1].evidence[0].href'),
+            ('items[3].substeps[0].href', bad_substep_href, 'items[3].substeps[0].href'),
+            ('changes[0].evidence[0].href', bad_changes_evidence_href, 'changes[0].evidence[0].href'),
+        )
+        for name, mutate, where in cases:
+            with self.subTest(case=name):
+                data = load_example()
+                mutate(data)
+                out = self.out()
+                r = run_render(self.write_data(data), out)
+                self.assertEqual(r.returncode, 1, r.stdout)
+                self.assertIn(where, r.stderr)
+                self.assertFalse(os.path.exists(out))
+
+    def test_meta_entry_must_be_string_or_text_object(self):
+        data = load_example()
+        data['meta'] = ['ok', 3]
+        out = self.out()
+        r = run_render(self.write_data(data), out)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('meta[1]', r.stderr)
+        self.assertFalse(os.path.exists(out))
+
+        data = load_example()
+        data['meta'] = [{'href': 'https://example.com/deploy'}]
+        r = run_render(self.write_data(data, 'meta2.json'), out)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('meta[0].text', r.stderr)
+
+    def test_template_defines_source_icons(self):
+        with open(TEMPLATE, encoding='utf-8') as f:
+            tpl = f.read()
+        for name in ('i-run', 'i-chat', 'i-doc', 'i-link', 'i-chart'):
+            with self.subTest(icon=name):
+                self.assertIn('<symbol id="%s"' % name, tpl)
 
     def test_template_has_single_data_slot(self):
         with open(TEMPLATE, encoding='utf-8') as f:
