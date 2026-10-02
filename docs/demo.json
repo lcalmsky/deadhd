@@ -1,186 +1,195 @@
 {
-  "key": "FEED-2048",
-  "keyHref": "https://example.atlassian.net/browse/FEED-2048",
-  "title": "실시간 추천 피드 v2 출시와 카나리 배포",
-  "goal": "추천 피드 v2 를 카나리 5% 로 배포해 지연과 이탈 지표를 확인한 뒤 전체 출시 여부를 판정한다. 랭킹 서비스와 클라이언트 캐시 계층을 함께 올려 응답 지연과 재진입 체감 속도를 비교한다.",
-  "doneWhen": "추천 API v2 와 피드 UI 가 카나리 5% 에서 지표 기준을 통과하고 출시 판정이 기록된다.",
-  "updated": "2026-10-01 17:30 KST",
-  "meta": ["feed-recsys-v2", "prod canary 5%", "client 4.12.0"],
-  "lanes": ["백엔드", "클라이언트", "인프라·검증"],
+  "key": "SHOP-2210",
+  "keyHref": "https://example.atlassian.net/browse/SHOP-2210",
+  "links": {
+    "SHOP-2210": "https://example.atlassian.net/browse/SHOP-2210",
+    "SHOP-2231": "https://example.atlassian.net/browse/SHOP-2231",
+    "chat-api#812": "https://github.com/example/chat-api/pull/812"
+  },
+  "title": "상담 챗봇 검색 근거의 출처별 신뢰 등급 도입과 eval 검증",
+  "goal": "상담 챗봇이 답변을 만들 때 검색 근거의 출처 유형(판매자 공지, 상품 상세, 고객 후기)별로 신뢰 등급을 매겨, 고객 후기에 섞인 거짓 정보가 답변에 반영되지 않게 한다. 오프라인 eval 로 효과를 측정하고 PR 머지 후 카나리로 출시한다.",
+  "doneWhen": "출처별 신뢰 등급이 머지되고 카나리 5% 에서 거짓 정보 차단 기준을 통과한다.",
+  "updated": "2026-10-02 15:20 KST",
+  "meta": [
+    {"text": "feat/SHOP-2210", "href": "https://github.com/example/chat-api/tree/feat/SHOP-2210"},
+    {"text": "base 4f2c9a1e07", "href": "https://github.com/example/chat-api/commit/4f2c9a1e07"},
+    "chat-api"
+  ],
+  "lanes": ["본선", "병행", "인프라·검증"],
   "items": [
     {
       "id": "plan",
       "lane": 0,
       "col": 0,
-      "label": "계획·승인",
+      "label": "범위 확정",
       "sub": "완료",
       "state": "done",
-      "title": "출시 범위 확정과 승인",
-      "body": "대상은 prod 카나리 5% 이고, 종료 조건은 추천 API v2 와 피드 UI 배포 후 지표 확인이다. 설계 검토 1회와 코드 검토 2회를 거쳐 승인되었다.",
+      "title": "출처 유형과 등급 가중치 범위 확정",
+      "body": "SHOP-2210 의 범위를 판매자 공지·상품 상세·고객 후기 셋으로 나누고, 유형별 가중치로 답변 채택 여부를 가르기로 정했다. 고객 후기 단독 근거는 답변에서 제외한다.",
       "evidence": [
-        {"icon": "file", "text": "feed-v2-plan.md", "mono": true},
-        {"text": "prod 카나리 5% 허용"},
-        {"text": "전체 출시는 지표 확인 이후 별도 작업"}
+        {"icon": "chat", "text": "Slack #shop-chat 스레드", "href": "https://example.slack.com/archives/C0451ABCD/p1727850000000200"},
+        {"icon": "doc", "text": "설계 문서 (Notion)", "href": "https://www.notion.so/example/shop-chat-trust-grade-design-4d5e6f70"},
+        {"icon": "ticket", "text": "SHOP-2210", "mono": true, "href": "https://example.atlassian.net/browse/SHOP-2210"},
+        {"icon": "file", "text": "grade-scope.md", "mono": true}
       ]
     },
     {
-      "id": "rank",
+      "id": "impl",
       "lane": 0,
       "col": 1,
-      "label": "랭킹 서비스",
+      "label": "등급 구현",
       "sub": "완료",
       "state": "done",
-      "title": "랭킹 서비스 v2 의 staging 배포와 검증",
-      "body": "후보 생성과 재정렬 단계를 분리해 구현했고, 기존 경로와 병행 실행해 결과를 로그로 기록했다. staging 실호출 18회가 모두 지연 기준 안에 들어왔다.",
-      "stats": [
-        {"kind": "ring", "value": 18, "total": 18, "label": "실호출 통과"},
-        {"kind": "number", "icon": "test", "value": "3,204", "label": "테스트 통과"},
-        {"kind": "number", "icon": "deploy", "value": "10.01-4", "label": "staging 배포 버전"}
-      ],
+      "title": "출처별 신뢰 등급 계산 구현",
+      "body": "근거 문서에 출처 유형별 신뢰 등급을 매기고, 등급 미달 근거를 답변 생성 입력에서 걸러내는 경로를 구현했다. 판매자 공지 3, 상품 상세 2, 고객 후기 0으로 등급을 고정했다.",
       "evidence": [
-        {"icon": "pr", "text": "feed-api#2210", "mono": true, "href": "https://github.com/example/feed-api/pull/2210"},
-        {"icon": "commit", "text": "4f1c9ab7d2", "mono": true, "href": "https://github.com/example/feed-api/commit/4f1c9ab7d2"}
+        {"icon": "commit", "text": "8d3f1a72c4", "mono": true, "href": "https://github.com/example/chat-api/commit/8d3f1a72c4"},
+        {"icon": "file", "text": "trust_grade.py", "mono": true},
+        {"icon": "check", "text": "등급 계산 단위 테스트 96건 통과"}
       ]
     },
     {
-      "id": "store",
+      "id": "fixture",
       "lane": 0,
       "col": 2,
-      "label": "피처 스토어",
-      "sub": "완료",
+      "label": "diff 대조·픽스처",
+      "sub": "일치",
       "state": "done",
-      "title": "피처 스토어 연동과 캐시 워밍",
-      "body": "사용자 임베딩과 상호작용 피처를 피처 스토어에서 읽도록 바꿨고, 배포 시점에 상위 사용자 캐시를 미리 채운다. 캐시 적중률 96.4% 를 기록했다.",
+      "title": "프롬프트 diff 대조와 eval 픽스처 재생성",
+      "body": "등급 도입 전후 프롬프트를 같은 입력으로 대조해, 고객 후기 근거가 답변 문장에 남는 경로가 사라진 것을 확인했다. 거짓 정보가 섞인 고객 후기를 포함하도록 eval 픽스처를 다시 만들고, 거짓 항목 라벨과 근거 출처를 함께 기록했다.",
       "evidence": [
-        {"icon": "ticket", "text": "FEED-2051", "mono": true, "href": "https://example.atlassian.net/browse/FEED-2051"},
-        {"icon": "commit", "text": "c17d40e9a8", "mono": true, "href": "https://github.com/example/feed-api/commit/c17d40e9a8"},
-        {"icon": "check", "text": "cache-hit 96.4%"}
+        {"icon": "file", "text": "prompt-diff.md", "mono": true},
+        {"icon": "commit", "text": "3a7c2e91b6", "mono": true, "href": "https://github.com/example/chat-api/commit/3a7c2e91b6"},
+        {"icon": "file", "text": "fixtures/reviews_false.jsonl", "mono": true},
+        {"icon": "check", "text": "거짓 항목 라벨 64건 재생성"}
       ]
     },
     {
-      "id": "api",
+      "id": "eval",
       "lane": 0,
       "col": 3,
-      "label": "추천 API v2 검증",
-      "sub": "지적 반영 중",
-      "state": "now",
-      "title": "추천 API v2 의 배포 전 검증",
-      "body": "지연 예산 검증과 보안 리뷰를 통과했고, 캐시 만료 처리와 폴백 경로에 대한 지적을 반영하고 있다. 반영이 끝나면 카나리 배포를 시작한다.",
-      "substeps": [
-        {"label": "지연 예산 검증", "state": "done"},
-        {"label": "보안 리뷰", "state": "done"},
-        {"label": "캐시·폴백 지적 반영", "state": "now"},
-        {"label": "카나리 배포", "state": "left"},
-        {"label": "지표 확인", "state": "left"}
+      "label": "오프라인 eval",
+      "sub": "완료",
+      "state": "done",
+      "title": "오프라인 eval 측정",
+      "body": "재생성한 픽스처 20건으로 오프라인 eval 을 돌려 18건이 기준을 통과했다. 남은 2건은 답변 문구가 아니라 근거 요약 순서 문제로 분류했다.",
+      "stats": [
+        {"kind": "ring", "value": 18, "total": 20, "label": "픽스처 통과"},
+        {"kind": "number", "icon": "test", "value": "1,842", "label": "eval 단위 테스트"}
       ],
       "evidence": [
-        {"icon": "commit", "text": "feat/FEED-2048 8b27e0f31c", "mono": true, "href": "https://github.com/example/feed-api/commit/8b27e0f31c"},
-        {"icon": "test", "text": "만료·폴백 회귀 테스트 46건 통과"}
+        {"icon": "chart", "text": "Datadog eval 대시보드", "href": "https://app.datadoghq.com/dashboard/aaa-bbb/shop-chat-eval"}
       ]
     },
     {
-      "id": "rollout",
+      "id": "pr",
       "lane": 0,
       "col": 4,
-      "label": "카나리 5% 배포",
-      "sub": "대기",
-      "state": "left",
-      "title": "카나리 5% 배포와 지표 관찰",
-      "body": "추천 API v2 와 피드 UI 를 카나리 5% 에 배포하고 24시간 동안 지연과 이탈 지표를 관찰한다. 기준을 벗어나면 즉시 이전 버전으로 복귀한다."
+      "label": "PR·머지",
+      "sub": "재측정 중",
+      "state": "now",
+      "title": "PR 검증과 머지",
+      "body": "chat-api#812 검증에서 대조군 판정 기준이 잘못 잡힌 것을 확인해 정정하고 다시 측정하고 있다. 재측정이 끝나면 재검증 후 머지한다.",
+      "substeps": [
+        {"label": "PR 생성", "state": "done"},
+        {"label": "/verify PASS", "state": "done", "href": "https://github.com/example/chat-api/actions/runs/5518273344"},
+        {"label": "리뷰 반영", "state": "done"},
+        {"label": "재작업 1·2", "state": "done"},
+        {"label": "재작업 3 실측", "state": "done"},
+        {"label": "대조군 정정·재측정", "state": "now"},
+        {"label": "재검증·머지", "state": "left"}
+      ],
+      "compare": [
+        {
+          "caption": "후기 속 거짓 정보 차단율 · 합성 5회",
+          "rows": [
+            {"label": "v1 (변경 전)", "value": 0, "tone": "lose"},
+            {"label": "v2 (변경 후)", "value": 100, "tone": "win"}
+          ]
+        }
+      ],
+      "evidence": [
+        {"icon": "pr", "text": "chat-api#812", "mono": true, "href": "https://github.com/example/chat-api/pull/812"},
+        {"icon": "commit", "text": "b5e0c19d7a", "mono": true, "href": "https://github.com/example/chat-api/commit/b5e0c19d7a"},
+        {"icon": "commit", "text": "c93a70f12e", "mono": true, "href": "https://github.com/example/chat-api/commit/c93a70f12e"},
+        {"icon": "test", "text": "전체 테스트 3,214건 통과"},
+        {"icon": "run", "text": "GitHub Actions run 5518273344", "mono": true, "href": "https://github.com/example/chat-api/actions/runs/5518273344"}
+      ]
     },
     {
-      "id": "decision",
+      "id": "release",
       "lane": 0,
       "col": 5,
-      "label": "출시 판정",
+      "label": "카나리 출시",
       "sub": "대기",
       "state": "left",
-      "title": "전체 출시 판정",
-      "body": "카나리 지표와 클라이언트 배포 상태를 대조해 전체 출시 여부를 판정한다.",
+      "title": "카나리 출시",
+      "body": "머지 이후 전체 상담 트래픽의 5%에 신규 등급 로직을 적용하고, 고객 후기 근거가 답변에 섞이는 비율을 관찰한다.",
       "evidence": [
         {"icon": "file", "text": "release-criteria.md", "mono": true}
       ]
     },
     {
-      "id": "ui",
+      "id": "collect",
       "lane": 1,
-      "col": 2,
-      "label": "피드 UI 개편",
+      "col": 1,
+      "label": "eval 입력 수집",
       "sub": "완료",
       "state": "done",
-      "title": "피드 UI 개편과 이벤트 수집",
-      "body": "추천 이유 표시와 무한 스크롤을 새 응답 형식에 맞춰 구현했고, 노출·클릭 이벤트를 수집 경로에 연결했다.",
-      "stats": [
-        {"kind": "number", "icon": "test", "value": "1,187", "label": "클라이언트 테스트"},
-        {"kind": "number", "icon": "deploy", "value": "4.12.0-rc1", "label": "빌드 버전"}
-      ],
+      "title": "eval 입력 수집",
+      "body": "최근 상담 로그에서 답변 근거로 쓰인 출처 유형의 분포를 뽑아 eval 입력으로 정리했다. 판매자 공지 41%, 상품 상세 37%, 고객 후기 22%였다.",
       "evidence": [
-        {"icon": "pr", "text": "feed-client#870", "mono": true, "href": "https://github.com/example/feed-client/pull/870"},
-        {"icon": "commit", "text": "2ae6f1d904", "mono": true, "href": "https://github.com/example/feed-client/commit/2ae6f1d904"}
+        {"icon": "file", "text": "source-mix.csv", "mono": true},
+        {"icon": "chart", "text": "상담 로그 출처 분포", "href": "https://app.datadoghq.com/dashboard/aaa-bbb/shop-chat-source-mix"}
       ]
     },
     {
       "id": "cache",
       "lane": 1,
-      "col": 3,
-      "label": "캐시 계층 도입",
-      "sub": "설계 검토",
+      "col": 2,
+      "label": "근거 캐시 무효화",
+      "sub": "구성 중",
       "state": "side",
-      "title": "클라이언트 캐시 계층 도입",
-      "body": "피드 응답을 로컬에 저장해 재진입 시 즉시 그리는 방식을 검토했고, 만료 정책 두 안을 비교해 채택안을 정했다.",
-      "badge": "병행 · 설계 검토",
-      "compare": [
-        {
-          "caption": "재진입 체감 지연 · 3안 × 200회",
-          "rows": [
-            {"label": "로컬 캐시 (B)", "value": 92, "tone": "win"},
-            {"label": "메모리 캐시", "value": 64, "tone": "lose"}
-          ]
-        },
-        {
-          "caption": "만료 전 노출된 이전 추천 비율",
-          "rows": [
-            {"label": "위험 구간", "value": 7.8, "tone": "risk"}
-          ]
-        }
-      ],
+      "title": "근거 캐시 무효화",
+      "body": "등급이 바뀐 근거 문서의 캐시를 무효화하는 경로를 등급 배포와 함께 구성한다. 캐시 키에 근거 등급을 포함해 이전 등급의 응답이 재사용되지 않게 한다.",
+      "badge": "병행 · 구성",
       "evidence": [
-        {"icon": "file", "text": "cache-policy.md", "mono": true},
-        {"text": "만료 정책 2안 비교 완료"}
+        {"icon": "pr", "text": "chat-api#815", "mono": true, "href": "https://github.com/example/chat-api/pull/815"},
+        {"icon": "file", "text": "cache-key.md", "mono": true}
       ]
     },
     {
-      "id": "ship",
+      "id": "widget",
       "lane": 1,
       "col": 4,
-      "label": "앱 배포",
+      "label": "상담 위젯 배지",
       "sub": "차단",
       "state": "blocked",
-      "title": "클라이언트 앱 배포 보류",
-      "body": "스토어 심사에서 추천 이유 문구의 근거 표시 요건이 지적되어 앱 배포가 보류되었다. 문구를 조정한 빌드를 다시 제출해야 한다.",
+      "title": "상담 위젯 출처 배지 보류",
+      "body": "답변에 붙는 출처 배지의 등급 표기 문구가 SHOP-2231 검토에서 보류되었다. 고객 후기 근거를 뺀 답변에 배지를 어떻게 붙일지 문구를 정한 뒤 다시 검토를 받아야 한다.",
       "substeps": [
         {"label": "빌드 제출", "state": "done"},
-        {"label": "심사 지적 수신", "state": "blocked"},
-        {"label": "문구 조정", "state": "left"},
+        {"label": "문구 검토", "state": "blocked"},
+        {"label": "문구 수정", "state": "left"},
         {"label": "재제출", "state": "left"}
       ],
       "evidence": [
-        {"icon": "ticket", "text": "FEED-2063", "mono": true, "href": "https://example.atlassian.net/browse/FEED-2063"},
-        {"icon": "file", "text": "review-reply.md", "mono": true}
+        {"icon": "ticket", "text": "SHOP-2231", "mono": true, "href": "https://example.atlassian.net/browse/SHOP-2231"},
+        {"icon": "file", "text": "badge-review-note.md", "mono": true}
       ]
     },
     {
       "id": "harness",
       "lane": 2,
-      "col": 2,
-      "label": "부하 측정 하네스",
+      "col": 1,
+      "label": "계약 하네스",
       "sub": "완료",
       "state": "done",
-      "title": "부하 측정 하네스 구성",
-      "body": "카나리 지표를 같은 조건에서 비교할 수 있게 부하 측정 하네스를 구성했고, 기준선 트래픽에서 p95 지연과 오류율을 수집한다.",
+      "title": "출처 등급 계약 하네스",
+      "body": "등급 계산과 근거 필터가 같은 결과를 내는지 확인하는 계약 하네스를 구성했고, 등급별 필터 동작 12건을 검증했다.",
       "evidence": [
-        {"icon": "file", "text": "load-harness.yaml", "mono": true},
-        {"icon": "check", "text": "기준선 측정 3회 통과"}
+        {"icon": "file", "text": "contract_harness.py", "mono": true},
+        {"icon": "check", "text": "등급 필터 계약 12건 통과"}
       ]
     },
     {
@@ -191,27 +200,40 @@
       "sub": "구성 중",
       "state": "side",
       "title": "카나리 파이프라인 구성",
-      "body": "트래픽 5% 를 새 버전으로 보내고 지표를 자동으로 비교하는 파이프라인을 구성한다. 기준을 벗어난 지표가 검출되면 이전 버전으로 자동 복귀한다.",
+      "body": "상담 트래픽 5%에 신규 등급을 적용하고 답변 품질 지표를 자동 비교하는 파이프라인을 구성한다. 지표가 기준을 벗어나면 이전 로직으로 자동 복귀한다.",
       "badge": "병행 · 구성",
       "evidence": [
-        {"icon": "pr", "text": "infra#455", "mono": true, "href": "https://github.com/example/infra/pull/455"},
+        {"icon": "pr", "text": "infra#218", "mono": true, "href": "https://github.com/example/infra/pull/218"},
         {"icon": "file", "text": "canary-values.yaml", "mono": true}
+      ]
+    },
+    {
+      "id": "dash",
+      "lane": 2,
+      "col": 4,
+      "label": "지표 대시보드",
+      "sub": "대기",
+      "state": "left",
+      "title": "답변 품질 지표 대시보드",
+      "body": "카나리 기간에 출처 유형별 근거 채택률과 거짓 정보 차단율을 볼 대시보드를 준비한다.",
+      "evidence": [
+        {"icon": "chart", "text": "상담 답변 품질 대시보드", "href": "https://app.datadoghq.com/dashboard/ccc-ddd/shop-chat-quality"}
       ]
     }
   ],
   "edges": [
-    ["plan", "rank"], ["rank", "store"], ["store", "api"], ["api", "rollout"], ["rollout", "decision"],
-    ["rank", "ui"], ["rank", "harness"], ["ui", "cache"], ["cache", "ship"],
-    ["cache", "rollout"], ["harness", "canary"], ["canary", "rollout"]
+    ["plan", "impl"], ["plan", "collect"], ["plan", "harness"], ["impl", "fixture"],
+    ["harness", "fixture"], ["collect", "cache"], ["fixture", "eval"], ["cache", "eval"],
+    ["eval", "pr"], ["cache", "widget"], ["harness", "canary"], ["canary", "dash"],
+    ["pr", "release"], ["widget", "release"], ["dash", "release"]
   ],
   "changes": [
     {
-      "title": "재진입 캐시를 로컬 캐시(B)로 확정",
-      "body": "3안 × 200회 비교에서 로컬 캐시가 92% 로 메모리 캐시(64%)보다 높아, 채택안을 로컬 캐시로 바꿨다."
-    },
-    {
-      "title": "앱 배포를 카나리 지표 확인 이후로 이동",
-      "body": "스토어 심사 지적이 남아 있어, 클라이언트 배포를 카나리 지표 확인 뒤로 미뤘다."
+      "title": "대조군 판정 기준을 골드 라벨로 교체",
+      "body": "1차 측정에서 대조군 판정 기준이 변경 전 버전의 자기 출력이라 차단율이 0% 로 잡혔다. 골드 라벨 기준으로 바꿔 v2 차단율을 다시 측정한다.",
+      "evidence": [
+        {"icon": "commit", "text": "d41f8ab306", "mono": true, "href": "https://github.com/example/chat-api/commit/d41f8ab306"}
+      ]
     }
   ]
 }
