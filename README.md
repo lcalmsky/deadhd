@@ -4,9 +4,9 @@
 
 <p align="center"><i>A Claude Code skill that shows a live checklist page of what each session has done, is doing now, and has left.</i></p>
 
-Claude Code 세션을 여러 개 띄워 놓고 일하다 보면, 다른 세션을 보고 돌아왔을 때 이 세션이 어디까지 진행했는지 놓치기 쉽습니다. deadhd 는 세션의 진행 상황을 체크리스트 페이지로 띄워 두고, 터미널 로그를 거슬러 올라가지 않아도 한눈에 확인할 수 있게 해 주는 스킬입니다. 이름은 dead 와 ADHD 를 겹쳐 만들었습니다.
+Claude Code 세션을 여러 개 띄워 놓고 일하다 보면, 다른 세션을 보고 돌아왔을 때 이 세션이 어디까지 진행했는지 놓치기 쉽습니다. deadhd 는 세션의 진행 상황을 체크리스트 페이지로 띄워 두고, 터미널 로그를 거슬러 올라가지 않아도 한눈에 확인할 수 있게 해 주는 스킬입니다.
 
-![터미널 옆 인앱 브라우저에 진행 페이지를 띄운 화면](docs/hero.png)
+![터미널 옆 인앱 브라우저에 진행 페이지를 띄우고 워크스페이스를 전환하는 화면](docs/hero.webp)
 
 ## 사용 장면
 
