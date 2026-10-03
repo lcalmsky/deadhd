@@ -717,6 +717,19 @@ class RenderTest(unittest.TestCase):
         with open(path, 'rb') as f:
             self.assertEqual(f.read(), before)
 
+    def test_render_leaves_no_bytecode_in_skill_dir(self):
+        skill = os.path.join(self.tmp, 'skill')
+        os.mkdir(skill)
+        for name in ('render.py', 'config.py', 'template.html'):
+            shutil.copy(os.path.join(HERE, name), skill)
+        env = dict(os.environ)
+        env.pop('PYTHONDONTWRITEBYTECODE', None)
+        env['DEADHD_CONFIG'] = MISSING_CONFIG
+        r = subprocess.run([sys.executable, os.path.join(skill, 'render.py'), EXAMPLE, self.out()],
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(skill, '__pycache__')))
+
     def test_refresh_meta_present(self):
         out = self.out()
         self.assertEqual(run_render(EXAMPLE, out).returncode, 0)

@@ -19,6 +19,8 @@ MAX_ESTIMATE_MINUTES = 525600
 
 # 같은 디렉터리의 config.py 를 읽으려면 HERE 가 먼저 있어야 한다.
 sys.path.insert(0, HERE)
+# 스킬 폴더는 Orca 공유 등으로 통째로 게시되므로 __pycache__ 를 남기지 않는다.
+sys.dont_write_bytecode = True
 import config
 
 THEMES = config.ALLOWED['theme']
