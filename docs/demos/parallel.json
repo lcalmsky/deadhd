@@ -1,0 +1,179 @@
+{
+  "key": "SHOP-128",
+  "keyHref": "https://example.atlassian.net/browse/SHOP-128",
+  "links": {
+    "SHOP-128": "https://example.atlassian.net/browse/SHOP-128",
+    "SHOP-130": "https://example.atlassian.net/browse/SHOP-130",
+    "SHOP-131": "https://example.atlassian.net/browse/SHOP-131",
+    "SHOP-132": "https://example.atlassian.net/browse/SHOP-132",
+    "shop-api#4120": "https://github.com/example/shop-api/pull/4120",
+    "shop-api#4131": "https://github.com/example/shop-api/pull/4131"
+  },
+  "title": "결제 웹훅 재시도 큐 도입과 스테이징 검증",
+  "goal": "결제 웹훅 유실을 줄이기 위해 재시도 큐와 데드레터 처리를 도입하고, 전환 전에 실제 주문 흐름에서 재처리 결과가 맞는지 로그로 확인한다.",
+  "doneWhen": "결제 웹훅 재시도 큐가 staging 에 배포되고 실호출 검증을 통과한다.",
+  "updated": "2026-10-01 09:30 KST",
+  "meta": [
+    "webhook-retry-20261001",
+    {"text": "staging", "href": "https://github.com/example/shop-api/actions/runs/1234567890"}
+  ],
+  "lanes": ["본선", "병행"],
+  "items": [
+    {
+      "id": "plan",
+      "lane": 0,
+      "col": 0,
+      "label": "계획·승인",
+      "sub": "완료",
+      "state": "done",
+      "startedAt": "2026-09-30T14:10:00+09:00",
+      "doneAt": "2026-09-30T16:30:00+09:00",
+      "title": "계획 수립과 승인",
+      "body": "대상은 staging, 종료 조건은 재시도 큐 배포 후 실호출 검증이다. 설계 검토 1회와 코드 검토 2회를 거쳐 승인되었다.",
+      "evidence": [
+        {"icon": "file", "text": "design-consensus.md", "mono": true},
+        {"icon": "doc", "text": "설계 문서 (Notion)", "href": "https://www.notion.so/example/shop-api-webhook-retry-design-1a2b3c4d"},
+        {"icon": "chat", "text": "Slack #shop-deploy 스레드", "href": "https://example.slack.com/archives/C0123456/p1727740000000100"},
+        {"text": "staging 실호출 허용"},
+        {"text": "부하 측정 제외"},
+        {"text": "prod 는 큐 도입 이후 별도 작업"}
+      ]
+    },
+    {
+      "id": "s1d",
+      "lane": 0,
+      "col": 1,
+      "label": "S1 큐 배포",
+      "sub": "완료",
+      "state": "done",
+      "startedAt": "2026-09-30T16:40:00+09:00",
+      "doneAt": "2026-09-30T23:50:00+09:00",
+      "title": "S1 재시도 큐의 staging 배포와 검증",
+      "body": "재시도 큐·워커·지수 백오프·데드레터 처리를 구현했고, 직접 호출 경로와 병행해 결과를 로그로만 기록한다. staging 실호출 14회가 모두 통과했다.",
+      "stats": [
+        {"kind": "ring", "value": 14, "total": 14, "label": "재시도 이벤트"},
+        {"kind": "number", "icon": "test", "value": "4,812", "label": "테스트 통과"},
+        {"kind": "number", "icon": "deploy", "value": "10.01-1", "label": "staging 배포 버전"}
+      ],
+      "evidence": [
+        {"icon": "pr", "text": "shop-api#4120", "mono": true, "href": "https://github.com/example/shop-api/pull/4120"},
+        {"icon": "commit", "text": "9a95d3c864", "mono": true, "href": "https://github.com/example/shop-api/commit/9a95d3c864"},
+        {"icon": "pr", "text": "shop-api#4131", "mono": true, "href": "https://github.com/example/shop-api/pull/4131"},
+        {"icon": "run", "text": "GitHub Actions run 1234567890", "mono": true, "href": "https://github.com/example/shop-api/actions/runs/1234567890"},
+        {"icon": "chart", "text": "Datadog 재시도 큐 대시보드", "href": "https://app.datadoghq.com/dashboard/abc-def/webhook-retry"}
+      ]
+    },
+    {
+      "id": "s1c",
+      "lane": 0,
+      "col": 2,
+      "label": "S1 종결",
+      "sub": "완료",
+      "state": "done",
+      "startedAt": "2026-10-01T08:45:00+09:00",
+      "doneAt": "2026-10-01T09:05:00+09:00",
+      "title": "S1 종결",
+      "body": "SHOP-128 에 결과를 보고하고 STAGING 완료로 전이했으며, 하위 작업 3건을 종료했다. 배포 증거 묶음 검증도 통과했다.",
+      "evidence": [
+        {"icon": "ticket", "text": "Jira 댓글 41877", "href": "https://example.atlassian.net/browse/SHOP-128?focusedCommentId=41877"},
+        {"icon": "ticket", "text": "SHOP-130·131·132 완료"},
+        {"icon": "check", "text": "evidence-bundle.json passed", "mono": true},
+        {"icon": "file", "text": "작업 로그 2026-10-01"}
+      ]
+    },
+    {
+      "id": "s2v",
+      "lane": 0,
+      "col": 3,
+      "label": "S2 배포 전 검증",
+      "sub": "지적 반영 중",
+      "state": "now",
+      "startedAt": "2026-10-01T09:10:00+09:00",
+      "estimate": 45,
+      "title": "S2 중복 결제 방지의 배포 전 검증",
+      "body": "/verify PASS, 성능 리뷰 APPROVE 를 받았다. 보안(결제 키 마스킹 보강)과 테스트 지적을 반영하고 있으며, 반영이 끝나면 staging 에 배포하고 주문 결제 흐름을 실호출로 검증한다.",
+      "substeps": [
+        {"label": "/verify PASS", "state": "done", "href": "https://github.com/example/shop-api/actions/runs/1234555555"},
+        {"label": "성능 리뷰", "state": "done"},
+        {"label": "보안·테스트 지적 반영", "state": "now"},
+        {"label": "staging 배포", "state": "left"},
+        {"label": "실호출 검증", "state": "left"}
+      ],
+      "evidence": [
+        {"icon": "commit", "text": "feat/SHOP-130 31c0661191", "mono": true, "href": "https://github.com/example/shop-api/commit/31c0661191"},
+        {"icon": "test", "text": "회귀 러너 idempotencyKey 지원 · 테스트 78건 통과"}
+      ]
+    },
+    {
+      "id": "s2d",
+      "lane": 0,
+      "col": 4,
+      "label": "S2 staging 검증",
+      "sub": "대기",
+      "state": "left",
+      "estimate": 90,
+      "title": "S2 배포와 staging 검증",
+      "body": "테스트 계정 로그인, 주문 결제 완료, 웹훅 재전송 순서로 검증한다. 재현 가능한 주문이 없으면 차단 상태로 보고한다."
+    },
+    {
+      "id": "audit",
+      "lane": 0,
+      "col": 5,
+      "label": "완료 감사",
+      "sub": "대기",
+      "state": "left",
+      "estimate": 60,
+      "title": "완료 감사",
+      "body": "S1~S4 산출물과 증거를 대조해 작업 종료 여부를 판정한다."
+    },
+    {
+      "id": "s3",
+      "lane": 1,
+      "col": 3,
+      "label": "S3 측정 도구",
+      "sub": "코드 리뷰",
+      "state": "side",
+      "estimate": 120,
+      "title": "S3 측정 도구 이관과 재처리 지연 재측정",
+      "body": "측정은 완료되었다. 재처리 순서는 묶음 처리(b)가 25건 3회 모두 100%(단건 처리 69%)로 S4 에 채택되었다. 중복 웹훅 한 건으로 멱등 판정의 43.5% 가 뒤집혀, 전환 시 위험 신호로 기록했다.",
+      "badge": "병행 · 코드 리뷰",
+      "compare": [
+        {
+          "caption": "재처리 순서 정확도 · 25건 × 3회",
+          "rows": [
+            {"label": "묶음 처리 (b)", "value": 100, "tone": "win"},
+            {"label": "단건 처리", "value": 69, "tone": "lose"}
+          ]
+        },
+        {
+          "caption": "중복 웹훅 한 건에 뒤집힌 멱등 판정",
+          "rows": [
+            {"label": "위험 신호", "value": 43.5, "tone": "risk"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s4",
+      "lane": 1,
+      "col": 4,
+      "label": "S4 멱등 처리",
+      "sub": "설계 검토",
+      "state": "side",
+      "estimate": 240,
+      "title": "S4 중복 웹훅 멱등 처리",
+      "body": "S3 재측정에서 채택된 묶음 처리 구성으로 구현, 배포, 검증을 진행한다.",
+      "badge": "병행 · 설계 검토"
+    }
+  ],
+  "edges": [
+    ["plan", "s1d"], ["s1d", "s1c"], ["s1c", "s2v"], ["s2v", "s2d"],
+    ["s2d", "audit"], ["s1c", "s3"], ["s3", "s4"], ["s4", "audit"]
+  ],
+  "changes": [
+    {
+      "title": "재처리 순서를 묶음 처리(b)로 확정",
+      "body": "25건 3회 모두 100% 로 단건 처리(69%)보다 높아, S4 구현 기준을 묶음 처리로 바꿨다."
+    }
+  ]
+}

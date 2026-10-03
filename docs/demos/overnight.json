@@ -1,0 +1,135 @@
+{
+  "key": "DATA-412",
+  "keyHref": "https://example.atlassian.net/browse/DATA-412",
+  "links": {
+    "DATA-412": "https://example.atlassian.net/browse/DATA-412",
+    "DATA-415": "https://example.atlassian.net/browse/DATA-415",
+    "order-db#204": "https://github.com/example/order-db/pull/204",
+    "order-db#209": "https://github.com/example/order-db/pull/209"
+  },
+  "title": "주문 이력 테이블의 월별 파티션 이관과 야간 재색인",
+  "goal": "주문 이력 테이블이 커지면서 기간 조회가 느려져, 24개월치를 월별 파티션으로 나눠 옮기고 야간에 재색인까지 마친다. 이관 뒤에는 파티션별 행 수와 조회 계획이 이전과 같은지 대조한다.",
+  "doneWhen": "24개월치 파티션 이관과 야간 재색인이 끝나고, 파티션별 행 수 대조와 조회 계획 검증을 통과한다.",
+  "updated": "2026-10-02 22:40 KST",
+  "meta": [
+    "order-db",
+    {"text": "prod"},
+    {"text": "migration/partition", "href": "https://github.com/example/order-db/tree/migration/partition"}
+  ],
+  "items": [
+    {
+      "id": "scope",
+      "col": 0,
+      "label": "범위 확정",
+      "sub": "완료",
+      "state": "done",
+      "startedAt": "2026-10-01T14:00:00+09:00",
+      "doneAt": "2026-10-01T15:40:00+09:00",
+      "title": "이관 대상과 기준 확정",
+      "body": "주문 이력 테이블 24개월치를 월별 파티션으로 나누고, 기준 월과 보관 기간을 DATA-415 에 맞춰 정했다. 이관 중 쓰기 경로는 잠그지 않고, 이관 뒤 대조로 정합성을 판정한다.",
+      "evidence": [
+        {"icon": "ticket", "text": "DATA-415", "mono": true, "href": "https://example.atlassian.net/browse/DATA-415"},
+        {"icon": "file", "text": "partition-plan.md", "mono": true}
+      ]
+    },
+    {
+      "id": "ddl",
+      "col": 1,
+      "label": "DDL 준비",
+      "sub": "완료",
+      "state": "done",
+      "startedAt": "2026-10-01T16:10:00+09:00",
+      "doneAt": "2026-10-01T18:20:00+09:00",
+      "title": "파티션 DDL 작성과 리허설",
+      "body": "월별 파티션 정의와 이관 스크립트를 작성하고, 스테이징 사본에서 3개월치로 먼저 실행해 처리 순서와 잠금 시간을 확인했다.",
+      "evidence": [
+        {"icon": "pr", "text": "order-db#204", "mono": true, "href": "https://github.com/example/order-db/pull/204"},
+        {"icon": "commit", "text": "5b81c04e", "mono": true, "href": "https://github.com/example/order-db/commit/5b81c04e"},
+        {"icon": "check", "text": "3개월치 리허설 통과"}
+      ]
+    },
+    {
+      "id": "backfill",
+      "col": 2,
+      "label": "이력 이관",
+      "sub": "완료",
+      "state": "done",
+      "startedAt": "2026-10-02T10:30:00+09:00",
+      "doneAt": "2026-10-02T13:10:00+09:00",
+      "title": "24개월 이력 이관",
+      "body": "낮은 트래픽 시간대에 24개월치를 배치로 옮겼고, 배치 1회당 4만 건씩 나눠 처리했다. 이관 중 들어온 신규 주문은 양쪽에 기록해 두고 대조에서 확인한다.",
+      "evidence": [
+        {"icon": "test", "text": "이관 대상 1,182만 건"},
+        {"icon": "check", "text": "배치 296회 완료"}
+      ]
+    },
+    {
+      "id": "verify",
+      "col": 3,
+      "label": "행 수 대조",
+      "sub": "완료",
+      "state": "done",
+      "startedAt": "2026-10-02T14:00:00+09:00",
+      "doneAt": "2026-10-02T16:20:00+09:00",
+      "title": "파티션별 행 수 대조",
+      "body": "파티션별 행 수와 최근 7일 표본 2만 건의 값을 원본과 맞춰 봤고, 불일치가 없었다. 기간 조회에 파티션 프루닝이 걸리는 것도 실행 계획으로 확인했다.",
+      "evidence": [
+        {"icon": "check", "text": "행 수 대조 24개월 불일치 0"},
+        {"icon": "commit", "text": "b27de9a3", "mono": true, "href": "https://github.com/example/order-db/commit/b27de9a3"},
+        {"icon": "file", "text": "verify-result.md", "mono": true}
+      ]
+    },
+    {
+      "id": "migrate",
+      "col": 4,
+      "label": "파티션 이관",
+      "sub": "이관 중",
+      "state": "now",
+      "startedAt": "2026-10-02T21:50:00+09:00",
+      "estimate": 70,
+      "title": "운영 테이블 파티션 이관 실행",
+      "body": "운영 주문 이력 테이블에 월별 파티션을 붙이며 18개월치를 옮겼다. 남은 6개월치를 같은 순서로 이어서 옮기고, 끝나면 야간 재색인으로 넘어간다.",
+      "stats": [
+        {"kind": "ring", "value": 18, "total": 24, "label": "이관된 파티션"},
+        {"kind": "number", "icon": "check", "value": "886만", "label": "이관된 행 수"}
+      ],
+      "substeps": [
+        {"label": "잠금 없이 파티션 생성", "state": "done"},
+        {"label": "18개월치 이관", "state": "done"},
+        {"label": "남은 6개월치 이관", "state": "now"},
+        {"label": "조회 계획 재확인", "state": "left"}
+      ],
+      "evidence": [
+        {"icon": "commit", "text": "7c1f0a2d", "mono": true, "href": "https://github.com/example/order-db/commit/7c1f0a2d"},
+        {"icon": "run", "text": "GitHub Actions run 6041823199", "mono": true, "href": "https://github.com/example/order-db/actions/runs/6041823199"}
+      ]
+    },
+    {
+      "id": "reindex",
+      "col": 5,
+      "label": "야간 재색인",
+      "sub": "대기",
+      "state": "left",
+      "estimate": 60,
+      "title": "야간 재색인",
+      "body": "이관한 파티션을 대상으로 인덱스를 다시 만들고, 같은 질의로 색인 전후 조회 응답 시간을 비교한다.",
+      "evidence": [
+        {"icon": "pr", "text": "order-db#209", "mono": true, "href": "https://github.com/example/order-db/pull/209"},
+        {"icon": "file", "text": "reindex-plan.md", "mono": true}
+      ]
+    },
+    {
+      "id": "report",
+      "col": 6,
+      "label": "결과 보고",
+      "sub": "대기",
+      "state": "left",
+      "estimate": 60,
+      "title": "이관 결과 보고와 종료",
+      "body": "파티션별 행 수, 조회 계획, 재색인 전후 응답 시간을 모아 DATA-412 에 보고하고 작업을 종료한다.",
+      "evidence": [
+        {"icon": "ticket", "text": "DATA-412", "mono": true, "href": "https://example.atlassian.net/browse/DATA-412"}
+      ]
+    }
+  ]
+}

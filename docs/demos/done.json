@@ -1,0 +1,148 @@
+{
+  "key": "APP-77",
+  "keyHref": "https://example.atlassian.net/browse/APP-77",
+  "links": {
+    "APP-77": "https://example.atlassian.net/browse/APP-77",
+    "APP-81": "https://example.atlassian.net/browse/APP-81",
+    "app-api#512": "https://github.com/example/app-api/pull/512",
+    "app-api#518": "https://github.com/example/app-api/pull/518"
+  },
+  "title": "푸시 알림 수신 동의 데이터의 서버 이관",
+  "goal": "앱이 기기 로컬에만 모으던 푸시 알림 수신 동의 값을 서버로 옮겨, 기기를 바꾸거나 앱을 다시 설치해도 동의 상태가 유지되게 한다. 이관 뒤에는 앱과 서버의 동의 값이 같은지 검증한다.",
+  "doneWhen": "동의 데이터가 서버로 이관되고 앱·서버 값 대조와 발송 차단 검증을 통과한다.",
+  "updated": "2026-09-30 18:10 KST",
+  "meta": [
+    "app-api",
+    {"text": "prod"},
+    {"text": "feat/APP-77", "href": "https://github.com/example/app-api/tree/feat/APP-77"}
+  ],
+  "lanes": ["앱", "서버"],
+  "items": [
+    {
+      "id": "a-def",
+      "lane": 0,
+      "col": 0,
+      "label": "동의 항목 정의",
+      "sub": "완료",
+      "state": "done",
+      "startedAt": "2026-09-28T10:00:00+09:00",
+      "doneAt": "2026-09-28T11:30:00+09:00",
+      "title": "앱 동의 항목 정의",
+      "body": "알림 종류별 동의 여부와 동의 시각을 항목으로 정하고, 기기 식별자와 함께 서버로 보내는 형식을 확정했다. 서버가 모르는 항목은 무시하고 저장하지 않는다.",
+      "evidence": [
+        {"icon": "ticket", "text": "APP-77", "mono": true, "href": "https://example.atlassian.net/browse/APP-77"},
+        {"icon": "file", "text": "consent-schema.md", "mono": true}
+      ]
+    },
+    {
+      "id": "a-collect",
+      "lane": 0,
+      "col": 1,
+      "label": "수집 배포",
+      "sub": "완료",
+      "state": "done",
+      "startedAt": "2026-09-29T09:40:00+09:00",
+      "doneAt": "2026-09-29T16:20:00+09:00",
+      "title": "앱 수집 코드 배포",
+      "body": "동의 값이 바뀔 때마다 서버로 전송하는 코드를 넣고, 전송에 실패하면 다음 실행에서 다시 보내도록 대기열에 남긴다. 배포는 단계적으로 올렸다.",
+      "evidence": [
+        {"icon": "commit", "text": "3f9a1c62", "mono": true, "href": "https://github.com/example/app-api/commit/3f9a1c62"},
+        {"icon": "test", "text": "동의 전송 단위 테스트 148건 통과"}
+      ]
+    },
+    {
+      "id": "s-schema",
+      "lane": 1,
+      "col": 0,
+      "label": "수신 스키마",
+      "sub": "완료",
+      "state": "done",
+      "startedAt": "2026-09-28T09:30:00+09:00",
+      "doneAt": "2026-09-28T12:10:00+09:00",
+      "title": "동의 수신 스키마 준비",
+      "body": "동의 값과 변경 시각을 담는 서버 테이블을 만들고, 같은 기기에서 온 값은 최신 시각만 남기도록 키를 잡았다.",
+      "evidence": [
+        {"icon": "pr", "text": "app-api#512", "mono": true, "href": "https://github.com/example/app-api/pull/512"},
+        {"icon": "file", "text": "consent_table.sql", "mono": true}
+      ]
+    },
+    {
+      "id": "s-batch",
+      "lane": 1,
+      "col": 1,
+      "label": "이관 배치",
+      "sub": "완료",
+      "state": "done",
+      "startedAt": "2026-09-28T13:00:00+09:00",
+      "doneAt": "2026-09-29T11:50:00+09:00",
+      "title": "이관 배치 작성",
+      "body": "앱이 보관하던 동의 값을 받아 서버 테이블에 넣는 배치를 작성했다. 이미 저장된 값보다 오래된 값이 오면 저장하지 않고 건너뛴다.",
+      "evidence": [
+        {"icon": "pr", "text": "app-api#518", "mono": true, "href": "https://github.com/example/app-api/pull/518"},
+        {"icon": "test", "text": "배치 테스트 96건 통과"}
+      ]
+    },
+    {
+      "id": "s-migrate",
+      "lane": 1,
+      "col": 2,
+      "label": "동의 이관",
+      "sub": "완료",
+      "state": "done",
+      "startedAt": "2026-09-29T13:00:00+09:00",
+      "doneAt": "2026-09-30T02:40:00+09:00",
+      "title": "동의 이력 이관 실행",
+      "body": "야간에 전체 계정의 동의 값을 서버로 옮겼고, 처리하지 못한 건은 다음 회차로 넘겼다. 이관 대상은 412만 건이었다.",
+      "evidence": [
+        {"icon": "test", "text": "이관 대상 412만 건"},
+        {"icon": "check", "text": "미처리 0건"}
+      ]
+    },
+    {
+      "id": "a-check",
+      "lane": 0,
+      "col": 2,
+      "label": "앱 전환 검증",
+      "sub": "완료",
+      "state": "done",
+      "startedAt": "2026-09-29T17:00:00+09:00",
+      "doneAt": "2026-09-30T10:30:00+09:00",
+      "title": "앱 전환 검증",
+      "body": "앱이 로컬 값 대신 서버 값을 읽도록 바꾸고, 기기 변경과 재설치 상황에서 동의 상태가 유지되는지 확인했다.",
+      "evidence": [
+        {"icon": "commit", "text": "c04b7e18", "mono": true, "href": "https://github.com/example/app-api/commit/c04b7e18"},
+        {"icon": "test", "text": "전환 시나리오 12건 통과"}
+      ]
+    },
+    {
+      "id": "m-verify",
+      "lane": 0,
+      "col": 3,
+      "label": "이관 검증",
+      "sub": "완료",
+      "state": "done",
+      "startedAt": "2026-09-30T14:00:00+09:00",
+      "doneAt": "2026-09-30T18:05:00+09:00",
+      "title": "이관 검증과 발송 차단 확인",
+      "body": "앱과 서버의 동의 값을 표본 5만 건으로 대조해 불일치가 없었다. 동의를 끈 계정에 푸시가 나가지 않는 것도 발송 로그로 확인했다.",
+      "evidence": [
+        {"icon": "check", "text": "표본 5만 건 불일치 0"},
+        {"icon": "test", "text": "발송 차단 검증 8건 통과"}
+      ]
+    }
+  ],
+  "edges": [
+    ["a-def", "a-collect"], ["s-schema", "s-batch"],
+    ["a-collect", "a-check"], ["s-batch", "s-migrate"],
+    ["a-check", "m-verify"], ["s-migrate", "m-verify"]
+  ],
+  "changes": [
+    {
+      "title": "이관 순서를 서버 우선으로 변경",
+      "body": "앱 배포와 서버 이관을 같은 날 진행하면 동의 값의 기준을 어디에 두는지 정할 수 없어, 서버 이관을 먼저 끝내고 앱이 서버 값을 읽도록 순서를 바꿨다.",
+      "evidence": [
+        {"icon": "ticket", "text": "APP-81", "mono": true, "href": "https://example.atlassian.net/browse/APP-81"}
+      ]
+    }
+  ]
+}
