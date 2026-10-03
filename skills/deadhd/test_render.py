@@ -191,6 +191,7 @@ const fixedNow = process.argv[5] || '';
 if (fixedNow) fixClock(fixedNow);
 
 const doc = makeDocument(rawData);
+if (process.argv[6]) doc.getElementById('flow').clientWidth = Number(process.argv[6]);
 const ss = {
   _m: {},
   getItem: function (k) { return Object.prototype.hasOwnProperty.call(this._m, k) ? this._m[k] : null; },
@@ -241,7 +242,7 @@ def script_block(html):
     return blocks[0]
 
 
-def run_linkify_harness(html, cases=None, fixed_now=None):
+def run_linkify_harness(html, cases=None, fixed_now=None, flow_width=None):
     with tempfile.TemporaryDirectory(prefix='progress-linkify-') as d:
         files = {}
         for name, text in (
@@ -263,7 +264,7 @@ def run_linkify_harness(html, cases=None, fixed_now=None):
         # fmtClock 은 로컬 날짜를 보므로 실행 시차를 고정해 기대값을 결정적으로 만든다.
         if cases is not None or fixed_now is not None:
             env['TZ'] = 'Asia/Seoul'
-        cmd += [cases_path, fixed_now or '']
+        cmd += [cases_path, fixed_now or '', str(flow_width or '')]
         r = subprocess.run(cmd, capture_output=True, text=True, cwd=d, env=env)
     assert r.returncode == 0, r.stderr
     return json.loads(r.stdout)
@@ -547,7 +548,7 @@ class TemplateDomStateTest(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix='progress-dom-test-')
         self.addCleanup(shutil.rmtree, self.tmp, True)
 
-    def render_dom(self, items, extra=None, now=FIXED_NOW, view=FIXED_NOW):
+    def render_dom(self, items, extra=None, now=FIXED_NOW, view=FIXED_NOW, flow_width=None):
         data = {'title': 'T', 'items': items}
         if extra:
             data.update(extra)
@@ -558,7 +559,7 @@ class TemplateDomStateTest(unittest.TestCase):
         r = run_render(path, out, env_extra={'DEADHD_NOW': now})
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(out, encoding='utf-8') as f:
-            return run_linkify_harness(f.read(), fixed_now=view)
+            return run_linkify_harness(f.read(), fixed_now=view, flow_width=flow_width)
 
     def find(self, result, cls):
         found = []
@@ -672,6 +673,40 @@ class TemplateDomStateTest(unittest.TestCase):
         result = self.render_dom(items, extra)
         self.assertEqual(len(self.find(result, 'edge')), 3)
         self.assertEqual(len(self.find(result, 'edge-flow')), 1)
+
+    def test_single_lane_gets_band_without_label(self):
+        result = self.render_dom([mini_item('a', 'done'), mini_item('b', 'now')])
+        bands = self.find(result, 'lane-band')
+        self.assertEqual([(b.get('cls') or '').split() for b in bands], [['lane-band', 'live']])
+        self.assertEqual(self.find(result, 'lane-label'), [])
+
+    def test_unnamed_lane_band_has_no_label(self):
+        items = [mini_item('a', 'done', lane=0), mini_item('b', 'left', lane=1)]
+        result = self.render_dom(items, {'lanes': ['L1']})
+        self.assertEqual(len(self.find(result, 'lane-band')), 2)
+        self.assertEqual([n['text'] for n in self.find(result, 'lane-label')], ['L1'])
+
+    def test_edge_between_waiting_steps_is_left(self):
+        items = [mini_item('a', 'now'), mini_item('b', 'left'), mini_item('c', 'left')]
+        result = self.render_dom(items, {'edges': [['a', 'b'], ['b', 'c']]})
+        classes = [(e.get('cls') or '').split() for e in self.find(result, 'edge')]
+        self.assertEqual(classes, [['edge', 'left'], ['edge', 'left']])
+
+    def test_column_width_falls_back_without_layout(self):
+        result = self.render_dom([mini_item('a', 'now'), mini_item('b', 'left')])
+        self.assertEqual(self.by_id(result, 'a')['style']['width'], '134px')
+
+    def test_column_width_fits_flow_card(self):
+        seven = [mini_item(c, 'left') for c in 'abcdefg']
+        cases = [
+            (1006, [mini_item('a', 'now'), mini_item('b', 'left')], '134px'),
+            (1006, seven, '123px'),
+            (600, seven, '102px'),
+        ]
+        for width, items, expected in cases:
+            with self.subTest(width=width, cols=len(items)):
+                result = self.render_dom(items, flow_width=width)
+                self.assertEqual(self.by_id(result, 'a')['style']['width'], expected)
 
     def test_now_node_has_orbit(self):
         result = self.render_dom([mini_item('a', 'now')])
