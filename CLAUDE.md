@@ -8,7 +8,10 @@
 2. `chore: <바뀐 기능 요약> 버전 X.Y.Z` 로 커밋한다.
 3. `vX.Y.Z` 주석 태그를 만들어 커밋과 함께 푸시한다.
 4. 태그로 GitHub Release `vX.Y.Z` 를 만들고, 본문에 바뀐 기능과 업데이트 방법을 적는다.
-5. Orca 스킬 공유를 묶음 이름 `deadhd vX.Y.Z` 로 새로 게시하고, README 「Orca 에서 설치」 절의 링크와 「지금 링크에는 vX.Y.Z 가 들어 있고」 문구를 새 값으로 바꿔 함께 푸시한다. 게시 전에 `skills/deadhd` 에 커밋되지 않은 파일(`__pycache__` 포함)이 없는지 확인한다.
+5. Orca 스킬 공유를 반드시 새로 게시하고, README 「Orca 에서 설치」 절의 링크와 「지금 링크에는 vX.Y.Z 가 들어 있고」 문구를 새 값으로 바꿔 푸시한다.
+   - 게시 전에 `skills/deadhd` 에 커밋되지 않은 파일(`__pycache__` 포함)이 없는지 확인한다.
+   - 게시는 Orca 가 실행 중인 이 컴퓨터에서 `orca skills share --skill <deadhd 의 Claude home ID> --bundle-name "deadhd vX.Y.Z" --json` 으로 한다. ID 는 `orca skills installed --json` 에서 찾는다. Orca 설정의 「에이전트와 Orca CLI 가 기술 링크를 게시하도록 허용」이 꺼져 있으면 사용자에게 앱에서 게시해 달라고 한다.
+   - README 의 `<a id="orca-install"></a>` 앵커는 지우지 않는다. 외부 글이 `https://github.com/lcalmsky/deadhd#orca-install` 로 이 절을 가리킨다.
 
 플러그인 업데이트는 `version` 문자열로 판정된다. 버전을 올리지 않고 커밋만 푸시하면, 이미 설치한 사람은 `claude plugin update` 를 실행해도 "already at the latest version" 이 나오고 예전 파일을 계속 쓴다.
 
