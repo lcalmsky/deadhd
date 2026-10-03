@@ -645,6 +645,43 @@ class TemplateDomStateTest(unittest.TestCase):
         bands = self.find(self.render_dom(without_time, {'lanes': ['L1', 'L2']}), 'lane-band')
         self.assertEqual([b['style']['height'] for b in bands], ['142px', '142px'])
 
+    def test_lane_band_state_classes(self):
+        items = [
+            mini_item('a', 'now', lane=0),
+            mini_item('b', 'done', lane=1),
+            mini_item('c', 'left', lane=2),
+            mini_item('d', 'done', lane=3),
+            mini_item('e', 'blocked', lane=3),
+        ]
+        result = self.render_dom(items, {'lanes': ['L1', 'L2', 'L3', 'L4']})
+        classes = [(b.get('cls') or '').split() for b in self.find(result, 'lane-band')]
+        self.assertEqual(len(classes), 4)
+        self.assertIn('live', classes[0])
+        self.assertIn('done', classes[1])
+        self.assertEqual([c for c in classes[2] if c != 'lane-band'], [])
+        self.assertIn('blocked', classes[3])
+
+    def test_edge_flow_only_on_done_edges(self):
+        items = [
+            mini_item('a', 'done', lane=0),
+            mini_item('b', 'done', lane=0),
+            mini_item('c', 'now', lane=0),
+            mini_item('d', 'left', lane=0),
+        ]
+        extra = {'edges': [['a', 'b'], ['b', 'c'], ['c', 'd']]}
+        result = self.render_dom(items, extra)
+        self.assertEqual(len(self.find(result, 'edge')), 3)
+        self.assertEqual(len(self.find(result, 'edge-flow')), 1)
+
+    def test_now_node_has_orbit(self):
+        result = self.render_dom([mini_item('a', 'now')])
+        fnode = self.by_id(result, 'a')
+        circle = next(k for k in fnode['kids'] if 'node' in (k.get('cls') or '').split())
+        self.assertEqual(
+            [k.get('cls') for k in circle.get('kids', []) if 'orbit' in (k.get('cls') or '').split()],
+            ['orbit'],
+        )
+
 
 class RenderTest(unittest.TestCase):
     def setUp(self):
