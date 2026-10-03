@@ -50,6 +50,8 @@ Claude Code 에서 다음 명령을 실행합니다.
 
 [Orca](https://onorca.dev) 를 사용한다면 [공유 링크](https://share.onorca.dev/skills/share/shr_64855ceea482706ce6f4104fd636a01bd04a659d1a7409ae) 를 열고 `Open in Orca` 를 누릅니다. Orca 에서 포함된 파일을 확인한 뒤 설치 위치를 고를 수 있습니다. 설치하면 호출 이름은 `/deadhd` 입니다.
 
+> Orca 공유 링크는 게시할 때 올린 파일을 바꿀 수 없는 묶음으로 보관합니다. 그래서 이 링크로는 첫 공개 시점의 버전이 설치되고, 그 뒤에 추가된 테마와 완료 예상 시각 같은 기능은 들어 있지 않습니다. 최신 버전은 플러그인이나 스킬 폴더 방식으로 설치합니다.
+
 ### 스킬 폴더로 설치
 
 ```bash
@@ -64,7 +66,7 @@ cp -r deadhd/skills/deadhd ~/.claude/skills/
 | 설치 방식 | 업데이트 방법 |
 |---|---|
 | 플러그인 | 서드파티 마켓플레이스는 자동 업데이트가 기본으로 꺼져 있습니다. `/plugin` 에서 deadhd 를 골라 **Update now** 를 누르거나 `claude plugin update deadhd@deadhd` 를 실행합니다. `/plugin` 의 Marketplaces 탭에서 deadhd 마켓플레이스의 **Enable auto-update** 를 켜 두면 새 버전이 자동으로 설치됩니다. 업데이트 뒤에는 `/reload-plugins` 를 실행하거나 새 세션을 시작합니다 |
-| Orca | 공유 링크를 다시 열어 설치합니다 |
+| Orca | 공유 링크는 게시 시점의 고정 사본이라 다시 열어도 새 버전이 설치되지 않습니다. 최신 버전은 플러그인이나 스킬 폴더 방식으로 설치합니다 |
 | 스킬 폴더 | 클론한 저장소에서 `git pull` 한 뒤 `skills/deadhd` 를 다시 복사합니다 |
 
 ## 사용법
