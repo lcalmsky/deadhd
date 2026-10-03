@@ -962,10 +962,20 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
     const p = pos[pair[0]], q = pos[pair[1]];
     if (!p || !q) return;
     const x1 = p.x + NODE_R + 4, x2 = q.x - NODE_R - 4, y1 = p.y, y2 = q.y;
-    const mx = (x1 + x2) / 2;
-    const d = y1 === y2 ? `M${x1} ${y1} L${x2} ${y2}` : `M${x1} ${y1} C${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
-    const from = items.find(i => i.id === pair[0]).state;
-    const to = items.find(i => i.id === pair[1]).state;
+    const a = items.find(i => i.id === pair[0]), b = items.find(i => i.id === pair[1]);
+    const gx = q.x - COLW / 2;
+    const blocked = items.some(it => it.lane === a.lane && it.col > a.col && it.col < b.col);
+    let d;
+    if (y1 === y2) d = `M${x1} ${y1} L${x2} ${y2}`;
+    else if (b.col - a.col >= 2 && !blocked) {
+      const w = 22;
+      d = `M${x1} ${y1} L${gx - w} ${y1} C${gx} ${y1}, ${gx} ${y2}, ${gx + w} ${y2} L${x2} ${y2}`;
+    } else {
+      const mx = (x1 + x2) / 2;
+      d = `M${x1} ${y1} C${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
+    }
+    const from = a.state;
+    const to = b.state;
     const cls = (from === 'blocked' || to === 'blocked') ? 'blocked'
       : (from === 'done' && to === 'done') ? 'done'
       : (from === 'done' && to === 'now') ? 'active'

@@ -160,6 +160,7 @@ function serialize(n) {
   if (n.href != null) o.href = n.href;
   if (n.sel) o.sel = n.sel;
   if (n.dataset && Object.keys(n.dataset).length) o.data = Object.assign({}, n.dataset);
+  if (n.attrs && Object.keys(n.attrs).length) o.attrs = Object.assign({}, n.attrs);
   const style = {};
   for (const k in n.style) { if (typeof n.style[k] !== 'function') style[k] = n.style[k]; }
   if (Object.keys(style).length) o.style = style;
@@ -748,6 +749,46 @@ class TemplateDomStateTest(unittest.TestCase):
         result = self.render_dom(items, {'edges': [['a', 'b'], ['b', 'c']]})
         classes = [(e.get('cls') or '').split() for e in self.find(result, 'edge')]
         self.assertEqual(classes, [['edge', 'left'], ['edge', 'left']])
+
+    def test_edge_across_two_columns_turns_at_gap_before_destination(self):
+        items = [mini_item('a', 'done', lane=0, col=3), mini_item('b', 'left', lane=1, col=5)]
+        result = self.render_dom(items, {'edges': [['a', 'b']]})
+        edges = self.find(result, 'edge')
+        self.assertEqual(len(edges), 1)
+        d = edges[0]['attrs']['d']
+        self.assertRegex(d, r'^M[\d.]+ [\d.]+ L[\d.]+ [\d.]+ C')
+        ctrl = re.search(r'C([\d.]+) [\d.]+, ([\d.]+)', d)
+        self.assertIsNotNone(ctrl)
+        self.assertEqual(ctrl.group(1), ctrl.group(2))
+        dest_x = 75 + 5 * 150
+        self.assertAlmostEqual(float(ctrl.group(1)), dest_x - 75, delta=1)
+
+    def test_edge_across_two_columns_with_middle_node_keeps_s_curve(self):
+        items = [
+            mini_item('a', 'done', lane=0, col=3),
+            mini_item('c', 'left', lane=0, col=4),
+            mini_item('b', 'left', lane=1, col=5),
+        ]
+        result = self.render_dom(items, {'edges': [['a', 'b']]})
+        curved = [e for e in self.find(result, 'edge') if 'C' in e['attrs']['d']]
+        self.assertEqual(len(curved), 1)
+        self.assertNotIn('L', curved[0]['attrs']['d'])
+
+    def test_edge_across_one_column_keeps_s_curve(self):
+        items = [mini_item('a', 'done', lane=0, col=3), mini_item('b', 'left', lane=1, col=4)]
+        result = self.render_dom(items, {'edges': [['a', 'b']]})
+        edges = self.find(result, 'edge')
+        self.assertEqual(len(edges), 1)
+        self.assertIn('C', edges[0]['attrs']['d'])
+        self.assertNotIn('L', edges[0]['attrs']['d'])
+
+    def test_same_lane_edge_stays_straight(self):
+        items = [mini_item('a', 'done', lane=0, col=3), mini_item('b', 'left', lane=0, col=4)]
+        result = self.render_dom(items)
+        edges = self.find(result, 'edge')
+        self.assertEqual(len(edges), 1)
+        self.assertIn('L', edges[0]['attrs']['d'])
+        self.assertNotIn('C', edges[0]['attrs']['d'])
 
     def test_column_width_falls_back_without_layout(self):
         result = self.render_dom([mini_item('a', 'now'), mini_item('b', 'left')])
