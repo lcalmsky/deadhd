@@ -1,6 +1,6 @@
 ---
 name: deadhd
-description: Show a live checklist page of what this session has done, is doing now, and has left, opened beside the terminal and kept updated while the task runs. Use when the user types /deadhd or $deadhd, or asks "지금 뭐 하고 있어", "진행 상황 띄워줘", "체크리스트로 보여줘".
+description: Show a live checklist page of what this session has done, is doing now, and has left, opened beside the terminal and kept updated while the task runs. Use when the user types /deadhd or $deadhd, or asks "지금 뭐 하고 있어", "진행 상황 띄워줘", "체크리스트로 보여줘", or asks "what are you doing now", "show progress", "show me a checklist".
 argument-hint: "[setup] [-h|-o|-c] [--open auto|orca|browser|desktop] [--theme system|light|dark|neon|synthwave|matrix|nord|paper|sakura] [off]"
 ---
 
@@ -72,6 +72,7 @@ Write `/tmp/deadhd-<task-slug>.json`. `<skill-dir>/example.json` is a complete e
 | `title` | The task as a formal noun phrase, e.g. `결제 웹훅 재시도 큐 도입과 스테이징 검증`. Not the user's request quoted |
 | `goal` | One or two sentences under the title: why this task exists and what changes when it is done. Always fill it |
 | `doneWhen` | The completion condition in one sentence, e.g. `결제 웹훅 재시도 큐가 staging 에 배포되고 실호출 검증을 통과한다.` |
+| `lang` | `en` when the user writes in English, `ko` (or omitted) for Korean. The page's own labels follow it; write all other text in the same language |
 | `updated` | Current time with timezone, e.g. `2026-09-30 14:30 KST` |
 | `meta` | Identifiers shown as monospace chips: program id, target environment, branch. Each entry is a string, or `{"text": ..., "href": ...}` when the chip itself opens a link |
 | `links` | Identifiers that appear in the text and have a URL: `{"SHOP-130": "https://...", "shop-api#4120": "https://..."}`. Every occurrence in the text below becomes a link, and a bare `http(s)://` URL is linked on its own |

@@ -1,0 +1,258 @@
+{
+  "key": "SHOP-2210",
+  "keyHref": "https://example.atlassian.net/browse/SHOP-2210",
+  "lang": "en",
+  "links": {
+    "SHOP-2210": "https://example.atlassian.net/browse/SHOP-2210",
+    "SHOP-2231": "https://example.atlassian.net/browse/SHOP-2231",
+    "chat-api#812": "https://github.com/example/chat-api/pull/812"
+  },
+  "title": "Source trust grades for support-chatbot retrieval evidence and eval verification",
+  "goal": "Grade the trust of retrieval evidence by source type (seller notice, product detail, customer review) when the support chatbot writes an answer, so false information mixed into customer reviews is not reflected in answers. Measure the effect with an offline eval and ship to canary after the PR merges.",
+  "doneWhen": "Source trust grades are merged and pass the false-information blocking criteria at 5% canary.",
+  "updated": "2026-10-02 15:20 KST",
+  "meta": [
+    {"text": "feat/SHOP-2210", "href": "https://github.com/example/chat-api/tree/feat/SHOP-2210"},
+    {"text": "base 4f2c9a1e07", "href": "https://github.com/example/chat-api/commit/4f2c9a1e07"},
+    "chat-api"
+  ],
+  "lanes": ["Main", "Parallel", "Infra · verification"],
+  "items": [
+    {
+      "id": "plan",
+      "lane": 0,
+      "col": 0,
+      "label": "Scope fixed",
+      "sub": "Done",
+      "state": "done",
+      "startedAt": "2026-10-01T10:00:00+09:00",
+      "doneAt": "2026-10-01T11:30:00+09:00",
+      "title": "Source types and grade weight ranges fixed",
+      "body": "Split SHOP-2210's scope into seller notice, product detail, and customer review, and decided answer adoption by per-type weight. A customer review as sole evidence is excluded from answers.",
+      "evidence": [
+        {"icon": "chat", "text": "Slack #shop-chat thread", "href": "https://example.slack.com/archives/C0451ABCD/p1727850000000200"},
+        {"icon": "doc", "text": "Design doc (Notion)", "href": "https://www.notion.so/example/shop-chat-trust-grade-design-4d5e6f70"},
+        {"icon": "ticket", "text": "SHOP-2210", "mono": true, "href": "https://example.atlassian.net/browse/SHOP-2210"},
+        {"icon": "file", "text": "grade-scope.md", "mono": true}
+      ]
+    },
+    {
+      "id": "impl",
+      "lane": 0,
+      "col": 1,
+      "label": "Grade implementation",
+      "sub": "Done",
+      "state": "done",
+      "startedAt": "2026-10-01T13:00:00+09:00",
+      "doneAt": "2026-10-01T18:40:00+09:00",
+      "title": "Per-source trust grade computation implemented",
+      "body": "Implemented grading of evidence documents by source type and a path that filters below-threshold evidence out of the answer-generation input. Grades were fixed at seller notice 3, product detail 2, customer review 0.",
+      "evidence": [
+        {"icon": "commit", "text": "8d3f1a72c4", "mono": true, "href": "https://github.com/example/chat-api/commit/8d3f1a72c4"},
+        {"icon": "file", "text": "trust_grade.py", "mono": true},
+        {"icon": "check", "text": "Grade computation unit tests: 96 passed"}
+      ]
+    },
+    {
+      "id": "fixture",
+      "lane": 0,
+      "col": 2,
+      "label": "diff compare · fixture",
+      "sub": "Matched",
+      "state": "done",
+      "startedAt": "2026-10-02T09:20:00+09:00",
+      "doneAt": "2026-10-02T11:05:00+09:00",
+      "title": "Prompt diff comparison and eval fixture regeneration",
+      "body": "Compared prompts before and after the grade rollout on the same inputs and confirmed the path where customer-review evidence stays in answer text is gone. Regenerated the eval fixtures to include customer reviews containing false information, recording the false-item labels and evidence sources together.",
+      "evidence": [
+        {"icon": "file", "text": "prompt-diff.md", "mono": true},
+        {"icon": "commit", "text": "3a7c2e91b6", "mono": true, "href": "https://github.com/example/chat-api/commit/3a7c2e91b6"},
+        {"icon": "file", "text": "fixtures/reviews_false.jsonl", "mono": true},
+        {"icon": "check", "text": "64 false-item labels regenerated"}
+      ]
+    },
+    {
+      "id": "eval",
+      "lane": 0,
+      "col": 3,
+      "label": "Offline eval",
+      "sub": "Done",
+      "state": "done",
+      "startedAt": "2026-10-02T11:05:00+09:00",
+      "doneAt": "2026-10-02T13:35:00+09:00",
+      "title": "Offline eval measurement",
+      "body": "Ran the offline eval on the 20 regenerated fixtures; 18 passed the criteria. The remaining 2 were classified as an evidence-summary ordering issue, not an answer-wording one.",
+      "stats": [
+        {"kind": "ring", "value": 18, "total": 20, "label": "Fixtures passed"},
+        {"kind": "number", "icon": "test", "value": "1,842", "label": "eval unit tests"}
+      ],
+      "evidence": [
+        {"icon": "chart", "text": "Datadog eval dashboard", "href": "https://app.datadoghq.com/dashboard/aaa-bbb/shop-chat-eval"}
+      ]
+    },
+    {
+      "id": "pr",
+      "lane": 0,
+      "col": 4,
+      "label": "PR · merge",
+      "sub": "Remeasuring",
+      "state": "now",
+      "startedAt": "2026-10-02T13:35:00+09:00",
+      "estimate": 50,
+      "title": "PR verification and merge",
+      "body": "chat-api#812 verification showed the control verdict criteria were wrong, so they were corrected and the measurement is running again. Merge after re-verification when the remeasurement finishes.",
+      "substeps": [
+        {"label": "PR opened", "state": "done"},
+        {"label": "/verify PASS", "state": "done", "href": "https://github.com/example/chat-api/actions/runs/5518273344"},
+        {"label": "Review addressed", "state": "done"},
+        {"label": "Rework 1·2", "state": "done"},
+        {"label": "Rework 3 measured", "state": "done"},
+        {"label": "Control fix · remeasure", "state": "now"},
+        {"label": "Re-verify · merge", "state": "left"}
+      ],
+      "compare": [
+        {
+          "caption": "False-information blocking rate in reviews · 5 synthetic runs",
+          "rows": [
+            {"label": "v1 (before)", "value": 0, "tone": "lose"},
+            {"label": "v2 (after)", "value": 100, "tone": "win"}
+          ]
+        }
+      ],
+      "evidence": [
+        {"icon": "pr", "text": "chat-api#812", "mono": true, "href": "https://github.com/example/chat-api/pull/812"},
+        {"icon": "commit", "text": "b5e0c19d7a", "mono": true, "href": "https://github.com/example/chat-api/commit/b5e0c19d7a"},
+        {"icon": "commit", "text": "c93a70f12e", "mono": true, "href": "https://github.com/example/chat-api/commit/c93a70f12e"},
+        {"icon": "test", "text": "All tests: 3,214 passed"},
+        {"icon": "run", "text": "GitHub Actions run 5518273344", "mono": true, "href": "https://github.com/example/chat-api/actions/runs/5518273344"}
+      ]
+    },
+    {
+      "id": "release",
+      "lane": 0,
+      "col": 5,
+      "label": "Canary release",
+      "sub": "Waiting",
+      "state": "left",
+      "estimate": 120,
+      "title": "Canary release",
+      "body": "Apply the new grade logic to 5% of all support traffic after the merge and watch the rate at which customer-review evidence mixes into answers.",
+      "evidence": [
+        {"icon": "file", "text": "release-criteria.md", "mono": true}
+      ]
+    },
+    {
+      "id": "collect",
+      "lane": 1,
+      "col": 1,
+      "label": "eval input collection",
+      "sub": "Done",
+      "state": "done",
+      "startedAt": "2026-10-01T15:00:00+09:00",
+      "doneAt": "2026-10-01T17:20:00+09:00",
+      "title": "eval input collection",
+      "body": "Pulled the distribution of source types used as answer evidence from recent support logs and organized it as eval input. It was seller notice 41%, product detail 37%, customer review 22%.",
+      "evidence": [
+        {"icon": "file", "text": "source-mix.csv", "mono": true},
+        {"icon": "chart", "text": "Support log source distribution", "href": "https://app.datadoghq.com/dashboard/aaa-bbb/shop-chat-source-mix"}
+      ]
+    },
+    {
+      "id": "cache",
+      "lane": 1,
+      "col": 2,
+      "label": "Evidence cache invalidation",
+      "sub": "Building",
+      "state": "side",
+      "estimate": 180,
+      "title": "Evidence cache invalidation",
+      "body": "Build the path that invalidates the cache of evidence documents whose grade changed, together with the grade rollout. Include the evidence grade in the cache key so responses from the previous grade are not reused.",
+      "badge": "Parallel · building",
+      "evidence": [
+        {"icon": "pr", "text": "chat-api#815", "mono": true, "href": "https://github.com/example/chat-api/pull/815"},
+        {"icon": "file", "text": "cache-key.md", "mono": true}
+      ]
+    },
+    {
+      "id": "widget",
+      "lane": 1,
+      "col": 4,
+      "label": "Support widget badge",
+      "sub": "Blocked",
+      "state": "blocked",
+      "title": "Support widget source badge on hold",
+      "body": "The wording of the grade label on the source badge attached to answers was put on hold in the SHOP-2231 review. The wording for how to attach the badge to answers without customer-review evidence must be decided, then the review requested again.",
+      "substeps": [
+        {"label": "Build submitted", "state": "done"},
+        {"label": "Wording review", "state": "blocked"},
+        {"label": "Wording fix", "state": "left"},
+        {"label": "Resubmit", "state": "left"}
+      ],
+      "evidence": [
+        {"icon": "ticket", "text": "SHOP-2231", "mono": true, "href": "https://example.atlassian.net/browse/SHOP-2231"},
+        {"icon": "file", "text": "badge-review-note.md", "mono": true}
+      ]
+    },
+    {
+      "id": "harness",
+      "lane": 2,
+      "col": 1,
+      "label": "Contract harness",
+      "sub": "Done",
+      "state": "done",
+      "startedAt": "2026-10-02T09:40:00+09:00",
+      "doneAt": "2026-10-02T12:30:00+09:00",
+      "title": "Source grade contract harness",
+      "body": "Built a contract harness checking that grade computation and evidence filtering produce the same result, and verified 12 grade-level filter behaviors.",
+      "evidence": [
+        {"icon": "file", "text": "contract_harness.py", "mono": true},
+        {"icon": "check", "text": "12 grade-filter contracts passed"}
+      ]
+    },
+    {
+      "id": "canary",
+      "lane": 2,
+      "col": 3,
+      "label": "Canary pipeline",
+      "sub": "Building",
+      "state": "side",
+      "estimate": 240,
+      "title": "Canary pipeline setup",
+      "body": "Build the pipeline that applies the new grades to 5% of support traffic and automatically compares answer quality metrics. If a metric leaves the criteria, it automatically reverts to the previous logic.",
+      "badge": "Parallel · building",
+      "evidence": [
+        {"icon": "pr", "text": "infra#218", "mono": true, "href": "https://github.com/example/infra/pull/218"},
+        {"icon": "file", "text": "canary-values.yaml", "mono": true}
+      ]
+    },
+    {
+      "id": "dash",
+      "lane": 2,
+      "col": 4,
+      "label": "Metric dashboard",
+      "sub": "Waiting",
+      "state": "left",
+      "estimate": 90,
+      "title": "Answer quality metric dashboard",
+      "body": "Prepare the dashboard showing evidence adoption rate by source type and false-information blocking rate during the canary period.",
+      "evidence": [
+        {"icon": "chart", "text": "Support answer quality dashboard", "href": "https://app.datadoghq.com/dashboard/ccc-ddd/shop-chat-quality"}
+      ]
+    }
+  ],
+  "edges": [
+    ["plan", "impl"], ["plan", "collect"], ["plan", "harness"], ["impl", "fixture"],
+    ["harness", "fixture"], ["collect", "cache"], ["fixture", "eval"], ["cache", "eval"],
+    ["eval", "pr"], ["cache", "widget"], ["harness", "canary"], ["canary", "dash"],
+    ["pr", "release"], ["widget", "release"], ["dash", "release"]
+  ],
+  "changes": [
+    {
+      "title": "Control verdict criteria replaced with gold labels",
+      "body": "In the first measurement the control verdict criteria were the pre-change version's own output, so the blocking rate came out 0%. Switch to gold-label criteria and remeasure the v2 blocking rate.",
+      "evidence": [
+        {"icon": "commit", "text": "d41f8ab306", "mono": true, "href": "https://github.com/example/chat-api/commit/d41f8ab306"}
+      ]
+    }
+  ]
+}

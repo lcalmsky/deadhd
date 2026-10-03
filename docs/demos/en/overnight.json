@@ -1,0 +1,136 @@
+{
+  "key": "DATA-412",
+  "keyHref": "https://example.atlassian.net/browse/DATA-412",
+  "lang": "en",
+  "links": {
+    "DATA-412": "https://example.atlassian.net/browse/DATA-412",
+    "DATA-415": "https://example.atlassian.net/browse/DATA-415",
+    "order-db#204": "https://github.com/example/order-db/pull/204",
+    "order-db#209": "https://github.com/example/order-db/pull/209"
+  },
+  "title": "Monthly partition migration for the order history table and overnight reindex",
+  "goal": "As the order history table grew, range queries got slow; split 24 months into monthly partitions and finish with an overnight reindex. After the migration, compare per-partition row counts and query plans against before.",
+  "doneWhen": "The 24-month partition migration and overnight reindex finish, and the per-partition row count comparison and query plan verification pass.",
+  "updated": "2026-10-02 22:40 KST",
+  "meta": [
+    "order-db",
+    {"text": "prod"},
+    {"text": "migration/partition", "href": "https://github.com/example/order-db/tree/migration/partition"}
+  ],
+  "items": [
+    {
+      "id": "scope",
+      "col": 0,
+      "label": "Scope fixed",
+      "sub": "Done",
+      "state": "done",
+      "startedAt": "2026-10-01T14:00:00+09:00",
+      "doneAt": "2026-10-01T15:40:00+09:00",
+      "title": "Migration scope and criteria fixed",
+      "body": "Split 24 months of the order history table into monthly partitions and set the boundary month and retention period to match DATA-415. The write path is not locked during migration; consistency is judged by a post-migration comparison.",
+      "evidence": [
+        {"icon": "ticket", "text": "DATA-415", "mono": true, "href": "https://example.atlassian.net/browse/DATA-415"},
+        {"icon": "file", "text": "partition-plan.md", "mono": true}
+      ]
+    },
+    {
+      "id": "ddl",
+      "col": 1,
+      "label": "DDL prep",
+      "sub": "Done",
+      "state": "done",
+      "startedAt": "2026-10-01T16:10:00+09:00",
+      "doneAt": "2026-10-01T18:20:00+09:00",
+      "title": "Partition DDL written and rehearsed",
+      "body": "Wrote the monthly partition definitions and the migration script, then ran them on 3 months in a staging copy to check processing order and lock time.",
+      "evidence": [
+        {"icon": "pr", "text": "order-db#204", "mono": true, "href": "https://github.com/example/order-db/pull/204"},
+        {"icon": "commit", "text": "5b81c04e", "mono": true, "href": "https://github.com/example/order-db/commit/5b81c04e"},
+        {"icon": "check", "text": "3-month rehearsal passed"}
+      ]
+    },
+    {
+      "id": "backfill",
+      "col": 2,
+      "label": "History migration",
+      "sub": "Done",
+      "state": "done",
+      "startedAt": "2026-10-02T10:30:00+09:00",
+      "doneAt": "2026-10-02T13:10:00+09:00",
+      "title": "24-month history migration",
+      "body": "Moved 24 months in batches during a low-traffic window, 40,000 rows per batch. New orders arriving during the migration are written to both sides and checked in the comparison.",
+      "evidence": [
+        {"icon": "test", "text": "11.82M rows to migrate"},
+        {"icon": "check", "text": "296 batches completed"}
+      ]
+    },
+    {
+      "id": "verify",
+      "col": 3,
+      "label": "Row count compare",
+      "sub": "Done",
+      "state": "done",
+      "startedAt": "2026-10-02T14:00:00+09:00",
+      "doneAt": "2026-10-02T16:20:00+09:00",
+      "title": "Per-partition row count comparison",
+      "body": "Matched per-partition row counts and the values of a 20,000-row sample from the last 7 days against the source, with no mismatches. Also confirmed from the execution plan that partition pruning applies to range queries.",
+      "evidence": [
+        {"icon": "check", "text": "24 months of row counts, 0 mismatches"},
+        {"icon": "commit", "text": "b27de9a3", "mono": true, "href": "https://github.com/example/order-db/commit/b27de9a3"},
+        {"icon": "file", "text": "verify-result.md", "mono": true}
+      ]
+    },
+    {
+      "id": "migrate",
+      "col": 4,
+      "label": "Partition migration",
+      "sub": "Migrating",
+      "state": "now",
+      "startedAt": "2026-10-02T21:50:00+09:00",
+      "estimate": 70,
+      "title": "Running the partition migration on the production table",
+      "body": "Attached monthly partitions to the production order history table and moved 18 months. Move the remaining 6 months in the same order, then move on to the overnight reindex.",
+      "stats": [
+        {"kind": "ring", "value": 18, "total": 24, "label": "Partitions migrated"},
+        {"kind": "number", "icon": "check", "value": "8.86M", "label": "Rows migrated"}
+      ],
+      "substeps": [
+        {"label": "Create partitions without locking", "state": "done"},
+        {"label": "Migrate 18 months", "state": "done"},
+        {"label": "Migrate the remaining 6 months", "state": "now"},
+        {"label": "Recheck the query plan", "state": "left"}
+      ],
+      "evidence": [
+        {"icon": "commit", "text": "7c1f0a2d", "mono": true, "href": "https://github.com/example/order-db/commit/7c1f0a2d"},
+        {"icon": "run", "text": "GitHub Actions run 6041823199", "mono": true, "href": "https://github.com/example/order-db/actions/runs/6041823199"}
+      ]
+    },
+    {
+      "id": "reindex",
+      "col": 5,
+      "label": "Overnight reindex",
+      "sub": "Waiting",
+      "state": "left",
+      "estimate": 60,
+      "title": "Overnight reindex",
+      "body": "Rebuild the indexes on the migrated partitions and compare query response times before and after reindexing with the same query.",
+      "evidence": [
+        {"icon": "pr", "text": "order-db#209", "mono": true, "href": "https://github.com/example/order-db/pull/209"},
+        {"icon": "file", "text": "reindex-plan.md", "mono": true}
+      ]
+    },
+    {
+      "id": "report",
+      "col": 6,
+      "label": "Result report",
+      "sub": "Waiting",
+      "state": "left",
+      "estimate": 60,
+      "title": "Migration result report and close",
+      "body": "Collect per-partition row counts, query plans, and response times before and after reindexing, report them on DATA-412, and close the task.",
+      "evidence": [
+        {"icon": "ticket", "text": "DATA-412", "mono": true, "href": "https://example.atlassian.net/browse/DATA-412"}
+      ]
+    }
+  ]
+}

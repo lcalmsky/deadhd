@@ -30,6 +30,12 @@ PANELS = [
     ('paper', '페이퍼 노트북', 'done'), ('sakura', '사쿠라', 'overnight'),
 ]
 
+# --lang en 일 때 같은 자리에 쓰는 영어 표시 이름
+PANEL_NAMES_EN = {
+    'dark': 'Aurora', 'light': 'Light', 'neon': 'Cyberpunk Neon', 'synthwave': 'Synthwave Sunset',
+    'matrix': 'Matrix Terminal', 'nord': 'Nord Arctic', 'paper': 'Paper Notebook', 'sakura': 'Sakura',
+}
+
 PANEL_W, PANEL_H = 1200, 1780
 GALLERY_W, PAD, GAP, HEADER_H = 1600, 20, 20, 46
 
@@ -84,8 +90,8 @@ def chrome_args(ud_dir, window, extra):
     ] + extra
 
 
-def render_panel(case, theme, work_dir):
-    src = os.path.join(HERE, 'demos', case + '.json')
+def render_panel(case, theme, work_dir, demos_dir):
+    src = os.path.join(demos_dir, case + '.json')
     html = os.path.join(work_dir, '%s.%s.html' % (case, theme))
     env = dict(os.environ, DEADHD_NOW=CASES[case], TZ='Asia/Seoul')
     result = subprocess.run([sys.executable, RENDER, '--theme', theme, src, html],
@@ -100,14 +106,14 @@ def render_panel(case, theme, work_dir):
     return html
 
 
-def gallery_html(shots, card_w):
+def gallery_html(shots, card_w, lang):
     cells = ''.join(
         '<figure class="panel"><figcaption><b>%s</b><code>%s</code></figcaption>'
         '<img src="file://%s" alt=""></figure>' % (name, theme, png)
         for (theme, name, _case), png in shots
     )
     return """<!doctype html>
-<html lang="ko"><head><meta charset="utf-8"><style>
+<html lang="%s"><head><meta charset="utf-8"><style>
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 body { background: #0d0d12; font-family: -apple-system, "Apple SD Gothic Neo", sans-serif; }
@@ -119,12 +125,25 @@ figcaption b { color: #fff; font-size: 18px; font-weight: 700; }
 figcaption code { color: #8a8f9e; font-size: 13px; font-family: ui-monospace, "SF Mono", monospace; }
 img { display: block; width: 100%%; }
 </style></head><body><div class="grid">%s</div></body></html>
-""" % (card_w, GAP, PAD, HEADER_H, cells)
+""" % (lang, card_w, GAP, PAD, HEADER_H, cells)
 
 
-def main():
+def main(argv):
+    lang = 'ko'
+    rest = argv[1:]
+    if rest[:1] == ['--lang']:
+        if len(rest) < 2:
+            die('사용법: capture_themes.py [--lang ko|en]')
+        lang, rest = rest[1], rest[2:]
+    if lang not in ('ko', 'en'):
+        die('알 수 없는 언어: %s (ko/en 중 하나)' % lang)
+    if rest:
+        die('사용법: capture_themes.py [--lang ko|en]')
     if not os.path.exists(CHROME):
         die('Chrome 을 찾지 못했다: %s (환경 변수 CHROME 로 지정)' % CHROME)
+
+    demos_dir = os.path.join(HERE, 'demos', 'en') if lang == 'en' else os.path.join(HERE, 'demos')
+    gallery_out = os.path.join(HERE, 'themes.en.png') if lang == 'en' else GALLERY_OUT
 
     keep_dir = os.environ.get('DEADHD_PANEL_DIR')
     work_dir = keep_dir if keep_dir else tempfile.mkdtemp(prefix='deadhd-panels-')
@@ -135,7 +154,9 @@ def main():
     try:
         shots = []
         for i, (theme, name, case) in enumerate(PANELS):
-            html = render_panel(case, theme, work_dir)
+            if lang == 'en':
+                name = PANEL_NAMES_EN[theme]
+            html = render_panel(case, theme, work_dir, demos_dir)
             png = os.path.join(work_dir, '%02d-%s-%s.png' % (i, theme, case))
             chrome_shot(chrome_args(os.path.join(ud_root, 'ud-%d' % i), (PANEL_W, PANEL_H),
                                     ['--screenshot=' + png, 'file://' + html]), png)
@@ -147,13 +168,13 @@ def main():
         total_h = 2 * PAD + len(PANELS) // 2 * row_h + (len(PANELS) // 2 - 1) * GAP
         html = os.path.join(work_dir, 'gallery.html')
         with open(html, 'w', encoding='utf-8') as f:
-            f.write(gallery_html(shots, card_w))
+            f.write(gallery_html(shots, card_w, lang))
         # 캡처가 실패해도 기존 갤러리를 잃지 않게 임시 파일에 찍고 옮긴다.
-        tmp_png = GALLERY_OUT + '.tmp.png'
+        tmp_png = gallery_out + '.tmp.png'
         chrome_shot(chrome_args(os.path.join(ud_root, 'ud-gallery'), (GALLERY_W, int(math.ceil(total_h)) + 6),
                                 ['--screenshot=' + tmp_png, 'file://' + html]), tmp_png)
-        os.replace(tmp_png, GALLERY_OUT)
-        print('gallery: %s' % GALLERY_OUT)
+        os.replace(tmp_png, gallery_out)
+        print('gallery: %s' % gallery_out)
         if keep_dir:
             print('panels: %s' % work_dir)
     finally:
@@ -163,4 +184,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    main(sys.argv)

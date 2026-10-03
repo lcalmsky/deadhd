@@ -13,6 +13,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE = os.path.join(HERE, 'template.html')
 STATES = ('done', 'now', 'side', 'left', 'blocked')
 STATE_SET = frozenset(STATES)
+LANGS = ('ko', 'en')
 HTML_OPEN = '<html lang="ko">'
 # 이보다 큰 estimate 는 합산 시 timedelta 가 넘친다 (525600분 = 365일).
 MAX_ESTIMATE_MINUTES = 525600
@@ -91,6 +92,10 @@ def validate(data):
 
     if not isinstance(data.get('title'), str):
         problems.append('title 이 문자열이 아니다')
+
+    lang = data.get('lang')
+    if lang is not None and lang not in LANGS:
+        problems.append('lang 이 %s 중 하나가 아니다 (값: %r)' % ('/'.join(LANGS), lang))
 
     for field in ('goal', 'doneWhen'):
         value = data.get(field)
@@ -243,13 +248,18 @@ def main(argv):
     except OSError as e:
         die('템플릿을 읽지 못했다: %s' % e)
 
-    if theme != 'system':
-        if tpl.count(HTML_OPEN) != 1:
-            die('템플릿에 %s 가 정확히 하나 있지 않다' % HTML_OPEN)
-        tpl = tpl.replace(HTML_OPEN, '<html lang="ko" data-theme="%s">' % theme)
+    lang = data.get('lang') if data.get('lang') in LANGS else 'ko'
+    if tpl.count(HTML_OPEN) != 1:
+        die('템플릿에 %s 가 정확히 하나 있지 않다' % HTML_OPEN)
+    html_open = '<html lang="%s" data-theme="%s">' % (lang, theme) if theme != 'system' else '<html lang="%s">' % lang
+    tpl = tpl.replace(HTML_OPEN, html_open)
 
     key = data.get('key')
-    title = escape((key + ' 진행 상황') if isinstance(key, str) and key else '진행 상황')
+    has_key = isinstance(key, str) and bool(key)
+    if lang == 'en':
+        title = escape((key + ' Progress') if has_key else 'Progress')
+    else:
+        title = escape((key + ' 진행 상황') if has_key else '진행 상황')
     prev_title = preserved_title(out_path)
     if prev_title is not None:
         title = prev_title

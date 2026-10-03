@@ -1,0 +1,180 @@
+{
+  "key": "SHOP-128",
+  "keyHref": "https://example.atlassian.net/browse/SHOP-128",
+  "lang": "en",
+  "links": {
+    "SHOP-128": "https://example.atlassian.net/browse/SHOP-128",
+    "SHOP-130": "https://example.atlassian.net/browse/SHOP-130",
+    "SHOP-131": "https://example.atlassian.net/browse/SHOP-131",
+    "SHOP-132": "https://example.atlassian.net/browse/SHOP-132",
+    "shop-api#4120": "https://github.com/example/shop-api/pull/4120",
+    "shop-api#4131": "https://github.com/example/shop-api/pull/4131"
+  },
+  "title": "Webhook retry queue rollout and staging verification",
+  "goal": "Introduce a retry queue and dead-letter handling to reduce lost payment webhooks, and before cutover confirm from logs that reprocessing produces the right result in the real order flow.",
+  "doneWhen": "The payment webhook retry queue is deployed to staging and passes live-call verification.",
+  "updated": "2026-10-01 09:30 KST",
+  "meta": [
+    "webhook-retry-20261001",
+    {"text": "staging", "href": "https://github.com/example/shop-api/actions/runs/1234567890"}
+  ],
+  "lanes": ["Main", "Parallel"],
+  "items": [
+    {
+      "id": "plan",
+      "lane": 0,
+      "col": 0,
+      "label": "Plan · approval",
+      "sub": "Done",
+      "state": "done",
+      "startedAt": "2026-09-30T14:10:00+09:00",
+      "doneAt": "2026-09-30T16:30:00+09:00",
+      "title": "Plan and approval",
+      "body": "The target is staging and the exit condition is live-call verification after the retry queue deploys. It was approved after one design review and two code reviews.",
+      "evidence": [
+        {"icon": "file", "text": "design-consensus.md", "mono": true},
+        {"icon": "doc", "text": "Design doc (Notion)", "href": "https://www.notion.so/example/shop-api-webhook-retry-design-1a2b3c4d"},
+        {"icon": "chat", "text": "Slack #shop-deploy thread", "href": "https://example.slack.com/archives/C0123456/p1727740000000100"},
+        {"text": "staging live calls allowed"},
+        {"text": "load testing out of scope"},
+        {"text": "prod is separate work after the queue"}
+      ]
+    },
+    {
+      "id": "s1d",
+      "lane": 0,
+      "col": 1,
+      "label": "S1 queue deploy",
+      "sub": "Done",
+      "state": "done",
+      "startedAt": "2026-09-30T16:40:00+09:00",
+      "doneAt": "2026-09-30T23:50:00+09:00",
+      "title": "S1 retry queue deployed to staging and verified",
+      "body": "Implemented the retry queue, worker, exponential backoff, and dead-letter handling, recording results in logs only alongside the direct call path. All 14 staging live calls passed.",
+      "stats": [
+        {"kind": "ring", "value": 14, "total": 14, "label": "Retry events"},
+        {"kind": "number", "icon": "test", "value": "4,812", "label": "Tests passed"},
+        {"kind": "number", "icon": "deploy", "value": "10.01-1", "label": "Staging deploy version"}
+      ],
+      "evidence": [
+        {"icon": "pr", "text": "shop-api#4120", "mono": true, "href": "https://github.com/example/shop-api/pull/4120"},
+        {"icon": "commit", "text": "9a95d3c864", "mono": true, "href": "https://github.com/example/shop-api/commit/9a95d3c864"},
+        {"icon": "pr", "text": "shop-api#4131", "mono": true, "href": "https://github.com/example/shop-api/pull/4131"},
+        {"icon": "run", "text": "GitHub Actions run 1234567890", "mono": true, "href": "https://github.com/example/shop-api/actions/runs/1234567890"},
+        {"icon": "chart", "text": "Datadog retry queue dashboard", "href": "https://app.datadoghq.com/dashboard/abc-def/webhook-retry"}
+      ]
+    },
+    {
+      "id": "s1c",
+      "lane": 0,
+      "col": 2,
+      "label": "S1 close",
+      "sub": "Done",
+      "state": "done",
+      "startedAt": "2026-10-01T08:45:00+09:00",
+      "doneAt": "2026-10-01T09:05:00+09:00",
+      "title": "S1 closed",
+      "body": "Reported the result on SHOP-128, transitioned it to STAGING done, and closed three sub-tasks. The deploy evidence bundle check also passed.",
+      "evidence": [
+        {"icon": "ticket", "text": "Jira comment 41877", "href": "https://example.atlassian.net/browse/SHOP-128?focusedCommentId=41877"},
+        {"icon": "ticket", "text": "SHOP-130·131·132 done"},
+        {"icon": "check", "text": "evidence-bundle.json passed", "mono": true},
+        {"icon": "file", "text": "Work log 2026-10-01"}
+      ]
+    },
+    {
+      "id": "s2v",
+      "lane": 0,
+      "col": 3,
+      "label": "S2 pre-deploy verify",
+      "sub": "Addressing review",
+      "state": "now",
+      "startedAt": "2026-10-01T09:10:00+09:00",
+      "estimate": 45,
+      "title": "S2 duplicate payment prevention: pre-deploy verification",
+      "body": "/verify PASS and a performance review APPROVE. Addressing security (payment key masking hardening) and test review comments; when that is done, deploy to staging and verify the order payment flow with live calls.",
+      "substeps": [
+        {"label": "/verify PASS", "state": "done", "href": "https://github.com/example/shop-api/actions/runs/1234555555"},
+        {"label": "Performance review", "state": "done"},
+        {"label": "Address security · test comments", "state": "now"},
+        {"label": "Staging deploy", "state": "left"},
+        {"label": "Live-call verification", "state": "left"}
+      ],
+      "evidence": [
+        {"icon": "commit", "text": "feat/SHOP-130 31c0661191", "mono": true, "href": "https://github.com/example/shop-api/commit/31c0661191"},
+        {"icon": "test", "text": "Regression runner idempotencyKey support · 78 tests passed"}
+      ]
+    },
+    {
+      "id": "s2d",
+      "lane": 0,
+      "col": 4,
+      "label": "S2 staging verify",
+      "sub": "Waiting",
+      "state": "left",
+      "estimate": 90,
+      "title": "S2 deploy and staging verification",
+      "body": "Verify in this order: sign in with the test account, complete an order payment, resend the webhook. If no reproducible order exists, report it as blocked."
+    },
+    {
+      "id": "audit",
+      "lane": 0,
+      "col": 5,
+      "label": "Completion audit",
+      "sub": "Waiting",
+      "state": "left",
+      "estimate": 60,
+      "title": "Completion audit",
+      "body": "Compare the S1–S4 artifacts and evidence to decide whether the task can close."
+    },
+    {
+      "id": "s3",
+      "lane": 1,
+      "col": 3,
+      "label": "S3 measurement tooling",
+      "sub": "Code review",
+      "state": "side",
+      "estimate": 120,
+      "title": "S3 measurement tooling migration and reprocessing-latency remeasurement",
+      "body": "Measurement is done. Batch processing (b) was adopted for S4 at 100% on all three runs of 25 rows (single-row processing 69%). One duplicate webhook flipped 43.5% of the idempotency verdicts, recorded as a risk signal for cutover.",
+      "badge": "Parallel · code review",
+      "compare": [
+        {
+          "caption": "Reprocessing order accuracy · 25 rows × 3 runs",
+          "rows": [
+            {"label": "Batch processing (b)", "value": 100, "tone": "win"},
+            {"label": "Single-row processing", "value": 69, "tone": "lose"}
+          ]
+        },
+        {
+          "caption": "Idempotency verdicts flipped by one duplicate webhook",
+          "rows": [
+            {"label": "Risk signal", "value": 43.5, "tone": "risk"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s4",
+      "lane": 1,
+      "col": 4,
+      "label": "S4 idempotency",
+      "sub": "Design review",
+      "state": "side",
+      "estimate": 240,
+      "title": "S4 duplicate webhook idempotency",
+      "body": "Implement, deploy, and verify using the batch-processing configuration adopted in the S3 remeasurement.",
+      "badge": "Parallel · design review"
+    }
+  ],
+  "edges": [
+    ["plan", "s1d"], ["s1d", "s1c"], ["s1c", "s2v"], ["s2v", "s2d"],
+    ["s2d", "audit"], ["s1c", "s3"], ["s3", "s4"], ["s4", "audit"]
+  ],
+  "changes": [
+    {
+      "title": "Reprocessing order fixed to batch processing (b)",
+      "body": "100% across all three runs of 25 rows, higher than single-row processing (69%), so the S4 implementation baseline was changed to batch processing."
+    }
+  ]
+}

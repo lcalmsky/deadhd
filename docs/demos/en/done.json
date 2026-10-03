@@ -1,0 +1,149 @@
+{
+  "key": "APP-77",
+  "keyHref": "https://example.atlassian.net/browse/APP-77",
+  "lang": "en",
+  "links": {
+    "APP-77": "https://example.atlassian.net/browse/APP-77",
+    "APP-81": "https://example.atlassian.net/browse/APP-81",
+    "app-api#512": "https://github.com/example/app-api/pull/512",
+    "app-api#518": "https://github.com/example/app-api/pull/518"
+  },
+  "title": "Moving push notification consent data to the server",
+  "goal": "Move the push notification consent values the app kept only in device storage to the server, so consent survives a device change or a reinstall. After the migration, verify the app and server consent values agree.",
+  "doneWhen": "Consent data is migrated to the server and the app-server value comparison and send-blocking checks pass.",
+  "updated": "2026-09-30 18:10 KST",
+  "meta": [
+    "app-api",
+    {"text": "prod"},
+    {"text": "feat/APP-77", "href": "https://github.com/example/app-api/tree/feat/APP-77"}
+  ],
+  "lanes": ["App", "Server"],
+  "items": [
+    {
+      "id": "a-def",
+      "lane": 0,
+      "col": 0,
+      "label": "Consent fields",
+      "sub": "Done",
+      "state": "done",
+      "startedAt": "2026-09-28T10:00:00+09:00",
+      "doneAt": "2026-09-28T11:30:00+09:00",
+      "title": "App consent fields defined",
+      "body": "Defined consent per notification type and the consent timestamp as fields, and fixed the format sent to the server together with the device identifier. Fields the server does not know are ignored and not stored.",
+      "evidence": [
+        {"icon": "ticket", "text": "APP-77", "mono": true, "href": "https://example.atlassian.net/browse/APP-77"},
+        {"icon": "file", "text": "consent-schema.md", "mono": true}
+      ]
+    },
+    {
+      "id": "a-collect",
+      "lane": 0,
+      "col": 1,
+      "label": "Collection deploy",
+      "sub": "Done",
+      "state": "done",
+      "startedAt": "2026-09-29T09:40:00+09:00",
+      "doneAt": "2026-09-29T16:20:00+09:00",
+      "title": "App collection code deployed",
+      "body": "Added code that sends the consent value to the server whenever it changes, and keeps it in a queue for resend when sending fails. The rollout was staged.",
+      "evidence": [
+        {"icon": "commit", "text": "3f9a1c62", "mono": true, "href": "https://github.com/example/app-api/commit/3f9a1c62"},
+        {"icon": "test", "text": "Consent-send unit tests: 148 passed"}
+      ]
+    },
+    {
+      "id": "s-schema",
+      "lane": 1,
+      "col": 0,
+      "label": "Receive schema",
+      "sub": "Done",
+      "state": "done",
+      "startedAt": "2026-09-28T09:30:00+09:00",
+      "doneAt": "2026-09-28T12:10:00+09:00",
+      "title": "Consent receive schema prepared",
+      "body": "Created the server table holding the consent value and change time, keyed so that only the latest value from the same device is kept.",
+      "evidence": [
+        {"icon": "pr", "text": "app-api#512", "mono": true, "href": "https://github.com/example/app-api/pull/512"},
+        {"icon": "file", "text": "consent_table.sql", "mono": true}
+      ]
+    },
+    {
+      "id": "s-batch",
+      "lane": 1,
+      "col": 1,
+      "label": "Migration batch",
+      "sub": "Done",
+      "state": "done",
+      "startedAt": "2026-09-28T13:00:00+09:00",
+      "doneAt": "2026-09-29T11:50:00+09:00",
+      "title": "Migration batch written",
+      "body": "Wrote the batch that takes the consent values the app kept and writes them into the server table. When an incoming value is older than the stored one, it is skipped instead of stored.",
+      "evidence": [
+        {"icon": "pr", "text": "app-api#518", "mono": true, "href": "https://github.com/example/app-api/pull/518"},
+        {"icon": "test", "text": "Batch tests: 96 passed"}
+      ]
+    },
+    {
+      "id": "s-migrate",
+      "lane": 1,
+      "col": 2,
+      "label": "Consent migration",
+      "sub": "Done",
+      "state": "done",
+      "startedAt": "2026-09-29T13:00:00+09:00",
+      "doneAt": "2026-09-30T02:40:00+09:00",
+      "title": "Consent history migration run",
+      "body": "Moved every account's consent values to the server overnight and carried unprocessed rows into the next run. There were 4.12 million rows to migrate.",
+      "evidence": [
+        {"icon": "test", "text": "4.12M rows to migrate"},
+        {"icon": "check", "text": "0 unprocessed"}
+      ]
+    },
+    {
+      "id": "a-check",
+      "lane": 0,
+      "col": 2,
+      "label": "App switch verify",
+      "sub": "Done",
+      "state": "done",
+      "startedAt": "2026-09-29T17:00:00+09:00",
+      "doneAt": "2026-09-30T10:30:00+09:00",
+      "title": "App switch verified",
+      "body": "Changed the app to read server values instead of local ones and confirmed consent stays intact through a device change and a reinstall.",
+      "evidence": [
+        {"icon": "commit", "text": "c04b7e18", "mono": true, "href": "https://github.com/example/app-api/commit/c04b7e18"},
+        {"icon": "test", "text": "Switch scenarios: 12 passed"}
+      ]
+    },
+    {
+      "id": "m-verify",
+      "lane": 0,
+      "col": 3,
+      "label": "Migration verify",
+      "sub": "Done",
+      "state": "done",
+      "startedAt": "2026-09-30T14:00:00+09:00",
+      "doneAt": "2026-09-30T18:05:00+09:00",
+      "title": "Migration verified and send blocking confirmed",
+      "body": "Compared app and server consent values across a 50,000-row sample with no mismatches. Confirmed from send logs that no push goes out for accounts with consent turned off.",
+      "evidence": [
+        {"icon": "check", "text": "50,000-row sample, 0 mismatches"},
+        {"icon": "test", "text": "Send-blocking checks: 8 passed"}
+      ]
+    }
+  ],
+  "edges": [
+    ["a-def", "a-collect"], ["s-schema", "s-batch"],
+    ["a-collect", "a-check"], ["s-batch", "s-migrate"],
+    ["a-check", "m-verify"], ["s-migrate", "m-verify"]
+  ],
+  "changes": [
+    {
+      "title": "Migration order changed to server first",
+      "body": "Running the app rollout and the server migration on the same day left no clear source of truth for the consent value, so the order was changed to finish the server migration first and have the app read server values.",
+      "evidence": [
+        {"icon": "ticket", "text": "APP-81", "mono": true, "href": "https://example.atlassian.net/browse/APP-81"}
+      ]
+    }
+  ]
+}

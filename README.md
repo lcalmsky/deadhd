@@ -1,5 +1,7 @@
 <h1 align="center"><img src="docs/logo.png" alt="deadhd" width="420"></h1>
 
+<p align="center"><b>한국어</b> · <a href="README.en.md">English</a></p>
+
 <p align="center"><b>dead + ADHD</b><br>ADHD를 무찌르기 위한 Claude Code 진행 상황 스킬</p>
 
 <p align="center"><i>A Claude Code skill that shows a live checklist page of what each session has done, is doing now, and has left.</i></p>
@@ -25,6 +27,7 @@ Orca 안에서 실행하면 기본 설정(`auto`)으로 터미널 옆 탭에 바
 - 완료 표시는 세션의 실행 결과로 확인된 단계에만 붙습니다. 테스트 통과, 파일 작성, PR 머지처럼 결과가 남은 단계만 `done` 으로 분류하고, 시도했지만 검증하지 못한 단계는 `now` 또는 `blocked` 로 표시합니다.
 - 각 단계에는 근거가 되는 파일 경로, PR, 커밋, 테스트 통과 건수가 함께 표시됩니다.
 - 페이지 디자인은 `template.html` 에 고정되어 있고, 모델은 JSON 데이터만 작성합니다. `render.py` 가 데이터를 검증한 뒤 HTML 을 생성합니다.
+- 사용자가 영어로 대화하면 페이지의 고정 문구(`완료`, `진행 중`, `남은 작업` 같은 라벨)도 영어로 표시됩니다. 데이터의 `lang` 필드로 정해지며, 없으면 한국어입니다.
 - 단계별 시작·완료 시각과 남은 시간 추정치가 있으면 진행 바 아래에 완료 예상 시각이 표시됩니다. `내일`이나 날짜로 붙는 표기는 페이지를 보고 있는 시점의 시각을 기준으로 정해지므로, 자정이 지나거나 창을 다시 열면 자동으로 바뀝니다.
 - 열어 둔 탭은 15초마다 새로 고쳐지고, 새로 완료된 단계에는 완료 효과가 재생됩니다.
 

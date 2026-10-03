@@ -167,7 +167,7 @@ function serialize(n) {
   return o;
 }
 
-const probeSrc = "\n  globalThis.__linkProbe = { httpHref: httpHref, linkElInfo: function (h) { var n = linkEl(h, document.createTextNode('t'), 'lnk'); return { tag: n.tagName, href: n.href == null ? null : n.href }; }, fmtClock: function (t, v) { return fmtClock(t, v); }, fmtDur: fmtDur };\n";
+const probeSrc = "\n  globalThis.__linkProbe = { httpHref: httpHref, linkElInfo: function (h) { var n = linkEl(h, document.createTextNode('t'), 'lnk'); return { tag: n.tagName, href: n.href == null ? null : n.href }; }, fmtClock: function (t, v) { return fmtClock(t, v); }, fmtDur: fmtDur, i18nKeys: (function () { function flat(o, p) { var out = []; Object.keys(o).forEach(function (k) { var v = o[k], q = p ? p + '.' + k : k; if (v && typeof v === 'object') out = out.concat(flat(v, q)); else out.push(q); }); return out.sort(); } return { ko: flat(I18N.ko, ''), en: flat(I18N.en, '') }; })() };\n";
 const idx = code0.lastIndexOf('})();');
 if (idx < 0) throw new Error('IIFE 끝을 찾지 못했다');
 const code = code0.slice(0, idx) + probeSrc + code0.slice(idx);
@@ -229,7 +229,8 @@ process.stdout.write(JSON.stringify({
     link_http: info('http://ok.test/x'),
     link_upper: info('HTTPS://OK.test/y'),
     link_null: info(null),
-    link_number: info(123)
+    link_number: info(123),
+    i18nKeys: probe.i18nKeys
   },
   nodes: nodes
 }));
@@ -507,10 +508,13 @@ class TemplateTimeFormatTest(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix='progress-fmt-test-')
         self.addCleanup(shutil.rmtree, self.tmp, True)
 
-    def run_cases(self, cases):
+    def run_cases(self, cases, extra=None):
+        data = {'title': 'T', 'items': [mini_item('a', 'done')]}
+        if extra:
+            data.update(extra)
         path = os.path.join(self.tmp, 'data.json')
         with open(path, 'w', encoding='utf-8') as f:
-            json.dump({'title': 'T', 'items': [mini_item('a', 'done')]}, f, ensure_ascii=False)
+            json.dump(data, f, ensure_ascii=False)
         out = os.path.join(self.tmp, 'out.html')
         r = run_render(path, out)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -539,6 +543,21 @@ class TemplateTimeFormatTest(unittest.TestCase):
             self.run_cases(cases)['dur'],
             ['59분', '1시간', '1시간 10분', '23시간 59분', '1일', '1일 2시간'],
         )
+
+    def test_fmt_en(self):
+        stamp = '2026-10-03T01:00:00+09:00'
+        cases = {
+            'clock': [
+                ['2026-10-03T03:52:00+09:00', stamp],
+                ['2026-10-04T03:52:00+09:00', stamp],
+                ['2026-10-05T04:57:00+09:00', stamp],
+                ['2026-09-07T04:57:00+09:00', stamp],
+            ],
+            'dur': [59, 60, 70, 1439, 1440, 1560],
+        }
+        fmt = self.run_cases(cases, extra={'lang': 'en'})
+        self.assertEqual(fmt['clock'], ['03:52', 'Tomorrow 03:52', '10/05 04:57', '9/07 04:57'])
+        self.assertEqual(fmt['dur'], ['59m', '1h', '1h 10m', '23h 59m', '1d', '1d 2h'])
 
 
 class TemplateDomStateTest(unittest.TestCase):
@@ -716,6 +735,19 @@ class TemplateDomStateTest(unittest.TestCase):
             [k.get('cls') for k in circle.get('kids', []) if 'orbit' in (k.get('cls') or '').split()],
             ['orbit'],
         )
+
+    def test_english_labels(self):
+        result = self.render_dom([mini_item('a', 'done')], extra={'lang': 'en'})
+        self.assertEqual(result['nodes']['eyebrowText']['text'], 'All steps done')
+        self.assertEqual(result['nodes']['countLabel']['text'], 'done')
+        self.assertEqual([s['text'] for s in result['nodes']['tally']['kids']], ['Done 1'])
+        self.assertIn('✓Completed', [n['text'] for n in self.find(result, 'done')])
+
+    def test_english_eta_overdue(self):
+        result = self.render_dom(
+            [mini_item('a', 'now', estimate=30)], extra={'lang': 'en'}, view='2026-10-03T11:00:00+09:00'
+        )
+        self.assertEqual([n['text'] for n in self.find(result, 'eta')], ['ETA 10:30 (overdue)'])
 
 
 class RenderTest(unittest.TestCase):
@@ -1037,6 +1069,68 @@ class RenderThemeTest(unittest.TestCase):
                 r, out = self.render(theme=theme)
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assertEqual(self.rendered_tag(out), '<html lang="ko" data-theme="%s">' % theme)
+
+
+class LangTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='progress-lang-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def render(self, data, theme=None):
+        path = os.path.join(self.tmp, 'data.json')
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+        out = os.path.join(self.tmp, 'out.html')
+        return run_render(path, out, theme=theme), out
+
+    def read(self, out):
+        with open(out, encoding='utf-8') as f:
+            return f.read()
+
+    def test_lang_en_switches_html_and_title(self):
+        data = load_example()
+        data['lang'] = 'en'
+        r, out = self.render(data)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        html = self.read(out)
+        self.assertEqual(html_tag(html), '<html lang="en">')
+        self.assertIn('<title>SHOP-128 Progress</title>', html)
+
+    def test_lang_en_with_theme_sets_both_attributes(self):
+        data = load_example()
+        data['lang'] = 'en'
+        r, out = self.render(data, theme='dark')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(html_tag(self.read(out)), '<html lang="en" data-theme="dark">')
+
+    def test_bad_lang_exits_1(self):
+        for value in ('fr', 7):
+            with self.subTest(value=value):
+                data = load_example()
+                data['lang'] = value
+                r, out = self.render(data)
+                self.assertEqual(r.returncode, 1)
+                self.assertIn('lang', r.stderr)
+                self.assertFalse(os.path.exists(out))
+
+
+class TemplateI18NTest(unittest.TestCase):
+    def setUp(self):
+        if NODE is None:
+            self.skipTest('node 가 없어 템플릿 스크립트를 실행할 수 없다')
+        self.tmp = tempfile.mkdtemp(prefix='progress-i18n-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def test_ko_en_key_sets_match(self):
+        path = os.path.join(self.tmp, 'data.json')
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump({'title': 'T', 'items': [mini_item('a', 'done')]}, f, ensure_ascii=False)
+        out = os.path.join(self.tmp, 'out.html')
+        r = run_render(path, out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding='utf-8') as f:
+            keys = run_linkify_harness(f.read())['probe']['i18nKeys']
+        self.assertEqual(keys['ko'], keys['en'])
 
 
 class TemplateThemeTest(unittest.TestCase):

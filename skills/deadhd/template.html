@@ -340,6 +340,9 @@ h1 .key a { color: inherit; text-decoration: none; }
 .lane-band.live .lane-label::after { content: "· 진행 중"; font-weight: 500; opacity: .85; }
 .lane-band.done .lane-label::after { content: "· 완료"; font-weight: 500; opacity: .85; }
 .lane-band.blocked .lane-label::after { content: "· 막힘"; font-weight: 500; opacity: .85; }
+html:lang(en) .lane-band.live .lane-label::after { content: "· In progress"; }
+html:lang(en) .lane-band.done .lane-label::after { content: "· Done"; }
+html:lang(en) .lane-band.blocked .lane-label::after { content: "· Blocked"; }
 @keyframes blink { 50% { opacity: .35; } }
 .edges { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
 .edge { fill: none; stroke: var(--track); stroke-width: 3; stroke-linecap: round; }
@@ -616,7 +619,7 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
   <div class="progress">
     <div class="bar"><div class="fill"></div><div class="tip"></div></div>
     <div class="count-col" id="countCol">
-      <div class="count"><b id="countB">0/0</b> 완료</div>
+      <div class="count"><b id="countB">0/0</b> <span id="countLabel">완료</span></div>
     </div>
   </div>
   <div class="tally" id="tally"></div>
@@ -640,6 +643,65 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
   const NODE_ICON = { done: '✓', now: '▶', side: '◐', left: '○', blocked: '!' };
   const ANIM_KEY = { done: 'sub-s ok', now: 'sub-s run', blocked: 'sub-s blocked' };
   const ANIM_GLYPH = { done: '✓', now: '▶', side: '◐', blocked: '!' };
+
+  // 템플릿이 스스로 그리는 고정 문구만 담는다. 카드 내용은 데이터가 이미 사용자 언어로 갖고 있다.
+  // ko/en 은 같은 키를 가진다 (test_render.py 가 대조한다).
+  const I18N = {
+    ko: {
+      countDone: '완료',
+      stepFlow: '단계 흐름',
+      updated: t => '마지막 갱신 ' + t,
+      goal: '목표',
+      doneWhen: '완료 조건',
+      eta: '완료 예상 ',
+      overdue: ' (지남)',
+      eyebrowNow: l => l + ' 진행 중',
+      eyebrowBlocked: l => l + ' 막힘',
+      allDone: '모든 단계 완료',
+      tally: { done: '완료', now: '진행', blocked: '막힘', side: '병행', left: '대기' },
+      secBlocked: '막힌 작업',
+      secNow: '진행 중인 작업',
+      secDone: '완료된 작업',
+      secRemaining: '남은 작업',
+      secChanges: '바뀐 판단',
+      started: '시작 ',
+      elapsed: '경과 ',
+      tomorrow: '내일 ',
+      date: (m, d, hm) => m + '.' + d + ' ' + hm,
+      min: m => m + '분',
+      hour: h => h + '시간',
+      hourMin: (h, r) => h + '시간 ' + r + '분',
+      day: d => d + '일',
+      dayHour: (d, r) => d + '일 ' + r + '시간'
+    },
+    en: {
+      countDone: 'done',
+      stepFlow: 'Step flow',
+      updated: t => 'Updated ' + t,
+      goal: 'Goal',
+      doneWhen: 'Done when',
+      eta: 'ETA ',
+      overdue: ' (overdue)',
+      eyebrowNow: l => l + ' in progress',
+      eyebrowBlocked: l => l + ' blocked',
+      allDone: 'All steps done',
+      tally: { done: 'Done', now: 'Now', blocked: 'Blocked', side: 'Parallel', left: 'Left' },
+      secBlocked: 'Blocked',
+      secNow: 'In progress',
+      secDone: 'Completed',
+      secRemaining: 'Remaining',
+      secChanges: 'Plan changes',
+      started: 'Started ',
+      elapsed: 'Elapsed ',
+      tomorrow: 'Tomorrow ',
+      date: (m, d, hm) => m + '/' + d + ' ' + hm,
+      min: m => m + 'm',
+      hour: h => h + 'h',
+      hourMin: (h, r) => h + 'h ' + r + 'm',
+      day: d => d + 'd',
+      dayHour: (d, r) => d + 'd ' + r + 'h'
+    }
+  };
 
   const el = (tag, cls, text) => {
     const n = document.createElement(tag);
@@ -676,19 +738,19 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
     const t = toDate(target), v = toDate(viewNow);
     const hm = pad2(t.getHours()) + ':' + pad2(t.getMinutes());
     if (sameDay(t, v)) return hm;
-    if (sameDay(t, new Date(v.getFullYear(), v.getMonth(), v.getDate() + 1))) return '내일 ' + hm;
-    return (t.getMonth() + 1) + '.' + pad2(t.getDate()) + ' ' + hm;
+    if (sameDay(t, new Date(v.getFullYear(), v.getMonth(), v.getDate() + 1))) return L.tomorrow + hm;
+    return L.date(t.getMonth() + 1, pad2(t.getDate()), hm);
   }
 
   function fmtDur(minutes) {
     const m = Math.round(Number(minutes) || 0);
-    if (m < 60) return m + '분';
+    if (m < 60) return L.min(m);
     if (m < 1440) {
       const h = Math.floor(m / 60), rest = m % 60;
-      return rest ? h + '시간 ' + rest + '분' : h + '시간';
+      return rest ? L.hourMin(h, rest) : L.hour(h);
     }
     const h = Math.round(m / 60), d = Math.floor(h / 24), rest = h % 24;
-    return rest ? d + '일 ' + rest + '시간' : d + '일';
+    return rest ? L.dayHour(d, rest) : L.day(d);
   }
 
   function linkify(text) {
@@ -723,6 +785,10 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
     console.error('progress: 데이터를 읽지 못했다', err);
     return;
   }
+
+  const L = I18N[data.lang] || I18N.ko;
+  $('countLabel').textContent = L.countDone;
+  $('flow').setAttribute('aria-label', L.stepFlow);
 
   const LINKS = (data.links && typeof data.links === 'object' && !Array.isArray(data.links)) ? data.links : {};
   const escapeRe = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -778,9 +844,9 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
 
   // ---- 머리말 ----
   const eyebrow = $('eyebrow');
-  if (nowList.length) $('eyebrowText').textContent = nowList[0].label + ' 진행 중';
-  else if (blockedList.length) $('eyebrowText').textContent = blockedList[0].label + ' 막힘';
-  else if (total && doneList.length === total) $('eyebrowText').textContent = '모든 단계 완료';
+  if (nowList.length) $('eyebrowText').textContent = L.eyebrowNow(nowList[0].label);
+  else if (blockedList.length) $('eyebrowText').textContent = L.eyebrowBlocked(blockedList[0].label);
+  else if (total && doneList.length === total) $('eyebrowText').textContent = L.allDone;
   else eyebrow.hidden = true;
 
   const h1 = $('h1');
@@ -793,7 +859,7 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
   h1.appendChild(el('span', 'shine', data.title || ''));
 
   const meta = $('meta');
-  if (data.updated) meta.appendChild(el('span', null, '마지막 갱신 ' + data.updated));
+  if (data.updated) meta.appendChild(el('span', null, L.updated(data.updated)));
   (data.meta || []).forEach(m => {
     const obj = (m && typeof m === 'object' && !Array.isArray(m)) ? m : null;
     if (obj && obj.href) {
@@ -815,8 +881,8 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
     row.appendChild(p);
     goal.appendChild(row);
   };
-  if (data.goal) goalRow('목표', null, data.goal);
-  if (data.doneWhen) goalRow('완료 조건', 'end', data.doneWhen);
+  if (data.goal) goalRow(L.goal, null, data.goal);
+  if (data.doneWhen) goalRow(L.doneWhen, 'end', data.doneWhen);
   if (!goal.children.length) goal.hidden = true;
 
   // ---- 진행 바와 집계 ----
@@ -829,14 +895,14 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
     const etaAt = toDate(data.eta);
     const past = etaAt.getTime() < viewNow.getTime();
     const line = el('div', past ? 'eta past' : 'eta');
-    line.appendChild(document.createTextNode('완료 예상 '));
+    line.appendChild(document.createTextNode(L.eta));
     line.appendChild(el('b', null, fmtClock(etaAt, viewNow)));
-    if (past) line.appendChild(document.createTextNode(' (지남)'));
+    if (past) line.appendChild(document.createTextNode(L.overdue));
     $('countCol').appendChild(line);
   }
 
   const tally = $('tally');
-  [['done', '완료'], ['now', '진행'], ['blocked', '막힘'], ['side', '병행'], ['left', '대기']].forEach(([k, t]) => {
+  [['done', L.tally.done], ['now', L.tally.now], ['blocked', L.tally.blocked], ['side', L.tally.side], ['left', L.tally.left]].forEach(([k, t]) => {
     const c = byState(k).length;
     if (!c) return;
     const s = el('span');
@@ -852,7 +918,7 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
   if (blockedList.length) {
     const h = el('h2', 'blocked');
     h.appendChild(el('span', 'ic', '⚠'));
-    h.appendChild(document.createTextNode('막힌 작업'));
+    h.appendChild(document.createTextNode(L.secBlocked));
     blockedWrap.appendChild(h);
     blockedList.forEach(it => blockedWrap.appendChild(cardEl(it, it.state)));
   }
@@ -943,14 +1009,14 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
     cards.appendChild(h);
     list.forEach(it => cards.appendChild(cardEl(it, cardCls(it))));
   }
-  if (nowList.length) section('now', '▶', '진행 중인 작업', nowList, () => 'now');
-  if (doneList.length) section('done', '✓', '완료된 작업', doneList, () => 'done');
+  if (nowList.length) section('now', '▶', L.secNow, nowList, () => 'now');
+  if (doneList.length) section('done', '✓', L.secDone, doneList, () => 'done');
   const rest = sideList.concat(leftList);
-  if (rest.length) section('left', '○', '남은 작업', rest, it => it.state === 'side' ? 'left side' : 'left');
+  if (rest.length) section('left', '○', L.secRemaining, rest, it => it.state === 'side' ? 'left side' : 'left');
   if (Array.isArray(data.changes) && data.changes.length) {
     const h = el('h2', 'left');
     h.appendChild(el('span', 'ic', 'Δ'));
-    h.appendChild(document.createTextNode('바뀐 판단'));
+    h.appendChild(document.createTextNode(L.secChanges));
     cards.appendChild(h);
     data.changes.forEach(c => {
       const card = el('div', 'card');
@@ -1019,8 +1085,8 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
     const ratio = total > 0 ? Math.min(1, Math.max(0, elapsed / total)) : 0;
     const wrap = el('div', 'etime');
     const top = el('div', 'etime-row');
-    top.appendChild(el('span', null, '시작 ' + fmtClock(start, viewNow)));
-    top.appendChild(el('span', null, '완료 예상 ' + fmtClock(end, viewNow) + (end.getTime() < viewNow.getTime() ? ' (지남)' : '')));
+    top.appendChild(el('span', null, L.started + fmtClock(start, viewNow)));
+    top.appendChild(el('span', null, L.eta + fmtClock(end, viewNow) + (end.getTime() < viewNow.getTime() ? L.overdue : '')));
     wrap.appendChild(top);
     const bar = el('div', 'etime-bar');
     const fill = el('i');
@@ -1028,7 +1094,7 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
     bar.appendChild(fill);
     wrap.appendChild(bar);
     const bottom = el('div', 'etime-row');
-    bottom.appendChild(el('span', null, '경과 ' + fmtDur(Math.max(0, elapsed / 60000))));
+    bottom.appendChild(el('span', null, L.elapsed + fmtDur(Math.max(0, elapsed / 60000))));
     bottom.appendChild(el('span'));
     wrap.appendChild(bottom);
     return wrap;
