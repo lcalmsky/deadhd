@@ -22,6 +22,23 @@ This is the same set of cases rendered in each theme. You can see a multi-lane f
 
 ![deadhd theme gallery](docs/themes.en.png)
 
+## View modes
+
+The buttons at the top left of the page switch the same progress between four views. Where the page is narrow, such as the Claude artifact panel or a split Orca tab, the compact views are easier to read at a glance.
+
+| View | Layout |
+|---|---|
+| Original | The default page with the flow diagram and a card for every step |
+| Strip | Shrinks the step flow to one row of dots and expands only the card for the step in progress. The other steps are folded into done, parallel, and left groups |
+| Timeline | Stacks the steps one per row, each with its finish time or estimate. The step in progress is shown as a card |
+| Tiles | Leads with numbers (steps done, time left on the current step, expected completion) and shows each step's state as a segmented bar |
+
+Picking a compact view shows the `Auto`, `Landscape`, and `Portrait` buttons. `Auto` uses the landscape layout when the tab is wider than 5:4 and at least 760px wide, and the portrait layout otherwise, and it re-lays out as soon as you resize the tab. The chosen view and layout survive the 15-second auto-refresh and work in every theme and in the English UI.
+
+The browser draws a view from the data already in the page when you press its button. The model still writes the same data, so the views add no token cost.
+
+![deadhd view modes](docs/views.en.png)
+
 ## How it works
 
 - The done mark is attached only to steps confirmed by the session's own run results. Only steps with a result — a passing test, a written file, a merged PR — are classified as `done`; steps that were attempted but not verified are shown as `now` or `blocked`.
@@ -30,7 +47,6 @@ This is the same set of cases rendered in each theme. You can see a multi-lane f
 - When per-step start and finish times and remaining-time estimates are present, the expected completion time appears under the progress bar. The `tomorrow` or date notation is decided from the time you are viewing the page, so it changes on its own after midnight or when you reopen the window.
 - An open tab reloads every 15 seconds, and newly completed steps play a completion effect.
 - When the user talks in English, the page's fixed labels (`done`, `In progress`, `Remaining`, and so on) are shown in English too. This is set by the data's `lang` field; without it the page is Korean.
-- The buttons at the top left choose between the original, strip, timeline, and tile views; landscape and portrait follow the tab's aspect ratio automatically and can be pinned. The choice survives a refresh.
 
 ## Requirements
 
@@ -127,7 +143,7 @@ cd skills/deadhd
 python3 -m pytest -q test_render.py
 ```
 
-The theme gallery (`docs/themes.png`) can be regenerated on a machine with Chrome via `python3 docs/capture_themes.py`. The English gallery (`docs/themes.en.png`) is `python3 docs/capture_themes.py --lang en`.
+The theme gallery (`docs/themes.png`) can be regenerated on a machine with Chrome via `python3 docs/capture_themes.py`. The English gallery (`docs/themes.en.png`) is `python3 docs/capture_themes.py --lang en`. The view mode images (`docs/views.png`, `docs/views.en.png`) are regenerated with `python3 docs/capture_views.py` and `python3 docs/capture_views.py --lang en`.
 
 ## License
 
