@@ -169,19 +169,19 @@ body {
 
 /* ---------- 스타 버튼 ---------- */
 .star-btn {
-  position: fixed; top: 16px; right: 16px; z-index: 20;
-  display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px 0 10px; border-radius: 999px;
-  color: var(--ink-3); text-decoration: none; font-size: 13px; font-weight: 600; letter-spacing: -.01em; line-height: 1;
-  background: var(--card); border: 1px solid var(--card-line); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px 0 8px; border-radius: 999px;
+  color: var(--ink-3); text-decoration: none; font-size: 11.5px; font-weight: 600; letter-spacing: -.01em; line-height: 1;
+  background: transparent; border: 1px solid var(--card-line); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
   transition: color .25s, border-color .25s;
 }
 .star-btn:hover { color: var(--ink); border-color: color-mix(in srgb, var(--now) 40%, transparent); }
 .star-btn:focus-visible { outline: 2px solid var(--now); outline-offset: 2px; }
-.star-btn .swap { position: relative; width: 16px; height: 16px; display: inline-grid; place-items: center; }
+.star-btn .swap { position: relative; width: 13px; height: 13px; display: inline-grid; place-items: center; }
 .star-btn .swap > svg { position: absolute; transition: opacity .25s, transform .5s cubic-bezier(.3,1.6,.5,1); }
-.star-btn .gh { width: 15px; height: 15px; fill: currentColor; }
+.star-btn .gh { width: 12px; height: 12px; fill: currentColor; }
 .star-btn .s {
-  width: 16px; height: 16px; fill: var(--now); stroke: var(--now); stroke-width: 1.7; stroke-linejoin: round;
+  width: 13px; height: 13px; fill: var(--now); stroke: var(--now); stroke-width: 1.7; stroke-linejoin: round;
   opacity: 0; transform: rotate(-72deg) scale(.4);
 }
 .star-btn:hover .gh, .star-btn:focus-visible .gh { opacity: 0; transform: scale(.4); }
@@ -584,27 +584,33 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
 }
 
 /* ---------- 컴팩트 보기 ---------- */
+/* 버튼 줄 폭은 main(max-width 1040px)·#compact[data-o] 와 함께 바꾼다 */
 .viewbar {
-  position: fixed; top: 16px; left: 16px; z-index: 20; display: flex; gap: 8px; flex-wrap: wrap; max-width: calc(100vw - 130px);
+  position: relative; z-index: 20; display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  max-width: 1040px; margin: 0 auto; padding: 14px 16px 0;
 }
+.viewbar[data-o="port"] { max-width: 520px; }
+.viewbar[data-o="land"] { max-width: 1100px; }
 .seg-ctl {
-  display: inline-flex; padding: 3px; gap: 2px; border-radius: 999px;
-  background: var(--card); border: 1px solid var(--card-line); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  display: inline-flex; padding: 2px; gap: 1px; border-radius: 999px;
+  background: transparent; border: 1px solid var(--card-line); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
 }
 .seg-ctl button {
-  font: inherit; font-size: 12.5px; line-height: 1; color: var(--ink-3); background: none; border: 0; cursor: pointer;
-  height: 26px; padding: 0 11px; border-radius: 999px; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  font: inherit; font-size: 11.5px; line-height: 1; color: var(--ink-3); background: none; border: 0; cursor: pointer;
+  height: 22px; padding: 0 9px; border-radius: 999px; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
   transition: color .2s, background .2s;
 }
 .seg-ctl button:hover { color: var(--ink); }
 .seg-ctl button[aria-pressed="true"] { color: var(--ink); background: color-mix(in srgb, var(--done) 18%, transparent); }
 .seg-ctl button:focus-visible { outline: 2px solid var(--now); outline-offset: 1px; }
-.seg-ctl svg { width: 13px; height: 13px; }
-body[data-view] main { padding-top: 64px; }
+.seg-ctl svg { width: 12px; height: 12px; }
+#orient .lbl { display: none; }
+#o-land, #o-port { padding: 0 7px; }
+body[data-view] main { padding-top: 24px; }
 body[data-view]:not([data-view="full"]) main { display: none; }
 body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
 
-#compact { position: relative; z-index: 1; margin: 0 auto; padding: 64px 16px 40px; font-size: 13.5px; }
+#compact { position: relative; z-index: 1; margin: 0 auto; padding: 16px 16px 40px; font-size: 13.5px; }
 #compact[data-o="port"] { max-width: 520px; }
 #compact[data-o="land"] { max-width: 1100px; }
 .cx-glass { background: var(--card); border: 1px solid var(--card-line); border-radius: 14px; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
@@ -676,7 +682,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
 .cb-top .cx-count b { font-size: 15px; }
 .cb-body { display: grid; gap: 14px; }
 #compact[data-o="land"] .cb-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); align-items: start; }
-#compact[data-o="land"] .cb-body .cx-card { position: sticky; top: 64px; }
+#compact[data-o="land"] .cb-body .cx-card { position: sticky; top: 16px; }
 .cb-tl { list-style: none; margin: 0; padding: 0; position: relative; }
 .cb-tl::before { content: ""; position: absolute; left: 6px; top: 10px; bottom: 10px; width: 2px; background: var(--track); }
 .cb-tl > li { position: relative; padding: 5px 0 5px 26px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: baseline; color: var(--ink-2); }
@@ -721,7 +727,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
 .cc-list { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 5px; font-size: 12.5px; color: var(--ink-2); }
 .cc-list li { display: flex; gap: 8px; align-items: center; }
 .cc-list li span:last-child { margin-left: auto; font-family: var(--f-mono); font-size: 11px; color: var(--ink-3); white-space: nowrap; }
-@media (max-width: 600px) { .seg-ctl button { padding: 0 8px; } #orient .lbl { display: none; } }
+@media (max-width: 600px) { .seg-ctl button { padding: 0 7px; } }
 </style>
 </head>
 <body data-fx="max">
@@ -740,13 +746,6 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
   <symbol id="i-link" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 9.5 9.5 6.5"/><path d="M7.2 4.8 8.6 3.4a2.6 2.6 0 0 1 3.7 3.7l-1.4 1.4"/><path d="M8.8 11.2 7.4 12.6a2.6 2.6 0 0 1-3.7-3.7l1.4-1.4"/></symbol>
   <symbol id="i-chart" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 2.5v11h12"/><path d="M4.5 10.5 7 7l2.5 2L13 4.5"/></symbol>
 </svg>
-<a class="star-btn" href="https://github.com/lcalmsky/deadhd" target="_blank" rel="noopener" aria-label="Star deadhd on GitHub">
-  <span class="swap">
-    <svg class="gh" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-    <svg class="s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.4l2.55 5.36 5.85.72-4.3 4.05 1.12 5.83L12 16.5l-5.22 2.86 1.12-5.83-4.3-4.05 5.85-.72z"/></svg>
-  </span>
-  <span>Star</span>
-</a>
 <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
 <div class="stars" aria-hidden="true" id="stars"></div>
 
@@ -762,6 +761,13 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     <button type="button" id="o-land" data-o="land" title="가로"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="1.5" y="4" width="13" height="8" rx="1.5"/></svg><span class="lbl">가로</span></button>
     <button type="button" id="o-port" data-o="port" title="세로"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="1.5" width="8" height="13" rx="1.5"/></svg><span class="lbl">세로</span></button>
   </div>
+  <a class="star-btn" href="https://github.com/lcalmsky/deadhd" target="_blank" rel="noopener" aria-label="Star deadhd on GitHub">
+    <span class="swap">
+      <svg class="gh" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      <svg class="s" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.4l2.55 5.36 5.85.72-4.3 4.05 1.12 5.83L12 16.5l-5.22 2.86 1.12-5.83-4.3-4.05 5.85-.72z"/></svg>
+    </span>
+    <span>Star</span>
+  </a>
 </div>
 <div id="compact" hidden></div>
 
@@ -1532,10 +1538,11 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     document.body.dataset.view = vst.v;
     ['full', 'a', 'b', 'c'].forEach(v => { const b = $('v-' + v); if (b) b.setAttribute('aria-pressed', String(v === vst.v)); });
     ['auto', 'land', 'port'].forEach(o => { const b = $('o-' + o); if (b) b.setAttribute('aria-pressed', String(o === vst.o)); });
-    if (vst.v === 'full') { box.hidden = true; return; }
+    if (vst.v === 'full') { box.hidden = true; delete $('viewbar').dataset.o; return; }
     vst.oe = vst.o === 'auto' ? (landMq.matches ? 'land' : 'port') : vst.o;
     const sig = vst.v + vst.oe + vst.chip;
     box.dataset.o = vst.oe;
+    $('viewbar').dataset.o = vst.oe;
     if (built.sig !== sig) { box.innerHTML = RENDER[vst.v](); built.sig = sig; }
     box.hidden = false;
   }

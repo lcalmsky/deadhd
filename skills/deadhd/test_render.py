@@ -1254,9 +1254,18 @@ class CompactViewTest(unittest.TestCase):
         self.assertLess(html.index('class="stars"'), html.index('class="viewbar"'))
         self.assertLess(html.index('id="compact"'), html.index('<main>'))
 
-    def test_viewbar_leaves_room_for_star_button(self):
-        viewbar = re.search(r'\.viewbar \{[^}]*\}', self.render()).group(0)
-        self.assertIn('max-width: calc(100vw - 130px)', viewbar)
+    def test_viewbar_sits_in_content_width_with_star_button(self):
+        html = self.render()
+        viewbar = re.search(r'\.viewbar \{[^}]*\}', html).group(0)
+        star = re.search(r'\.star-btn \{[^}]*\}', html).group(0)
+        self.assertNotIn('position: fixed', viewbar)
+        self.assertNotIn('position: fixed', star)
+        self.assertLess(html.index('class="viewbar"'), html.index('class="star-btn"'))
+        self.assertLess(html.index('class="star-btn"'), html.index('id="compact"'))
+        port = re.search(r'\.viewbar\[data-o="port"\] \{[^}]*\}', html).group(0)
+        land = re.search(r'\.viewbar\[data-o="land"\] \{[^}]*\}', html).group(0)
+        self.assertIn('max-width: 520px', port)
+        self.assertIn('max-width: 1100px', land)
 
 
 class TemplateCompactTest(unittest.TestCase):
@@ -1303,6 +1312,10 @@ class TemplateCompactTest(unittest.TestCase):
             {'v-full': 'true', 'v-a': 'false', 'v-b': 'false', 'v-c': 'false'},
         )
         self.assertEqual(nodes['o-auto']['attrs']['aria-pressed'], 'true')
+
+    def test_viewbar_has_no_orientation_in_original_view(self):
+        nodes = self.harness({'title': 'T', 'items': [mini_item('a', 'done')]})['nodes']
+        self.assertNotIn('o', nodes['viewbar'].get('data', {}))
 
     def test_each_view_renders_its_layout(self):
         data = {'title': 'T', 'items': [
