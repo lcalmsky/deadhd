@@ -26,10 +26,12 @@ THEME_TOKENS = (
 )
 
 
-def run_render(data_path, out_path, theme=None, config_path=None):
+def run_render(data_path, out_path, theme=None, config_path=None, env_extra=None):
     env = dict(os.environ)
     env['DEADHD_CONFIG'] = config_path if config_path is not None else MISSING_CONFIG
     env.pop('XDG_CONFIG_HOME', None)
+    if env_extra:
+        env.update(env_extra)
     cmd = [sys.executable, RENDER]
     if theme is not None:
         cmd += ['--theme', theme]
@@ -157,14 +159,36 @@ function serialize(n) {
   if (n.className) o.cls = n.className;
   if (n.href != null) o.href = n.href;
   if (n.sel) o.sel = n.sel;
+  if (n.dataset && Object.keys(n.dataset).length) o.data = Object.assign({}, n.dataset);
+  const style = {};
+  for (const k in n.style) { if (typeof n.style[k] !== 'function') style[k] = n.style[k]; }
+  if (Object.keys(style).length) o.style = style;
   if (n.children.length) o.kids = n.children.map(serialize);
   return o;
 }
 
-const probeSrc = "\n  globalThis.__linkProbe = { httpHref: httpHref, linkElInfo: function (h) { var n = linkEl(h, document.createTextNode('t'), 'lnk'); return { tag: n.tagName, href: n.href == null ? null : n.href }; } };\n";
+const probeSrc = "\n  globalThis.__linkProbe = { httpHref: httpHref, linkElInfo: function (h) { var n = linkEl(h, document.createTextNode('t'), 'lnk'); return { tag: n.tagName, href: n.href == null ? null : n.href }; }, fmtClock: function (t, v) { return fmtClock(t, v); }, fmtDur: fmtDur };\n";
 const idx = code0.lastIndexOf('})();');
 if (idx < 0) throw new Error('IIFE 끝을 찾지 못했다');
 const code = code0.slice(0, idx) + probeSrc + code0.slice(idx);
+
+// 인자 없는 new Date() 와 Date.now 만 고정 시각으로 바꾼다. 인자가 있으면 실제 Date 그대로다.
+function fixClock(iso) {
+  const RealDate = Date;
+  const fixedMs = new RealDate(iso).getTime();
+  function FixedDate(...args) {
+    if (!new.target) return new RealDate(fixedMs).toString();
+    return args.length === 0 ? new RealDate(fixedMs) : new RealDate(...args);
+  }
+  FixedDate.prototype = RealDate.prototype;
+  FixedDate.now = function () { return fixedMs; };
+  FixedDate.parse = RealDate.parse;
+  FixedDate.UTC = RealDate.UTC;
+  globalThis.Date = FixedDate;
+}
+
+const fixedNow = process.argv[5] || '';
+if (fixedNow) fixClock(fixedNow);
 
 const doc = makeDocument(rawData);
 const ss = {
@@ -184,7 +208,14 @@ for (const entry of doc._byId) {
   nodes[entry[0]] = serialize(entry[1]);
 }
 
+const cases = process.argv[4] ? JSON.parse(fs.readFileSync(process.argv[4], 'utf8')) : null;
+const fmt = cases ? {
+  clock: (cases.clock || []).map(c => probe.fmtClock(c[0], c[1])),
+  dur: (cases.dur || []).map(m => probe.fmtDur(m))
+} : null;
+
 process.stdout.write(JSON.stringify({
+  fmt: fmt,
   probe: {
     httpHref_javascript: probe.httpHref('javascript:alert(1)'),
     httpHref_http: probe.httpHref('http://ok.test/x'),
@@ -210,7 +241,7 @@ def script_block(html):
     return blocks[0]
 
 
-def run_linkify_harness(html):
+def run_linkify_harness(html, cases=None, fixed_now=None):
     with tempfile.TemporaryDirectory(prefix='progress-linkify-') as d:
         files = {}
         for name, text in (
@@ -222,10 +253,18 @@ def run_linkify_harness(html):
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(text)
             files[name] = path
-        r = subprocess.run(
-            [NODE, files['harness.js'], files['script.js'], files['data.txt']],
-            capture_output=True, text=True, cwd=d,
-        )
+        cmd = [NODE, files['harness.js'], files['script.js'], files['data.txt']]
+        env = dict(os.environ)
+        cases_path = ''
+        if cases is not None:
+            cases_path = os.path.join(d, 'cases.json')
+            with open(cases_path, 'w', encoding='utf-8') as f:
+                json.dump(cases, f, ensure_ascii=False)
+        # fmtClock 은 로컬 날짜를 보므로 실행 시차를 고정해 기대값을 결정적으로 만든다.
+        if cases is not None or fixed_now is not None:
+            env['TZ'] = 'Asia/Seoul'
+        cmd += [cases_path, fixed_now or '']
+        r = subprocess.run(cmd, capture_output=True, text=True, cwd=d, env=env)
     assert r.returncode == 0, r.stderr
     return json.loads(r.stdout)
 
@@ -346,6 +385,267 @@ class TemplateLinkifyTest(unittest.TestCase):
         self.assertFalse(any(n['t'] == 'A' for n in iter_nodes(anchor) if n is not anchor))
 
 
+FIXED_NOW = '2026-10-03T10:00:00+09:00'
+
+
+def mini_item(iid, state, **extra):
+    item = {'id': iid, 'label': iid.upper(), 'state': state}
+    item.update(extra)
+    return item
+
+
+class EtaTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='progress-eta-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def render(self, items, extra=None, now=FIXED_NOW):
+        data = {'title': 'T', 'items': items}
+        if extra:
+            data.update(extra)
+        path = os.path.join(self.tmp, 'data.json')
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+        out = os.path.join(self.tmp, 'out.html')
+        r = run_render(path, out, env_extra={'DEADHD_NOW': now})
+        if r.returncode != 0:
+            return r, None
+        with open(out, encoding='utf-8') as f:
+            return r, parse_block(data_block(f.read()))
+
+    def payload(self, items, **kwargs):
+        r, parsed = self.render(items, **kwargs)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return parsed
+
+    def test_eta_sums_now_and_left_estimates_without_side(self):
+        items = [
+            mini_item('a', 'done'),
+            mini_item('b', 'now', estimate=30),
+            mini_item('c', 'left', estimate=15),
+            mini_item('d', 'side', estimate=999),
+        ]
+        parsed = self.payload(items)
+        self.assertEqual(parsed['eta'], '2026-10-03T10:45:00+09:00')
+        self.assertEqual(parsed['renderedAt'], FIXED_NOW)
+
+    def test_eta_absent_when_blocked(self):
+        items = [mini_item('a', 'now', estimate=30), mini_item('b', 'blocked')]
+        self.assertNotIn('eta', self.payload(items))
+
+    def test_eta_absent_when_any_pending_estimate_missing(self):
+        for items in (
+            [mini_item('a', 'now'), mini_item('b', 'left', estimate=15)],
+            [mini_item('a', 'now', estimate=30), mini_item('b', 'left')],
+        ):
+            with self.subTest(items=items):
+                self.assertNotIn('eta', self.payload(items))
+
+    def test_eta_absent_when_nothing_pending(self):
+        for items in ([mini_item('a', 'done')], [mini_item('a', 'side', estimate=30)]):
+            with self.subTest(items=items):
+                self.assertNotIn('eta', self.payload(items))
+
+    def test_input_eta_and_rendered_at_are_replaced(self):
+        items = [mini_item('a', 'now', estimate=30)]
+        stale = '1999-01-01T00:00:00+09:00'
+        parsed = self.payload(items, extra={'eta': stale, 'renderedAt': stale})
+        self.assertEqual(parsed['eta'], '2026-10-03T10:30:00+09:00')
+        self.assertEqual(parsed['renderedAt'], FIXED_NOW)
+
+    def test_zulu_timestamps_are_accepted(self):
+        items = [mini_item('a', 'done', startedAt='2026-10-02T22:35:00Z', doneAt='2026-10-03T01:35:00Z')]
+        self.assertNotIn('eta', self.payload(items))
+
+    def test_started_at_without_offset_is_rejected(self):
+        items = [mini_item('a', 'done', startedAt='2026-10-02T22:35:00')]
+        r, _ = self.render(items)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('items[0].startedAt', r.stderr)
+        self.assertIn('시차', r.stderr)
+
+    def test_unparsable_timestamp_is_rejected(self):
+        items = [mini_item('a', 'done', doneAt='yesterday')]
+        r, _ = self.render(items)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('items[0].doneAt', r.stderr)
+
+    def test_done_before_started_is_rejected(self):
+        items = [mini_item('a', 'done', startedAt='2026-10-03T10:00:00+09:00', doneAt='2026-10-03T09:00:00+09:00')]
+        r, _ = self.render(items)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('items[0]', r.stderr)
+        self.assertIn('doneAt', r.stderr)
+
+    def test_bad_estimate_is_rejected(self):
+        for value in (0, -3, True, '5'):
+            with self.subTest(estimate=value):
+                items = [mini_item('a', 'left', estimate=value)]
+                r, _ = self.render(items)
+                self.assertEqual(r.returncode, 1)
+                self.assertIn('items[0].estimate', r.stderr)
+
+    def test_non_finite_or_oversized_estimate_is_rejected(self):
+        for value in (float('nan'), float('inf'), 525601, 1e30):
+            with self.subTest(estimate=repr(value)):
+                items = [mini_item('a', 'left', estimate=value)]
+                r, _ = self.render(items)
+                self.assertEqual(r.returncode, 1)
+                self.assertIn('items[0].estimate', r.stderr)
+                self.assertNotIn('Traceback', r.stderr)
+
+    def test_started_at_alone_is_accepted(self):
+        items = [mini_item('a', 'now', startedAt='2026-10-03T09:00:00+09:00', estimate=30)]
+        self.assertEqual(self.payload(items)['eta'], '2026-10-03T10:30:00+09:00')
+
+
+class TemplateTimeFormatTest(unittest.TestCase):
+    def setUp(self):
+        if NODE is None:
+            self.skipTest('node 가 없어 템플릿 스크립트를 실행할 수 없다')
+        self.tmp = tempfile.mkdtemp(prefix='progress-fmt-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def run_cases(self, cases):
+        path = os.path.join(self.tmp, 'data.json')
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump({'title': 'T', 'items': [mini_item('a', 'done')]}, f, ensure_ascii=False)
+        out = os.path.join(self.tmp, 'out.html')
+        r = run_render(path, out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding='utf-8') as f:
+            return run_linkify_harness(f.read(), cases)['fmt']
+
+    def test_fmt_clock(self):
+        stamp = '2026-10-03T01:00:00+09:00'
+        cases = {'clock': [
+            ['2026-10-03T03:52:00+09:00', stamp],
+            ['2026-10-04T03:52:00+09:00', stamp],
+            ['2026-10-05T04:57:00+09:00', stamp],
+            ['2026-10-01T04:57:00+09:00', stamp],
+            ['2026-09-07T04:57:00+09:00', stamp],
+            ['2026-10-04T00:05:00+09:00', '2026-10-03T23:59:00+09:00'],
+            ['2026-10-04T00:05:00+09:00', '2026-10-04T00:01:00+09:00'],
+        ]}
+        self.assertEqual(self.run_cases(cases)['clock'], [
+            '03:52', '내일 03:52', '10.05 04:57', '10.01 04:57', '9.07 04:57',
+            '내일 00:05', '00:05',
+        ])
+
+    def test_fmt_dur(self):
+        cases = {'dur': [59, 60, 70, 1439, 1440, 1560]}
+        self.assertEqual(
+            self.run_cases(cases)['dur'],
+            ['59분', '1시간', '1시간 10분', '23시간 59분', '1일', '1일 2시간'],
+        )
+
+
+class TemplateDomStateTest(unittest.TestCase):
+    def setUp(self):
+        if NODE is None:
+            self.skipTest('node 가 없어 템플릿 스크립트를 실행할 수 없다')
+        self.tmp = tempfile.mkdtemp(prefix='progress-dom-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def render_dom(self, items, extra=None, now=FIXED_NOW, view=FIXED_NOW):
+        data = {'title': 'T', 'items': items}
+        if extra:
+            data.update(extra)
+        path = os.path.join(self.tmp, 'data.json')
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+        out = os.path.join(self.tmp, 'out.html')
+        r = run_render(path, out, env_extra={'DEADHD_NOW': now})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding='utf-8') as f:
+            return run_linkify_harness(f.read(), fixed_now=view)
+
+    def find(self, result, cls):
+        found = []
+        for tree in result['nodes'].values():
+            for node in iter_nodes(tree):
+                if cls in (node.get('cls') or '').split():
+                    found.append(node)
+        return found
+
+    def by_id(self, result, iid):
+        for tree in result['nodes'].values():
+            for node in iter_nodes(tree):
+                if (node.get('data') or {}).get('id') == iid:
+                    return node
+        self.fail('그래프 노드를 찾지 못했다: ' + iid)
+
+    def when_text(self, result, iid):
+        for kid in self.by_id(result, iid).get('kids', ()):
+            if 'when' in (kid.get('cls') or '').split():
+                return kid['cls'], kid['text']
+        return None
+
+    def test_eta_line_same_day_and_next_day(self):
+        same = self.find(self.render_dom([mini_item('a', 'now', estimate=30)]), 'eta')
+        self.assertEqual([n['cls'] for n in same], ['eta'])
+        self.assertEqual([n['text'] for n in same], ['완료 예상 10:30'])
+
+        nxt = self.find(self.render_dom([mini_item('a', 'now', estimate=1080)]), 'eta')
+        self.assertEqual([n['text'] for n in nxt], ['완료 예상 내일 04:00'])
+
+    def test_eta_past_gets_class_and_suffix(self):
+        result = self.render_dom(
+            [mini_item('a', 'now', estimate=30)], view='2026-10-03T11:00:00+09:00'
+        )
+        eta = self.find(result, 'eta')
+        self.assertEqual([n['cls'] for n in eta], ['eta past'])
+        self.assertEqual([n['text'] for n in eta], ['완료 예상 10:30 (지남)'])
+
+    def test_eta_absent_without_estimate(self):
+        self.assertEqual(self.find(self.render_dom([mini_item('a', 'done')]), 'eta'), [])
+
+    def test_node_when_texts(self):
+        items = [
+            mini_item('a', 'done', startedAt='2026-10-03T09:00:00+09:00', doneAt='2026-10-03T10:30:00+09:00'),
+            mini_item('b', 'now', startedAt='2026-10-03T09:30:00+09:00', estimate=30),
+            mini_item('c', 'left', estimate=45),
+            mini_item('d', 'side', estimate=90),
+            mini_item('e', 'left'),
+        ]
+        result = self.render_dom(items)
+        self.assertEqual(self.when_text(result, 'a'), ('when', '1시간 30분'))
+        self.assertEqual(self.when_text(result, 'b'), ('when when-now', '~10:30'))
+        self.assertEqual(self.when_text(result, 'c'), ('when', '~45분'))
+        self.assertEqual(self.when_text(result, 'd'), ('when', '~1시간 30분'))
+        self.assertIsNone(self.when_text(result, 'e'))
+
+    def test_now_card_etime_rows(self):
+        result = self.render_dom(
+            [mini_item('a', 'now', startedAt='2026-10-03T09:00:00+09:00', estimate=30)]
+        )
+        etime = self.find(result, 'etime')
+        self.assertEqual(len(etime), 1)
+        rows = [k for k in etime[0]['kids'] if 'etime-row' in (k.get('cls') or '').split()]
+        self.assertEqual(len(rows), 2)
+        self.assertEqual([s['text'] for s in rows[0]['kids']], ['시작 09:00', '완료 예상 10:30'])
+        self.assertEqual(rows[1]['kids'][0]['text'], '경과 1시간')
+
+    def test_now_card_etime_clamps_future_start(self):
+        result = self.render_dom(
+            [mini_item('a', 'now', startedAt='2026-10-03T11:00:00+09:00', estimate=30)]
+        )
+        rows = [k for k in self.find(result, 'etime')[0]['kids'] if 'etime-row' in (k.get('cls') or '').split()]
+        self.assertEqual(rows[1]['kids'][0]['text'], '경과 0분')
+
+    def test_lane_band_height_follows_time_rows(self):
+        with_time = [
+            mini_item('a', 'done', lane=0, startedAt='2026-10-03T09:00:00+09:00', doneAt='2026-10-03T10:00:00+09:00'),
+            mini_item('b', 'left', lane=1, estimate=30),
+        ]
+        bands = self.find(self.render_dom(with_time, {'lanes': ['L1', 'L2']}), 'lane-band')
+        self.assertEqual([b['style']['height'] for b in bands], ['176px', '176px'])
+
+        without_time = [mini_item('a', 'done', lane=0), mini_item('b', 'left', lane=1)]
+        bands = self.find(self.render_dom(without_time, {'lanes': ['L1', 'L2']}), 'lane-band')
+        self.assertEqual([b['style']['height'] for b in bands], ['142px', '142px'])
+
+
 class RenderTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix='progress-test-')
@@ -370,6 +670,15 @@ class RenderTest(unittest.TestCase):
         self.assertNotIn('__PROGRESS_DATA__', html)
         self.assertNotIn('__PROGRESS_TITLE__', html)
         self.assertIn('SHOP-128 진행 상황', html)
+
+    def test_input_data_file_is_left_untouched(self):
+        path = self.write_data(load_example())
+        with open(path, 'rb') as f:
+            before = f.read()
+        r = run_render(path, self.out())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(path, 'rb') as f:
+            self.assertEqual(f.read(), before)
 
     def test_refresh_meta_present(self):
         out = self.out()

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """progress 데이터 JSON 을 template.html 에 넣어 자체 완결 HTML 한 장으로 렌더한다."""
 import json
+import math
 import os
 import re
 import sys
 import tempfile
+from datetime import datetime, timedelta
 from html import escape
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -12,6 +14,8 @@ TEMPLATE = os.path.join(HERE, 'template.html')
 STATES = ('done', 'now', 'side', 'left', 'blocked')
 STATE_SET = frozenset(STATES)
 HTML_OPEN = '<html lang="ko">'
+# 이보다 큰 estimate 는 합산 시 timedelta 가 넘친다 (525600분 = 365일).
+MAX_ESTIMATE_MINUTES = 525600
 
 # 같은 디렉터리의 config.py 를 읽으려면 HERE 가 먼저 있어야 한다.
 sys.path.insert(0, HERE)
@@ -36,6 +40,46 @@ def check_hrefs(problems, where, entries):
     for j, entry in enumerate(entries):
         if isinstance(entry, dict) and entry.get('href') is not None and not is_http_url(entry['href']):
             problems.append('%s[%d].href 가 http(s) URL 이 아니다' % (where, j))
+
+
+def parse_when(value):
+    if not isinstance(value, str):
+        return None
+    text = value
+    if text.endswith('Z'):
+        text = text[:-1] + '+00:00'
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
+def compute_eta(items, now):
+    pending = []
+    for it in items:
+        state = it.get('state')
+        if state == 'blocked':
+            return None
+        if state not in ('now', 'left'):
+            continue
+        estimate = it.get('estimate')
+        if isinstance(estimate, bool) or not isinstance(estimate, (int, float)):
+            return None
+        pending.append(estimate)
+    if not pending:
+        return None
+    return now + timedelta(minutes=sum(pending))
+
+
+def current_time():
+    raw = os.environ.get('DEADHD_NOW')
+    if raw:
+        parsed = parse_when(raw)
+        if parsed is None:
+            die('DEADHD_NOW 가 시차가 있는 ISO 8601 시각이 아니다: %s' % raw)
+        return parsed
+    return datetime.now().astimezone()
 
 
 def validate(data):
@@ -108,6 +152,21 @@ def validate(data):
             problems.append('%s.state 가 %s 중 하나가 아니다 (값: %r)' % (where, '/'.join(STATES), state))
         if state == 'now':
             now_count += 1
+        for field in ('startedAt', 'doneAt'):
+            if it.get(field) is not None and parse_when(it[field]) is None:
+                problems.append('%s.%s 이 시차가 있는 ISO 8601 시각이 아니다' % (where, field))
+        started, finished = parse_when(it.get('startedAt')), parse_when(it.get('doneAt'))
+        if started is not None and finished is not None and finished < started:
+            problems.append('%s 의 doneAt 이 startedAt 보다 앞선다' % where)
+        estimate = it.get('estimate')
+        if estimate is not None and (
+            isinstance(estimate, bool)
+            or not isinstance(estimate, (int, float))
+            or estimate <= 0
+            or estimate > MAX_ESTIMATE_MINUTES
+            or not math.isfinite(estimate)
+        ):
+            problems.append('%s.estimate 가 0 보다 큰 수가 아니다' % where)
         check_hrefs(problems, where + '.evidence', it.get('evidence'))
         check_hrefs(problems, where + '.substeps', it.get('substeps'))
 
@@ -193,7 +252,16 @@ def main(argv):
     if prev_title is not None:
         title = prev_title
 
-    payload = json.dumps(data, ensure_ascii=False)
+    now = current_time()
+    payload_data = dict(data)
+    payload_data['renderedAt'] = now.isoformat(timespec='seconds')
+    eta = compute_eta(payload_data['items'], now)
+    if eta is None:
+        payload_data.pop('eta', None)
+    else:
+        payload_data['eta'] = eta.isoformat(timespec='seconds')
+
+    payload = json.dumps(payload_data, ensure_ascii=False)
     # script 태그가 데이터 안의 문자열로 조기에 닫히지 않게 한다.
     payload = payload.replace('</', '<\\/').replace('<!--', '<\\!--')
 

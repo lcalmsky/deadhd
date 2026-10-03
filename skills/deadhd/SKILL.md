@@ -85,7 +85,11 @@ Each item:
 - `id`, `label` (short, for the flow picture), `sub` (one to three words under the node), `state`: `done`, `now` (exactly one while work is running), `side` (running in parallel), `left`, `blocked` (failed or waiting on the user).
 - `title` and `body`: the card. `body` is one or two sentences: what and why for `now`, what happened for `done`, what is needed for `blocked`.
 - `evidence`: file paths, PR, commit, test counts, Jira comments, each with an `icon` and an `href` when the identifier has a URL.
+- `startedAt`, `doneAt`: when the step actually started and finished, ISO 8601 with a timezone offset, e.g. `2026-10-02T22:35:00+09:00`. Use a real time only: the output of `date -Iseconds` taken when you start or finish the step, or a timestamp that appeared in this session's tool results. Never invent one; leave the field out when you do not know.
+- `estimate`: your estimate in minutes. On the `now` item it is the minutes left from now; on a `left` or `side` item it is how long that step will take. Leave it out when you have no basis for the number.
 - Draw numbers instead of writing them. A pass count goes in `stats` as `ring`; a single large number goes in `stats` as `number`; an A-versus-B measurement or a risk ratio goes in `compare`. A sequence of sub-steps inside the current item goes in `substeps`; a sub-step with a URL carries its own `href`.
+
+`render.py` computes the completion estimate from these fields and writes it into the page. Do not write a total or an end time into the data yourself. The line appears only when no item is `blocked` and every `now` and `left` item has an `estimate`; one missing estimate hides it.
 
 Link rules:
 
@@ -137,6 +141,7 @@ On the first render only:
 After the first render, update the JSON and rerun `render.py` whenever an item changes state (finished, started, blocked) until the task ends or the user says `/deadhd off`.
 
 - The open tab reloads itself every 15 seconds and plays the completion effect on items that became `done`.
+- When a step changes state, record its `startedAt` and `doneAt` and refresh the remaining `estimate` values.
 - Do not run the delivery or open script again.
 - For a Claude artifact or an Orca artifact, republish only at the end of the task or when the user asks, not at every change. Republish an Orca artifact with `bash <skill-dir>/share.sh --update /tmp/deadhd-<slug>.html`.
 - On the first render and when the task ends, reread the data once against the writing rules (the writing-rules file's procedure when it has one). Skip this on intermediate updates.
