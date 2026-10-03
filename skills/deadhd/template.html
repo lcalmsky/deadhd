@@ -323,19 +323,19 @@ h1 .key a { color: inherit; text-decoration: none; }
 }
 @keyframes nebula { 0%, 100% { background-position: 100% 0, 0 0; } 50% { background-position: 0% 0, 0 0; } }
 .lane-label {
-  position: absolute; left: 12px; top: 10px;
+  position: absolute; left: 12px; top: 10px; z-index: 2;
   display: inline-flex; align-items: center; gap: 6px;
   padding: 2px 10px; border-radius: 999px;
   font-size: 12.5px; font-weight: 700; letter-spacing: -.01em; line-height: 1.5;
-  color: var(--ink-2); background: color-mix(in srgb, var(--track) 80%, transparent);
+  color: var(--ink-2); background: color-mix(in srgb, var(--track) 80%, var(--bg-2));
 }
 .lane-label::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--left); }
-.lane-band.live .lane-label { color: var(--now); background: color-mix(in srgb, var(--now) 14%, transparent); }
+.lane-band.live .lane-label { color: var(--now); background: color-mix(in srgb, var(--now) 14%, var(--bg-2)); }
 .lane-band.live .lane-label::before { background: var(--now); box-shadow: 0 0 8px var(--now); }
 [data-fx="max"] .lane-band.live .lane-label::before { animation: blink 1.4s ease-in-out infinite; }
-.lane-band.done .lane-label { color: var(--done); background: color-mix(in srgb, var(--done) 12%, transparent); }
+.lane-band.done .lane-label { color: var(--done); background: color-mix(in srgb, var(--done) 12%, var(--bg-2)); }
 .lane-band.done .lane-label::before { background: var(--done); }
-.lane-band.blocked .lane-label { color: var(--blocked); background: color-mix(in srgb, var(--blocked) 14%, transparent); }
+.lane-band.blocked .lane-label { color: var(--blocked); background: color-mix(in srgb, var(--blocked) 14%, var(--bg-2)); }
 .lane-band.blocked .lane-label::before { background: var(--blocked); }
 .lane-band.live .lane-label::after { content: "· 진행 중"; font-weight: 500; opacity: .85; }
 .lane-band.done .lane-label::after { content: "· 완료"; font-weight: 500; opacity: .85; }
@@ -822,14 +822,16 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
   const lanes = Array.isArray(data.lanes) ? data.lanes : [];
   const laneCount = Math.max(lanes.length, items.reduce((m, i) => Math.max(m, i.lane + 1), 1));
 
-  let edges = Array.isArray(data.edges) ? data.edges : null;
-  if (!edges) {
-    edges = [];
-    const perLane = {};
-    items.forEach(it => { (perLane[it.lane] = perLane[it.lane] || []).push(it); });
-    Object.keys(perLane).forEach(k => {
-      const arr = perLane[k].slice().sort((a, b) => a.col - b.col);
-      for (let i = 0; i + 1 < arr.length; i++) edges.push([arr[i].id, arr[i + 1].id]);
+  const edges = [];
+  const perLane = {};
+  items.forEach(it => { (perLane[it.lane] = perLane[it.lane] || []).push(it); });
+  Object.keys(perLane).forEach(k => {
+    const arr = perLane[k].slice().sort((a, b) => a.col - b.col);
+    for (let i = 0; i + 1 < arr.length; i++) edges.push([arr[i].id, arr[i + 1].id]);
+  });
+  if (Array.isArray(data.edges)) {
+    data.edges.forEach(pair => {
+      if (!edges.some(e => e[0] === pair[0] && e[1] === pair[1])) edges.push(pair);
     });
   }
 
@@ -928,7 +930,9 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
   const avail = $('flow').clientWidth - 32;
   const COLW = avail > 0 ? Math.max(118, Math.min(150, Math.floor(avail / cols))) : 150;
   const PADX = COLW / 2, NODE_R = 26;
-  const LANEH = items.some(it => nodeWhen(it)) ? 184 : 150;
+  const LABEL_DY = lanes.some(name => name) ? 14 : 0;
+  const NODE_DY = 62 + LABEL_DY;
+  const LANEH = (items.some(it => nodeWhen(it)) ? 184 : 150) + LABEL_DY;
   const canvasEl = $('canvas');
   const pos = {};
 
@@ -948,7 +952,7 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
   const H = laneCount * LANEH;
   canvasEl.style.width = W + 'px';
   canvasEl.style.height = H + 'px';
-  items.forEach(it => { pos[it.id] = { x: PADX + it.col * COLW, y: it.lane * LANEH + 62 }; });
+  items.forEach(it => { pos[it.id] = { x: PADX + it.col * COLW, y: it.lane * LANEH + NODE_DY }; });
 
   const svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('class', 'edges');

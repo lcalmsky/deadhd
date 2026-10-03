@@ -78,7 +78,7 @@ Write `/tmp/deadhd-<task-slug>.json`. `<skill-dir>/example.json` is a complete e
 | `links` | Identifiers that appear in the text and have a URL: `{"SHOP-130": "https://...", "shop-api#4120": "https://..."}`. Every occurrence in the text below becomes a link, and a bare `http(s)://` URL is linked on its own |
 | `lanes` | Only when work runs on more than one track (repositories, a parallel branch). Omit for a single line |
 | `items` | One per step, in flow order. Fields below |
-| `edges` | Only when the flow is not a straight line per lane: a branch, a merge, a cross-repository dependency |
+| `edges` | Only the connections the lane does not already draw: steps next to each other in one lane are joined automatically, so list a branch, a merge, or a cross-lane dependency here |
 | `changes` | A plan change and its reason, when one happened |
 
 Each item:

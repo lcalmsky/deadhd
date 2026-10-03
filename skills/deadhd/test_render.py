@@ -659,11 +659,22 @@ class TemplateDomStateTest(unittest.TestCase):
             mini_item('b', 'left', lane=1, estimate=30),
         ]
         bands = self.find(self.render_dom(with_time, {'lanes': ['L1', 'L2']}), 'lane-band')
-        self.assertEqual([b['style']['height'] for b in bands], ['176px', '176px'])
+        self.assertEqual([b['style']['height'] for b in bands], ['190px', '190px'])
 
         without_time = [mini_item('a', 'done', lane=0), mini_item('b', 'left', lane=1)]
         bands = self.find(self.render_dom(without_time, {'lanes': ['L1', 'L2']}), 'lane-band')
-        self.assertEqual([b['style']['height'] for b in bands], ['142px', '142px'])
+        self.assertEqual([b['style']['height'] for b in bands], ['156px', '156px'])
+
+        no_label_time = [
+            mini_item('a', 'done', startedAt='2026-10-03T09:00:00+09:00', doneAt='2026-10-03T10:00:00+09:00'),
+            mini_item('b', 'left', estimate=30),
+        ]
+        bands = self.find(self.render_dom(no_label_time), 'lane-band')
+        self.assertEqual([b['style']['height'] for b in bands], ['176px'])
+
+        no_label = [mini_item('a', 'done'), mini_item('b', 'left')]
+        bands = self.find(self.render_dom(no_label), 'lane-band')
+        self.assertEqual([b['style']['height'] for b in bands], ['142px'])
 
     def test_lane_band_state_classes(self):
         items = [
@@ -680,6 +691,33 @@ class TemplateDomStateTest(unittest.TestCase):
         self.assertIn('done', classes[1])
         self.assertEqual([c for c in classes[2] if c != 'lane-band'], [])
         self.assertIn('blocked', classes[3])
+
+    def test_lane_label_pushes_nodes_down(self):
+        item = [mini_item('a', 'left', lane=0)]
+        labeled = self.by_id(self.render_dom(item, {'lanes': ['L1']}), 'a')['style']['top']
+        plain = self.by_id(self.render_dom(item), 'a')['style']['top']
+        self.assertEqual(labeled, '76px')
+        self.assertEqual(plain, '62px')
+        self.assertEqual(int(labeled[:-2]) - int(plain[:-2]), 14)
+
+    def test_edges_keep_lane_auto_connections(self):
+        items = [
+            mini_item('a', 'done', lane=0),
+            mini_item('b', 'left', lane=0),
+            mini_item('c', 'left', lane=0),
+            mini_item('d', 'left', lane=1),
+        ]
+        result = self.render_dom(items, {'lanes': ['L1', 'L2'], 'edges': [['a', 'd']]})
+        self.assertEqual(len(self.find(result, 'edge')), 3)
+
+    def test_edges_duplicate_auto_pair_drawn_once(self):
+        items = [
+            mini_item('a', 'done', lane=0),
+            mini_item('b', 'left', lane=0),
+            mini_item('c', 'left', lane=0),
+        ]
+        result = self.render_dom(items, {'edges': [['a', 'b']]})
+        self.assertEqual(len(self.find(result, 'edge')), 2)
 
     def test_edge_flow_only_on_done_edges(self):
         items = [
