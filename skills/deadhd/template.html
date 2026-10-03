@@ -582,6 +582,146 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- 컴팩트 보기 ---------- */
+.viewbar {
+  position: fixed; top: 16px; left: 16px; z-index: 20; display: flex; gap: 8px; flex-wrap: wrap; max-width: calc(100vw - 130px);
+}
+.seg-ctl {
+  display: inline-flex; padding: 3px; gap: 2px; border-radius: 999px;
+  background: var(--card); border: 1px solid var(--card-line); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+}
+.seg-ctl button {
+  font: inherit; font-size: 12.5px; line-height: 1; color: var(--ink-3); background: none; border: 0; cursor: pointer;
+  height: 26px; padding: 0 11px; border-radius: 999px; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  transition: color .2s, background .2s;
+}
+.seg-ctl button:hover { color: var(--ink); }
+.seg-ctl button[aria-pressed="true"] { color: var(--ink); background: color-mix(in srgb, var(--done) 18%, transparent); }
+.seg-ctl button:focus-visible { outline: 2px solid var(--now); outline-offset: 1px; }
+.seg-ctl svg { width: 13px; height: 13px; }
+body[data-view] main { padding-top: 64px; }
+body[data-view]:not([data-view="full"]) main { display: none; }
+body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
+
+#compact { position: relative; z-index: 1; margin: 0 auto; padding: 64px 16px 40px; font-size: 13.5px; }
+#compact[data-o="port"] { max-width: 520px; }
+#compact[data-o="land"] { max-width: 1100px; }
+.cx-glass { background: var(--card); border: 1px solid var(--card-line); border-radius: 14px; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+.cx-key { color: var(--done); font-family: var(--f-mono); font-size: 12px; text-decoration: none; }
+.cx-title { font-family: var(--f-head); font-size: 18px; line-height: 1.35; margin: 4px 0 0; text-wrap: balance; }
+.cx-muted { color: var(--ink-3); }
+.cx-pill {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--now);
+  padding: 2px 10px 2px 8px; border-radius: 999px; white-space: nowrap;
+  background: color-mix(in srgb, var(--now) 12%, transparent); border: 1px solid color-mix(in srgb, var(--now) 30%, transparent);
+}
+.cx-pill i { width: 6px; height: 6px; border-radius: 50%; background: var(--now); animation: cxpulse 1.6s ease-in-out infinite; }
+@keyframes cxpulse { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--now) 25%, transparent); } }
+.cx-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
+.cx-dot.done { background: var(--done); } .cx-dot.now { background: var(--now); box-shadow: 0 0 8px var(--now); }
+.cx-dot.side { background: var(--side); } .cx-dot.blocked { background: var(--blocked); }
+.cx-dot.left { border: 1.5px dashed var(--left); }
+.cx-bar { height: 6px; border-radius: 999px; background: var(--track); position: relative; }
+.cx-bar > span { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: linear-gradient(90deg, var(--done-deep), var(--done-2)); box-shadow: 0 0 10px color-mix(in srgb, var(--done-2) 50%, transparent); }
+.cx-count b { font-family: var(--f-mono); font-weight: 600; background: linear-gradient(135deg, var(--done-2), var(--count-end)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.cx-eta { font-size: 12px; color: var(--ink-3); white-space: nowrap; } .cx-eta b { font-family: var(--f-mono); color: var(--ink); font-weight: 600; }
+.cx-card { padding: 14px 16px; min-width: 0; }
+.cx-card h3 { margin: 0 0 4px; font-size: 15px; font-weight: 400; display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.cx-card p { margin: 0; color: var(--ink-2); font-size: 13px; }
+.cx-subs { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 4px; font-size: 12.5px; }
+.cx-subs li { display: flex; gap: 8px; align-items: center; color: var(--ink-2); }
+.cx-subs .g { width: 14px; text-align: center; font-size: 11px; }
+.cx-subs .done .g { color: var(--done-2); } .cx-subs .now { color: var(--ink); } .cx-subs .now .g { color: var(--now); }
+.cx-subs .left { color: var(--ink-3); } .cx-subs .left .g { color: var(--left); }
+.cx-ev { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.cx-ev a, .cx-ev span { font-size: 11.5px; padding: 2px 8px; border-radius: 6px; background: var(--track); color: var(--ink-2); text-decoration: none; }
+.cx-ev a:hover { color: var(--ink); }
+.cx-ev .mono { font-family: var(--f-mono); }
+.cx-head { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; }
+.cx-head .cx-count { text-align: right; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+.cx-head .cx-count > b { font-size: 26px; display: block; line-height: 1.1; }
+
+/* 스트립 */
+.ca-strip { display: flex; align-items: flex-start; margin: 18px 0 16px; }
+.ca-strip .st { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; position: relative; min-width: 0; }
+.ca-strip .st::before { content: ""; position: absolute; top: 7px; left: -50%; width: 100%; height: 2px; background: var(--track); z-index: -1; }
+.ca-strip .st:first-child::before { display: none; }
+.ca-strip .st.done::before, .ca-strip .st.now::before { background: var(--done); box-shadow: 0 0 6px var(--done); }
+.ca-strip .nd { width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; font-size: 9px; color: var(--bg); background: var(--bg); }
+.ca-strip .done .nd { background: var(--done); }
+.ca-strip .now .nd { background: var(--now); box-shadow: 0 0 0 4px color-mix(in srgb, var(--now) 25%, transparent), 0 0 14px var(--now); }
+.ca-strip .left .nd { border: 1.5px dashed var(--left); }
+.ca-strip .blocked .nd { background: var(--blocked); }
+.ca-strip small { font-size: 10.5px; color: var(--ink-3); text-align: center; line-height: 1.25; }
+.ca-strip .now small { color: var(--now-2); }
+.ca-side { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: -6px 0 14px; font-size: 11.5px; color: var(--ink-3); }
+.ca-side span { color: var(--side-hi); border: 1px solid color-mix(in srgb, var(--side) 40%, transparent); border-radius: 6px; padding: 1px 7px; }
+.ca-body { display: grid; gap: 12px; }
+#compact[data-o="land"] .ca-body { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); align-items: start; }
+.ca-rest { display: grid; gap: 4px; align-content: start; }
+.ca-rest details { border-top: 1px solid var(--card-line); padding: 6px 0 2px; }
+#compact[data-o="land"] .ca-rest details:first-child { border-top: 0; padding-top: 0; }
+.ca-rest summary { cursor: pointer; list-style: none; display: flex; gap: 8px; align-items: center; color: var(--ink-2); font-size: 13px; }
+.ca-rest summary::-webkit-details-marker { display: none; }
+.ca-rest summary::after { content: "▸"; margin-left: auto; color: var(--ink-3); transition: transform .2s; }
+.ca-rest details[open] summary::after { transform: rotate(90deg); }
+.ca-rest ul { margin: 6px 0 4px 17px; padding: 0; list-style: none; display: grid; gap: 3px; font-size: 12.5px; color: var(--ink-3); }
+.ca-rest summary:focus-visible { outline: 2px solid var(--now); outline-offset: 2px; }
+
+/* 타임라인 */
+.cb-top { display: grid; gap: 6px; margin-bottom: 14px; }
+.cb-top .row { display: flex; gap: 10px; align-items: center; }
+.cb-top .row .cx-bar { flex: 1; }
+.cb-top .cx-count b { font-size: 15px; }
+.cb-body { display: grid; gap: 14px; }
+#compact[data-o="land"] .cb-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); align-items: start; }
+#compact[data-o="land"] .cb-body .cx-card { position: sticky; top: 64px; }
+.cb-tl { list-style: none; margin: 0; padding: 0; position: relative; }
+.cb-tl::before { content: ""; position: absolute; left: 6px; top: 10px; bottom: 10px; width: 2px; background: var(--track); }
+.cb-tl > li { position: relative; padding: 5px 0 5px 26px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: baseline; color: var(--ink-2); }
+.cb-tl > li > .cx-dot { position: absolute; left: 2px; top: 11px; width: 10px; height: 10px; outline: 3px solid var(--bg); }
+.cb-tl > li.done::after { content: ""; position: absolute; left: 6px; top: 16px; height: 100%; width: 2px; background: var(--done); z-index: -1; }
+.cb-tl > li .tm { font-family: var(--f-mono); font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+.cb-tl > li.left, .cb-tl > li.side { color: var(--ink-3); }
+.cb-tl > li.now { color: var(--ink); }
+.cb-tl .tag { font-size: 10px; color: var(--side-hi); border: 1px solid color-mix(in srgb, var(--side) 40%, transparent); border-radius: 4px; padding: 0 4px; margin-left: 6px; }
+#compact[data-o="port"] .cb-tl > li.now { padding: 0; display: block; margin: 6px 0; }
+#compact[data-o="port"] .cb-tl > li.now .cx-dot { top: 20px; }
+#compact[data-o="port"] .cb-tl > li.now .cx-card { margin-left: 18px; }
+#compact[data-o="land"] .cb-tl > li.now { background: color-mix(in srgb, var(--now) 10%, transparent); border-radius: 8px; }
+
+/* 타일 */
+.cc-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.cc-tile { padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cc-tile small { font-size: 11px; color: var(--ink-3); }
+.cc-tile b { font-family: var(--f-mono); font-size: 19px; font-weight: 600; }
+.cc-tile .cc-ring { display: flex; gap: 8px; align-items: center; flex: none; }
+.cc-tile .cx-count { white-space: nowrap; flex: none; overflow-wrap: normal; }
+.cb-top > .cx-pill { justify-self: start; }
+.cc-tile svg { width: 36px; height: 36px; flex: none; }
+.cc-seg { display: flex; gap: 3px; margin: 14px 0 6px; }
+.cc-seg span { flex: 1; height: 9px; border-radius: 3px; background: var(--track); }
+.cc-seg .done { background: var(--done); } .cc-seg .now { background: var(--now); box-shadow: 0 0 8px var(--now); }
+.cc-seg .side { background: color-mix(in srgb, var(--side) 55%, transparent); } .cc-seg .left { background: transparent; border: 1px dashed var(--left); }
+.cc-seg .blocked { background: var(--blocked); }
+.cc-legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11.5px; color: var(--ink-3); margin-bottom: 14px; }
+.cc-legend span { display: inline-flex; gap: 5px; align-items: center; }
+.cc-grid { display: grid; gap: 12px; }
+#compact[data-o="land"] .cc-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); align-items: start; }
+#compact[data-o="land"] .cc-tiles { grid-template-columns: 1fr; }
+#compact[data-o="land"] .cc-tile { flex-direction: row; justify-content: space-between; align-items: center; }
+.cc-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+.cc-chips button {
+  font: inherit; font-size: 12px; color: var(--ink-2); background: var(--track); border: 1px solid var(--card-line);
+  border-radius: 999px; padding: 3px 10px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center;
+}
+.cc-chips button[aria-pressed="true"] { color: var(--ink); border-color: color-mix(in srgb, var(--done) 45%, transparent); }
+.cc-chips button:focus-visible { outline: 2px solid var(--now); outline-offset: 2px; }
+.cc-list { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 5px; font-size: 12.5px; color: var(--ink-2); }
+.cc-list li { display: flex; gap: 8px; align-items: center; }
+.cc-list li span:last-child { margin-left: auto; font-family: var(--f-mono); font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+@media (max-width: 600px) { .seg-ctl button { padding: 0 8px; } #orient .lbl { display: none; } }
 </style>
 </head>
 <body data-fx="max">
@@ -609,6 +749,21 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
 </a>
 <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
 <div class="stars" aria-hidden="true" id="stars"></div>
+
+<div class="viewbar" role="toolbar" id="viewbar" aria-label="보기">
+  <div class="seg-ctl" id="views">
+    <button type="button" id="v-full" data-v="full">원본</button>
+    <button type="button" id="v-a" data-v="a">스트립</button>
+    <button type="button" id="v-b" data-v="b">타임라인</button>
+    <button type="button" id="v-c" data-v="c">타일</button>
+  </div>
+  <div class="seg-ctl" id="orient">
+    <button type="button" id="o-auto" data-o="auto" title="탭 비율에 따라 자동">자동</button>
+    <button type="button" id="o-land" data-o="land" title="가로"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="1.5" y="4" width="13" height="8" rx="1.5"/></svg><span class="lbl">가로</span></button>
+    <button type="button" id="o-port" data-o="port" title="세로"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="1.5" width="8" height="13" rx="1.5"/></svg><span class="lbl">세로</span></button>
+  </div>
+</div>
+<div id="compact" hidden></div>
 
 <main>
   <span class="eyebrow" id="eyebrow"><span class="dot"></span><span id="eyebrowText"></span></span>
@@ -672,7 +827,20 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
       hour: h => h + '시간',
       hourMin: (h, r) => h + '시간 ' + r + '분',
       day: d => d + '일',
-      dayHour: (d, r) => d + '일 ' + r + '시간'
+      dayHour: (d, r) => d + '일 ' + r + '시간',
+      viewNav: '보기',
+      viewFull: '원본',
+      viewStrip: '스트립',
+      viewTimeline: '타임라인',
+      viewTile: '타일',
+      orientAuto: '자동',
+      orientAutoTitle: '탭 비율에 따라 자동',
+      orientLand: '가로',
+      orientPort: '세로',
+      remainingTime: '남은 ',
+      nowRemaining: '현재 단계 남은 시간',
+      statesLabel: '단계별 상태',
+      stepListLabel: '단계 목록'
     },
     en: {
       countDone: 'done',
@@ -699,7 +867,20 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
       hour: h => h + 'h',
       hourMin: (h, r) => h + 'h ' + r + 'm',
       day: d => d + 'd',
-      dayHour: (d, r) => d + 'd ' + r + 'h'
+      dayHour: (d, r) => d + 'd ' + r + 'h',
+      viewNav: 'View',
+      viewFull: 'Original',
+      viewStrip: 'Strip',
+      viewTimeline: 'Timeline',
+      viewTile: 'Tiles',
+      orientAuto: 'Auto',
+      orientAutoTitle: 'Follows the tab aspect ratio',
+      orientLand: 'Landscape',
+      orientPort: 'Portrait',
+      remainingTime: 'Remaining ',
+      nowRemaining: 'Current step remaining',
+      statesLabel: 'Step states',
+      stepListLabel: 'Step list'
     }
   };
 
@@ -1255,6 +1436,114 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
   const states = Object.assign({}, saved || {});
   items.forEach(it => { states[it.id] = it.state; });
   store.set(KEY + ':states', states);
+
+  // ---- 컴팩트 보기 ----
+  // 좁은 탭에서 쓰는 보기 3종은 버튼을 누른 순간 이미 받은 데이터로 그 보기 하나만 그린다.
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const viewStoreKey = KEY + ':view';
+  const vst = Object.assign({ v: 'full', o: 'auto', chip: 'done' }, store.get(viewStoreKey) || {});
+  const saveView = () => store.set(viewStoreKey, vst);
+
+  const box = $('compact');
+  const vNow = nowList[0] || blockedList[0] || null;
+
+  const VIEW_LABEL = { full: L.viewFull, a: L.viewStrip, b: L.viewTimeline, c: L.viewTile };
+  Object.keys(VIEW_LABEL).forEach(v => { const b = $('v-' + v); if (b) b.textContent = VIEW_LABEL[v]; });
+  const ORIENT_LABEL = { auto: L.orientAuto, land: L.orientLand, port: L.orientPort };
+  Object.keys(ORIENT_LABEL).forEach(o => {
+    const b = $('o-' + o);
+    if (!b) return;
+    b.title = o === 'auto' ? L.orientAutoTitle : ORIENT_LABEL[o];
+    const lbl = b.querySelector('.lbl');
+    if (lbl) lbl.textContent = ORIENT_LABEL[o]; else b.textContent = ORIENT_LABEL[o];
+  });
+  $('viewbar').setAttribute('aria-label', L.viewNav);
+
+  const keyHtml = data.key
+    ? `<a class="cx-key" href="${esc(httpHref(data.keyHref) || '#')}" target="_blank" rel="noopener">${esc(data.key)}</a>` : '';
+  const etaHtml = data.eta ? `<span class="cx-eta">${L.eta}<b>${fmtClock(toDate(data.eta), viewNow)}</b></span>` : '';
+  const pill = vNow
+    ? `<span class="cx-pill"${vNow.state === 'blocked' ? ' style="color:var(--blocked)"' : ''}><i></i>${esc(vNow.state === 'blocked' ? L.eyebrowBlocked(vNow.label) : L.eyebrowNow(vNow.label))}</span>`
+    : `<span class="cx-pill">${L.allDone}</span>`;
+
+  const nowCard = () => !vNow ? '' : `<div class="cx-glass cx-card">
+      <h3><span>${esc(vNow.title)}</span>${vNow.estimate != null ? `<span class="cx-eta">${L.remainingTime}<b>${fmtDur(vNow.estimate)}</b></span>` : ''}</h3>
+      <p>${esc(vNow.body)}</p>
+      ${Array.isArray(vNow.substeps) && vNow.substeps.length ? `<ul class="cx-subs">${vNow.substeps.map(s => { const sh = httpHref(s.href); return `<li class="${s.state}"><span class="g">${NODE_ICON[s.state] || '○'}</span>${sh ? `<a href="${esc(sh)}" target="_blank" rel="noopener" style="color:inherit">${esc(s.label)}</a>` : esc(s.label)}</li>`; }).join('')}</ul>` : ''}
+      ${Array.isArray(vNow.evidence) && vNow.evidence.length ? `<div class="cx-ev">${vNow.evidence.map(e => { const eh = httpHref(e.href), mono = e.mono ? ' class="mono"' : ''; return eh ? `<a href="${esc(eh)}" target="_blank" rel="noopener"${mono}>${esc(e.text)}</a>` : `<span${mono}>${esc(e.text)}</span>`; }).join('')}</div>` : ''}
+    </div>`;
+
+  const RENDER = {
+    a() {
+      const strip = items.filter(i => i.state !== 'side');
+      const group = (label, list, cls, open) => !list.length ? '' : `<details${open ? ' open' : ''}><summary><span class="cx-dot ${cls}"></span>${label} ${list.length}</summary><ul>${list.map(i => `<li>${esc(i.title)}${i.doneAt ? ` <span class="cx-muted">· ${fmtClock(toDate(i.doneAt), viewNow)}</span>` : i.estimate != null ? ` <span class="cx-muted">· ${fmtDur(i.estimate)}</span>` : ''}</li>`).join('')}</ul></details>`;
+      const land = vst.oe === 'land';
+      return `<div class="cx-head"><div>${pill}<div class="cx-title">${keyHtml} ${esc(data.title)}</div></div><div class="cx-count"><b>${doneList.length}/${total}</b>${L.countDone}${data.eta ? `<br>${etaHtml}` : ''}</div></div>
+        <div class="ca-strip">${strip.map(i => `<div class="st ${i.state}"><span class="nd">${i.state === 'done' || i.state === 'blocked' ? NODE_ICON[i.state] : ''}</span><small>${esc(i.label)}</small></div>`).join('')}</div>
+        ${sideList.length ? `<div class="ca-side">${L.tally.side} ${sideList.map(i => `<span>${esc(i.label)}</span>`).join('')}</div>` : ''}
+        <div class="ca-body">${nowCard()}<div class="ca-rest">${group(L.tally.done, doneList, 'done', land)}${group(L.tally.side, sideList, 'side', land)}${group(L.tally.left, leftList, 'left', land)}</div></div>`;
+    },
+    b() {
+      const order = [...doneList, ...(vNow ? [vNow] : []), ...leftList, ...sideList];
+      const row = i => {
+        const tm = i.state === 'done' ? (i.doneAt ? fmtClock(toDate(i.doneAt), viewNow) : '')
+          : i.state === 'now' ? (i.estimate != null ? L.remainingTime + fmtDur(i.estimate) : '')
+          : (i.estimate != null ? fmtDur(i.estimate) : '');
+        if (i === vNow && vst.oe === 'port') return `<li class="now"><span class="cx-dot now"></span>${nowCard()}</li>`;
+        return `<li class="${i.state}"><span class="cx-dot ${i.state}"></span><span>${esc(i.title)}${i.state === 'side' ? `<span class="tag">${L.tally.side}</span>` : ''}</span><span class="tm">${tm}</span></li>`;
+      };
+      return `<div class="cb-top">${pill}<div class="cx-title">${keyHtml} ${esc(data.title)}</div>
+          <div class="row"><div class="cx-bar"><span style="width:${pct.toFixed(2)}%"></span></div><span class="cx-count"><b>${doneList.length}/${total}</b></span>${etaHtml}</div></div>
+        <div class="cb-body"><ol class="cb-tl">${order.map(row).join('')}</ol>${vst.oe === 'land' ? nowCard() : ''}</div>`;
+    },
+    c() {
+      const C = 2 * Math.PI * 15, f = total ? doneList.length / total * C : 0;
+      const counts = [
+        ['done', L.tally.done, doneList],
+        ['now', L.tally.now, vNow && vNow.state === 'now' ? [vNow] : []],
+        ['blocked', L.tally.blocked, blockedList],
+        ['left', L.tally.left, leftList],
+        ['side', L.tally.side, sideList]
+      ].filter(c => c[2].length);
+      const chips = counts.filter(c => c[0] !== 'now');
+      return `<div class="cx-head"><div>${pill}<div class="cx-title">${keyHtml} ${esc(data.title)}</div></div></div>
+        <div class="cc-grid" style="margin-top:14px">
+          <div>
+            <div class="cc-tiles">
+              <div class="cx-glass cc-tile"><small>${L.countDone}</small><div class="cc-ring"><svg viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15" fill="none" stroke="var(--track)" stroke-width="4"/><circle cx="18" cy="18" r="15" fill="none" stroke="var(--done-2)" stroke-width="4" stroke-linecap="round" stroke-dasharray="${f} ${C}" transform="rotate(-90 18 18)"/></svg><span class="cx-count"><b>${doneList.length}/${total}</b></span></div></div>
+              <div class="cx-glass cc-tile"><small>${L.nowRemaining}</small><b>${vNow && vNow.estimate != null ? fmtDur(vNow.estimate) : '—'}</b></div>
+              <div class="cx-glass cc-tile"><small>${L.eta}</small><b>${data.eta ? fmtClock(toDate(data.eta), viewNow) : '—'}</b></div>
+            </div>
+            <div class="cc-seg" aria-label="${esc(L.statesLabel)}">${items.map(i => `<span class="${i.state}" title="${esc(i.label)}"></span>`).join('')}</div>
+            <div class="cc-legend">${counts.map(([k, l, a]) => `<span><i class="cx-dot ${k}"></i>${l} ${a.length}</span>`).join('')}</div>
+          </div>
+          <div>${nowCard()}
+            <div class="cc-chips" role="group" aria-label="${esc(L.stepListLabel)}">${chips.map(([k, l, a]) => `<button type="button" id="cc-${k}" data-k="${k}" aria-pressed="${vst.chip === k}"><i class="cx-dot ${k}"></i>${l} ${a.length}</button>`).join('')}</div>
+            <ul class="cc-list">${(counts.find(c => c[0] === vst.chip) || chips[0] || [, , []])[2].map(i => `<li><i class="cx-dot ${i.state}"></i><span>${esc(i.title)}</span><span>${i.doneAt ? fmtClock(toDate(i.doneAt), viewNow) : (i.estimate != null ? fmtDur(i.estimate) : '')}</span></li>`).join('')}</ul>
+          </div>
+        </div>`;
+    }
+  };
+
+  // 가로·세로는 창 비율로 정하고, 버튼으로 고정할 수 있다
+  const landMq = matchMedia('(min-aspect-ratio: 5/4) and (min-width: 760px)');
+  const built = {};
+  function apply() {
+    document.body.dataset.view = vst.v;
+    ['full', 'a', 'b', 'c'].forEach(v => { const b = $('v-' + v); if (b) b.setAttribute('aria-pressed', String(v === vst.v)); });
+    ['auto', 'land', 'port'].forEach(o => { const b = $('o-' + o); if (b) b.setAttribute('aria-pressed', String(o === vst.o)); });
+    if (vst.v === 'full') { box.hidden = true; return; }
+    vst.oe = vst.o === 'auto' ? (landMq.matches ? 'land' : 'port') : vst.o;
+    const sig = vst.v + vst.oe + vst.chip;
+    box.dataset.o = vst.oe;
+    if (built.sig !== sig) { box.innerHTML = RENDER[vst.v](); built.sig = sig; }
+    box.hidden = false;
+  }
+  $('views').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; vst.v = b.dataset.v; saveView(); apply(); scrollTo(0, 0); });
+  $('orient').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; vst.o = b.dataset.o; saveView(); apply(); });
+  box.addEventListener('click', e => { const b = e.target.closest('.cc-chips button'); if (!b) return; vst.chip = b.dataset.k; saveView(); apply(); });
+  landMq.addEventListener('change', () => { if (vst.o === 'auto') apply(); });
+  apply();
 })();
 </script>
 </body>

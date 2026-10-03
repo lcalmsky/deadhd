@@ -168,7 +168,7 @@ function serialize(n) {
   return o;
 }
 
-const probeSrc = "\n  globalThis.__linkProbe = { httpHref: httpHref, linkElInfo: function (h) { var n = linkEl(h, document.createTextNode('t'), 'lnk'); return { tag: n.tagName, href: n.href == null ? null : n.href }; }, fmtClock: function (t, v) { return fmtClock(t, v); }, fmtDur: fmtDur, i18nKeys: (function () { function flat(o, p) { var out = []; Object.keys(o).forEach(function (k) { var v = o[k], q = p ? p + '.' + k : k; if (v && typeof v === 'object') out = out.concat(flat(v, q)); else out.push(q); }); return out.sort(); } return { ko: flat(I18N.ko, ''), en: flat(I18N.en, '') }; })() };\n";
+const probeSrc = "\n  globalThis.__linkProbe = { httpHref: httpHref, linkElInfo: function (h) { var n = linkEl(h, document.createTextNode('t'), 'lnk'); return { tag: n.tagName, href: n.href == null ? null : n.href }; }, fmtClock: function (t, v) { return fmtClock(t, v); }, fmtDur: fmtDur, compactRender: function (v, oe, chip) { vst.v = v; vst.oe = oe; vst.chip = chip; return RENDER[v](); }, i18nKeys: (function () { function flat(o, p) { var out = []; Object.keys(o).forEach(function (k) { var v = o[k], q = p ? p + '.' + k : k; if (v && typeof v === 'object') out = out.concat(flat(v, q)); else out.push(q); }); return out.sort(); } return { ko: flat(I18N.ko, ''), en: flat(I18N.en, '') }; })() };\n";
 const idx = code0.lastIndexOf('})();');
 if (idx < 0) throw new Error('IIFE 끝을 찾지 못했다');
 const code = code0.slice(0, idx) + probeSrc + code0.slice(idx);
@@ -199,7 +199,7 @@ const ss = {
   setItem: function (k, v) { this._m[k] = String(v); }
 };
 const run = new Function('document', 'matchMedia', 'sessionStorage', code);
-run(doc, function () { return { matches: false }; }, ss);
+run(doc, function () { return { matches: false, addEventListener: function () {} }; }, ss);
 
 const probe = globalThis.__linkProbe;
 function info(h) { return probe.linkElInfo(h); }
@@ -218,6 +218,7 @@ const fmt = cases ? {
 
 process.stdout.write(JSON.stringify({
   fmt: fmt,
+  compact: cases && cases.compact ? probe.compactRender(cases.compact.v, cases.compact.oe, cases.compact.chip) : null,
   probe: {
     httpHref_javascript: probe.httpHref('javascript:alert(1)'),
     httpHref_http: probe.httpHref('http://ok.test/x'),
@@ -1210,6 +1211,130 @@ class TemplateI18NTest(unittest.TestCase):
         with open(out, encoding='utf-8') as f:
             keys = run_linkify_harness(f.read())['probe']['i18nKeys']
         self.assertEqual(keys['ko'], keys['en'])
+
+
+COMPACT_KEYS = (
+    'viewNav', 'viewFull', 'viewStrip', 'viewTimeline', 'viewTile',
+    'orientAuto', 'orientAutoTitle', 'orientLand', 'orientPort',
+    'remainingTime', 'nowRemaining', 'statesLabel', 'stepListLabel',
+)
+
+
+class CompactViewTest(unittest.TestCase):
+    """보기 전환 툴바와 컴팩트 자리가 렌더 결과에 들어가는지 확인한다."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='progress-compact-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def render(self):
+        path = os.path.join(self.tmp, 'data.json')
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(load_example(), f, ensure_ascii=False)
+        out = os.path.join(self.tmp, 'out.html')
+        r = run_render(path, out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding='utf-8') as f:
+            return f.read()
+
+    def test_view_toolbar_and_compact_slot_in_output(self):
+        html = self.render()
+        self.assertIn('<div class="viewbar" role="toolbar"', html)
+        self.assertIn('id="views"', html)
+        self.assertIn('<div id="compact" hidden></div>', html)
+        for view in ('full', 'a', 'b', 'c'):
+            with self.subTest(view=view):
+                self.assertIn('data-v="%s"' % view, html)
+        for orient in ('auto', 'land', 'port'):
+            with self.subTest(orient=orient):
+                self.assertIn('data-o="%s"' % orient, html)
+
+    def test_toolbar_sits_between_background_and_main(self):
+        html = self.render()
+        self.assertLess(html.index('class="stars"'), html.index('class="viewbar"'))
+        self.assertLess(html.index('id="compact"'), html.index('<main>'))
+
+    def test_viewbar_leaves_room_for_star_button(self):
+        viewbar = re.search(r'\.viewbar \{[^}]*\}', self.render()).group(0)
+        self.assertIn('max-width: calc(100vw - 130px)', viewbar)
+
+
+class TemplateCompactTest(unittest.TestCase):
+    """템플릿 스크립트가 툴바 문구를 언어에 맞추고 보기 하나를 그리는지 확인한다."""
+
+    def setUp(self):
+        if NODE is None:
+            self.skipTest('node 가 없어 템플릿 스크립트를 실행할 수 없다')
+        self.tmp = tempfile.mkdtemp(prefix='progress-compact-dom-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def harness(self, data, cases=None):
+        path = os.path.join(self.tmp, 'data.json')
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+        out = os.path.join(self.tmp, 'out.html')
+        r = run_render(path, out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding='utf-8') as f:
+            return run_linkify_harness(f.read(), cases)
+
+    def compact(self, data, view, oe='port', chip='done'):
+        return self.harness(data, {'compact': {'v': view, 'oe': oe, 'chip': chip}})['compact']
+
+    def test_toolbar_labels_follow_language(self):
+        cases = {
+            'ko': (['원본', '스트립', '타임라인', '타일'], ['자동', '가로', '세로'], '보기'),
+            'en': (['Original', 'Strip', 'Timeline', 'Tiles'], ['Auto', 'Landscape', 'Portrait'], 'View'),
+        }
+        for lang, (views, orients, nav) in cases.items():
+            with self.subTest(lang=lang):
+                data = {'title': 'T', 'items': [mini_item('a', 'done')]}
+                if lang == 'en':
+                    data['lang'] = 'en'
+                nodes = self.harness(data)['nodes']
+                self.assertEqual([nodes[k]['text'] for k in ('v-full', 'v-a', 'v-b', 'v-c')], views)
+                self.assertEqual([nodes[k]['text'] for k in ('o-auto', 'o-land', 'o-port')], orients)
+                self.assertEqual(nodes['viewbar']['attrs']['aria-label'], nav)
+
+    def test_original_view_is_selected_by_default(self):
+        nodes = self.harness({'title': 'T', 'items': [mini_item('a', 'done')]})['nodes']
+        self.assertEqual(
+            {k: nodes[k]['attrs']['aria-pressed'] for k in ('v-full', 'v-a', 'v-b', 'v-c')},
+            {'v-full': 'true', 'v-a': 'false', 'v-b': 'false', 'v-c': 'false'},
+        )
+        self.assertEqual(nodes['o-auto']['attrs']['aria-pressed'], 'true')
+
+    def test_each_view_renders_its_layout(self):
+        data = {'title': 'T', 'items': [
+            mini_item('a', 'done'),
+            mini_item('b', 'now', estimate=30),
+            mini_item('c', 'left', estimate=15),
+            mini_item('d', 'side', estimate=60),
+        ]}
+        for view, marker in (('a', 'class="ca-strip"'), ('b', 'class="cb-tl"'), ('c', 'class="cc-tiles"')):
+            with self.subTest(view=view):
+                self.assertIn(marker, self.compact(data, view))
+
+    def test_compact_view_escapes_data(self):
+        data = {'title': 'T', 'items': [{
+            'id': 'a', 'label': '<img src=x onerror=alert(1)>', 'state': 'now', 'estimate': 30,
+            'title': 'T<b>i</b>', 'body': '</script><b>x</b>',
+            'substeps': [{'label': '<i>s</i>', 'state': 'done'}],
+            'evidence': [{'text': '<u>e</u>'}],
+        }]}
+        html = self.compact(data, 'a')
+        for raw in ('</script>', '<img', '<b>x<', '<i>s<', '<u>e<', '<b>i<'):
+            with self.subTest(raw=raw):
+                self.assertNotIn(raw, html)
+        self.assertIn('&lt;img src=x onerror=alert(1)&gt;', html)
+        self.assertIn('&lt;/script&gt;&lt;b&gt;x&lt;/b&gt;', html)
+
+    def test_compact_keys_are_translated(self):
+        keys = self.harness({'title': 'T', 'items': [mini_item('a', 'done')]})['probe']['i18nKeys']
+        self.assertEqual(keys['ko'], keys['en'])
+        for key in COMPACT_KEYS:
+            with self.subTest(key=key):
+                self.assertIn(key, keys['ko'])
 
 
 class TemplateThemeTest(unittest.TestCase):

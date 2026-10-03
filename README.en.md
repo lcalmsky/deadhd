@@ -30,6 +30,7 @@ This is the same set of cases rendered in each theme. You can see a multi-lane f
 - When per-step start and finish times and remaining-time estimates are present, the expected completion time appears under the progress bar. The `tomorrow` or date notation is decided from the time you are viewing the page, so it changes on its own after midnight or when you reopen the window.
 - An open tab reloads every 15 seconds, and newly completed steps play a completion effect.
 - When the user talks in English, the page's fixed labels (`done`, `In progress`, `Remaining`, and so on) are shown in English too. This is set by the data's `lang` field; without it the page is Korean.
+- The buttons at the top left choose between the original, strip, timeline, and tile views; landscape and portrait follow the tab's aspect ratio automatically and can be pinned. The choice survives a refresh.
 
 ## Requirements
 
