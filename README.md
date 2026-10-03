@@ -46,6 +46,8 @@ Claude Code 에서 다음 명령을 실행합니다.
 
 플러그인으로 설치하면 호출 이름은 `/deadhd:deadhd` 입니다.
 
+<a id="orca-install"></a>
+
 ### Orca 에서 설치
 
 [Orca](https://onorca.dev) 를 사용한다면 [공유 링크](https://share.onorca.dev/skills/share/shr_2ff7bcf0535dc1ab2d8f4668287157774973afcf6d727ae6) 를 열고 `Open in Orca` 를 누릅니다. Orca 에서 포함된 파일을 확인한 뒤 설치 위치를 고를 수 있습니다. 설치하면 호출 이름은 `/deadhd` 입니다.
