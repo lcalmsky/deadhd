@@ -737,6 +737,13 @@ class RenderTest(unittest.TestCase):
             html = f.read()
         self.assertIn('<meta http-equiv="refresh" content="15">', html)
 
+    def test_star_button_links_to_repo(self):
+        out = self.out()
+        self.assertEqual(run_render(EXAMPLE, out).returncode, 0)
+        with open(out, encoding='utf-8') as f:
+            html = f.read()
+        self.assertIn('class="star-btn" href="https://github.com/lcalmsky/deadhd" target="_blank" rel="noopener"', html)
+
     def test_existing_title_is_preserved(self):
         out = self.out()
         with open(out, 'w', encoding='utf-8') as f:
