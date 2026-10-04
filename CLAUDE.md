@@ -8,7 +8,8 @@
 2. `chore: <바뀐 기능 요약> 버전 X.Y.Z` 로 커밋한다.
 3. `vX.Y.Z` 주석 태그를 만들어 커밋과 함께 푸시한다.
 4. 태그로 GitHub Release `vX.Y.Z` 를 만들고, 본문에 바뀐 기능과 업데이트 방법을 적는다.
-5. Orca 스킬 공유를 반드시 새로 게시하고, README 「Orca 에서 설치」 절의 링크와 「지금 링크에는 vX.Y.Z 가 들어 있고」 문구를 새 값으로 바꿔 푸시한다.
+5. `template.html` 이나 렌더러 변경으로 페이지 화면이 바뀌었으면 예시 그림 네 장을 다시 만들어 같은 푸시에 넣는다. 아래 「예시 그림」 절의 명령을 실행하면 된다.
+6. Orca 스킬 공유를 반드시 새로 게시하고, README 「Orca 에서 설치」 절의 링크와 「지금 링크에는 vX.Y.Z 가 들어 있고」 문구를 새 값으로 바꿔 푸시한다.
    - 게시 전에 `skills/deadhd` 에 커밋되지 않은 파일(`__pycache__` 포함)이 없는지 확인한다.
    - 게시는 Orca 가 실행 중인 이 컴퓨터에서 `orca skills share --skill <deadhd 의 Claude home ID> --bundle-name "deadhd vX.Y.Z" --json` 으로 한다. ID 는 `orca skills installed --json` 에서 찾는다. Orca 설정의 「에이전트와 Orca CLI 가 기술 링크를 게시하도록 허용」이 꺼져 있으면 사용자에게 앱에서 게시해 달라고 한다.
    - README 의 `<a id="orca-install"></a>` 앵커는 지우지 않는다. 외부 글이 `https://github.com/lcalmsky/deadhd#orca-install` 로 이 절을 가리킨다.
@@ -23,4 +24,13 @@ Orca 스킬 공유 링크는 게시할 때 올린 파일을 바꿀 수 없는 �
 python3 -m unittest skills/deadhd/test_render.py
 ```
 
-테마 갤러리(`docs/themes.png`)는 `python3 docs/capture_themes.py` 로 다시 만든다.
+## 예시 그림
+
+README 의 예시 그림은 `docs/demos` 의 데모 데이터를 렌더해 Chrome 헤드리스로 찍는다. 네 장을 모두 다시 만든다.
+
+```bash
+python3 docs/capture_themes.py && python3 docs/capture_themes.py --lang en   # themes.png, themes.en.png
+python3 docs/capture_views.py && python3 docs/capture_views.py --lang en     # views.png, views.en.png
+```
+
+Chrome 을 직접 `--screenshot` 으로 부르지 않는다. 헤드리스 Chrome 은 파일을 다 쓴 뒤에도 끝나지 않을 때가 있어서, 프로세스 종료를 기다리면 멈춘다. 스크립트의 `chrome_shot` 은 파일 크기가 멈추면 Chrome 을 끝낸다.
