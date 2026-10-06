@@ -22,22 +22,25 @@ CASES = {
     'done':          '2026-09-30T18:10:00+09:00',
 }
 
-# (테마 키, 표시 이름, 사례). 2열로 왼쪽에서 오른쪽, 위에서 아래 순서
+# (테마 키, 표시 이름, 사례). COLS 열로 왼쪽에서 오른쪽, 위에서 아래 순서
 PANELS = [
     ('dark', '오로라', 'lanes-blocked'), ('light', '라이트', 'parallel'),
     ('neon', '사이버펑크 네온', 'overnight'), ('synthwave', '신스웨이브 선셋', 'done'),
     ('matrix', '매트릭스 터미널', 'parallel'), ('nord', '노르드 아크틱', 'lanes-blocked'),
     ('paper', '페이퍼 노트북', 'done'), ('sakura', '사쿠라', 'overnight'),
+    ('ink', '잉크', 'parallel'),
 ]
 
 # --lang en 일 때 같은 자리에 쓰는 영어 표시 이름
 PANEL_NAMES_EN = {
     'dark': 'Aurora', 'light': 'Light', 'neon': 'Cyberpunk Neon', 'synthwave': 'Synthwave Sunset',
     'matrix': 'Matrix Terminal', 'nord': 'Nord Arctic', 'paper': 'Paper Notebook', 'sakura': 'Sakura',
+    'ink': 'Ink',
 }
 
 PANEL_W, PANEL_H = 1200, 1780
-GALLERY_W, PAD, GAP, HEADER_H = 1600, 20, 20, 46
+GALLERY_W, PAD, GAP, HEADER_H = 2100, 20, 20, 46
+COLS = 3
 
 # 브라우저 시계를 사례 시각으로 고정한다. 인자 없는 new Date() 와 Date.now 만 바꾸고
 # 인자를 받는 호출은 그대로 둔다.
@@ -90,17 +93,28 @@ def chrome_args(ud_dir, window, extra):
     ] + extra
 
 
-def render_panel(case, theme, work_dir, demos_dir):
+def render_panel(case, theme, work_dir, demos_dir, session=None, now=None, extra_env=None):
     src = os.path.join(demos_dir, case + '.json')
-    html = os.path.join(work_dir, '%s.%s.html' % (case, theme))
-    env = dict(os.environ, DEADHD_NOW=CASES[case], TZ='Asia/Seoul')
-    result = subprocess.run([sys.executable, RENDER, '--theme', theme, src, html],
-                            capture_output=True, text=True, env=env)
+    name = '%s.%s.html' % (case, theme) if session is None else '%s.%s.%s.html' % (case, theme, session)
+    html = os.path.join(work_dir, name)
+    fixed = now or CASES[case]
+    # render.py 는 페이지 옆에 허브와 세션 상태도 쓴다. 캡처가 이 컴퓨터의 실제 허브·상태를
+    # 덮지 않도록 작업 디렉터리 안 경로를 주고, 세션 id 는 상속하지 않는다.
+    env = dict(os.environ, DEADHD_NOW=fixed, TZ='Asia/Seoul',
+               DEADHD_HUB=os.path.join(work_dir, 'hub.html'),
+               DEADHD_STATE_DIR=os.path.join(work_dir, 'state'))
+    env.pop('CLAUDE_CODE_SESSION_ID', None)
+    if extra_env:
+        env.update(extra_env)
+    cmd = [sys.executable, RENDER, '--theme', theme]
+    if session is not None:
+        cmd += ['--session', session]
+    result = subprocess.run(cmd + [src, html], capture_output=True, text=True, env=env)
     if result.returncode != 0:
         die('%s/%s 렌더 실패: %s' % (case, theme, (result.stderr or result.stdout).strip()))
     with open(html, encoding='utf-8') as f:
         page = f.read()
-    page = page.replace('<head>', '<head>\n' + CLOCK % CASES[case], 1)
+    page = page.replace('<head>', '<head>\n' + CLOCK % fixed, 1)
     with open(html, 'w', encoding='utf-8') as f:
         f.write(page)
     return html
@@ -117,7 +131,7 @@ def gallery_html(shots, card_w, lang):
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 body { background: #0d0d12; font-family: -apple-system, "Apple SD Gothic Neo", sans-serif; }
-.grid { display: grid; grid-template-columns: repeat(2, %dpx); gap: %dpx; padding: %dpx; }
+.grid { display: grid; grid-template-columns: repeat(%d, %dpx); gap: %dpx; padding: %dpx; }
 .panel { margin: 0; background: #1c1c22; border-radius: 12px; overflow: hidden; }
 figcaption { height: %dpx; display: flex; align-items: baseline; gap: 10px; padding: 0 16px;
   border-bottom: 1px solid rgba(255,255,255,.06); }
@@ -125,7 +139,7 @@ figcaption b { color: #fff; font-size: 18px; font-weight: 700; }
 figcaption code { color: #8a8f9e; font-size: 13px; font-family: ui-monospace, "SF Mono", monospace; }
 img { display: block; width: 100%%; }
 </style></head><body><div class="grid">%s</div></body></html>
-""" % (lang, card_w, GAP, PAD, HEADER_H, cells)
+""" % (lang, COLS, card_w, GAP, PAD, HEADER_H, cells)
 
 
 def main(argv):
@@ -163,9 +177,10 @@ def main(argv):
             print('panel: %s %s (%s)' % (theme, name, case))
             shots.append(((theme, name, case), png))
 
-        card_w = (GALLERY_W - 2 * PAD - GAP) // 2
+        card_w = (GALLERY_W - 2 * PAD - (COLS - 1) * GAP) // COLS
+        rows = math.ceil(len(shots) / COLS)
         row_h = HEADER_H + PANEL_H * card_w / PANEL_W
-        total_h = 2 * PAD + len(PANELS) // 2 * row_h + (len(PANELS) // 2 - 1) * GAP
+        total_h = 2 * PAD + rows * row_h + (rows - 1) * GAP
         html = os.path.join(work_dir, 'gallery.html')
         with open(html, 'w', encoding='utf-8') as f:
             f.write(gallery_html(shots, card_w, lang))

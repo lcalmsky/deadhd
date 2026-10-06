@@ -26,11 +26,12 @@ python3 -m unittest skills/deadhd/test_render.py
 
 ## 예시 그림
 
-README 의 예시 그림은 `docs/demos` 의 데모 데이터를 렌더해 Chrome 헤드리스로 찍는다. 네 장을 모두 다시 만든다.
+README 의 예시 그림은 `docs/demos` 의 데모 데이터를 렌더해 Chrome 헤드리스로 찍는다. 여덟 장을 모두 다시 만든다.
 
 ```bash
 python3 docs/capture_themes.py && python3 docs/capture_themes.py --lang en   # themes.png, themes.en.png
 python3 docs/capture_views.py && python3 docs/capture_views.py --lang en     # views.png, views.en.png
+python3 docs/capture_hub.py && python3 docs/capture_hub.py --lang en         # hub.png, hub.en.png, live.png, live.en.png
 ```
 
 Chrome 을 직접 `--screenshot` 으로 부르지 않는다. 헤드리스 Chrome 은 파일을 다 쓴 뒤에도 끝나지 않을 때가 있어서, 프로세스 종료를 기다리면 멈춘다. 스크립트의 `chrome_shot` 은 파일 크기가 멈추면 Chrome 을 끝낸다.
