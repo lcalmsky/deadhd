@@ -217,6 +217,8 @@ def main():
         return 0
     skip_recent, context = outcome
 
+    # 이 세션은 훅이 돌고 있다. render.py 는 이 표시가 있을 때만 상태 띠를 붙인다.
+    state['hooked'] = True
     state['sessionId'] = session_id
     state['updatedAt'] = now_iso()
     save_state(session_id, state)

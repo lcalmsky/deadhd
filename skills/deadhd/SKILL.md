@@ -1,7 +1,7 @@
 ---
 name: deadhd
 description: Show a live checklist page of what this session has done, is doing now, and has left, opened beside the terminal and kept updated while the task runs. Use when the user types /deadhd or $deadhd, or asks "지금 뭐 하고 있어", "진행 상황 띄워줘", "체크리스트로 보여줘", or asks "what are you doing now", "show progress", "show me a checklist".
-argument-hint: "[setup] [-h|-o|-c] [--open auto|orca|browser|desktop] [--theme system|light|dark|neon|synthwave|matrix|nord|paper|sakura|ink] [--font default|pretendard|noto-sans|plex-sans|gothic-a1|nanum-gothic|noto-serif|nanum-myeongjo|hahmlet|gowun-batang|do-hyeon|black-han-sans] [off]"
+argument-hint: "[setup] [hub] [-h|-o|-c] [--open auto|orca|browser|desktop] [--theme system|light|dark|neon|synthwave|matrix|nord|paper|sakura|ink] [--font default|pretendard|noto-sans|plex-sans|gothic-a1|nanum-gothic|noto-serif|nanum-myeongjo|hahmlet|gowun-batang|do-hyeon|black-han-sans] [off]"
 ---
 
 # deadhd
@@ -15,6 +15,7 @@ A status page for the task running in this session. The reader glanced away for 
 ## Parse the arguments
 
 - `off`: stop updating the page (see Keep it updated). Reply in one line and stop.
+- `hub`: write the hub page with `python3 <skill-dir>/hub.py` and open it with `bash <skill-dir>/open.sh [--mode <mode>] <hub path printed by hub.py>`. Reply with where it opened and stop. Pass `--theme` and `--font` to hub.py as well when this run has them. The hub opens through `open.sh` like a session page, so it uses the same localhost server.
 - `-h` (default): open the page in a browser tab beside the terminal.
 - `-o`: publish as an Orca artifact (a shareable web page) with the `orca` CLI. Without it, or when publishing fails, fall back to `-h` and say so.
 - `-c`: publish as a Claude artifact with the `Artifact` tool. Without that tool, fall back to `-h` and say so.
@@ -156,14 +157,16 @@ On the first render only:
 
 - For `-o`, run `bash <skill-dir>/share.sh /tmp/deadhd-<slug>.html`. On `shared: <url>`, give the user the URL. On `fallback: browser`, run the `-h` step instead and say that publishing failed, with the `skip:` reason.
 
-- Otherwise, for `-h` run `bash <skill-dir>/open.sh [--mode <mode>] /tmp/deadhd-<slug>.html`, where `<mode>` is the `--open` value when one was given. It takes the mode from `--mode`, else the saved default, else `auto`, and prints `opened: orca-tab|browser|desktop|none <path>`. On `none`, give the user the path to open. On `desktop`, write that absolute path as its own line in the reply and tell the user to press it in the Claude desktop app to open the page.
+- Otherwise, for `-h` run `bash <skill-dir>/open.sh [--mode <mode>] /tmp/deadhd-<slug>.html`, where `<mode>` is the `--open` value when one was given. It takes the mode from `--mode`, else the saved default, else `auto`, and prints `opened: orca-tab|browser|desktop|none <path>`. On `none`, give the user the path to open. On `desktop`, write that absolute path as its own line in the reply and tell the user to press it in the Claude desktop app to open the page. `open.sh` starts a localhost static server (`serve.py`, port `DEADHD_PORT` or 47320) when it is not running and opens the page over http, so links between pages work inside Orca and other in-app browsers.
 - For `-c`, publish the HTML file with the `Artifact` tool.
 
 ## Keep it updated
 
 After the first render, update the JSON and rerun `render.py` whenever an item changes state (finished, started, blocked) until the task ends or the user says `/deadhd off`.
 
-The plugin's hooks (`hooks/hooks.json`) keep a status band on the page fresh on their own: waiting for permission, waiting for input, last tool, background tasks, compactions. `render.py` links the page to this session through `CLAUDE_CODE_SESSION_ID`; nothing to do for that. After a context compaction the session-start hook tells you the data file path; keep using it.
+The plugin's hooks (`hooks/hooks.json`) keep a status band on the page fresh on their own: waiting for permission, waiting for input, last tool, background tasks, compactions. `render.py` links the page to this session through `CLAUDE_CODE_SESSION_ID`; nothing to do for that. After a context compaction the session-start hook tells you the data file path; keep using it. Without the plugin's hooks (skill-folder or Orca installs) no status band is shown and the hub lists the session as `untracked` or `done`; the README shows how to add the hooks to `~/.claude/settings.json`.
+
+Every render also rewrites the hub page (`/tmp/deadhd-hub.html`), which lists this machine's sessions; the page's `허브 ↗` button opens it.
 
 - The open tab reloads itself every 15 seconds and plays the completion effect on items that became `done`.
 - When a step changes state, record its `startedAt` and `doneAt` and refresh the remaining `estimate` values.

@@ -3,6 +3,7 @@
 import json
 import math
 import os
+import pathlib
 import re
 import sys
 import tempfile
@@ -11,6 +12,7 @@ from html import escape
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE = os.path.join(HERE, 'template.html')
+THEMES_CSS = os.path.join(HERE, 'themes.css')
 STATES = ('done', 'now', 'side', 'left', 'blocked')
 STATE_SET = frozenset(STATES)
 LANGS = ('ko', 'en')
@@ -34,6 +36,31 @@ USAGE = '사용법: render.py [--theme %s] [--font %s] [--session <id>] <data.js
 def die(msg):
     sys.stderr.write('render.py: ' + msg + '\n')
     sys.exit(1)
+
+
+def script_json(obj):
+    payload = json.dumps(obj, ensure_ascii=False)
+    # script 태그가 데이터 안의 문자열로 조기에 닫히지 않게 한다.
+    return payload.replace('</', '<\\/').replace('<!--', '<\\!--')
+
+
+def theme_css():
+    with open(THEMES_CSS, encoding='utf-8') as f:
+        return f.read()
+
+
+def file_url(path):
+    return pathlib.Path(path).as_uri()
+
+
+def page_url(path):
+    """서빙 규칙에 맞는 파일은 로컬 서버 주소로, 아니면 file:// 로."""
+    try:
+        import serve
+    except Exception:
+        return file_url(path)
+    url = serve.http_url(path)
+    return url if url is not None else file_url(path)
 
 
 def is_http_url(value):
@@ -198,6 +225,40 @@ def live_payload(session_state, at):
         'lastTool': last_tool if isinstance(last_tool, dict) else None,
         'backgroundTasks': background if isinstance(background, list) else [],
         'compactions': {'count': count, 'lastAt': compactions.get('lastAt')},
+    }
+
+
+def session_summary(data, items, lang, payload, at, hooked):
+    counts = dict.fromkeys(STATES, 0)
+    states = []
+    now_label = None
+    blocked_label = None
+    for it in items:
+        state = it.get('state')
+        states.append(state)
+        if state in counts:
+            counts[state] += 1
+        label = it.get('label')
+        if state == 'now' and now_label is None and isinstance(label, str):
+            now_label = label
+        if state == 'blocked' and blocked_label is None and isinstance(label, str):
+            blocked_label = label
+    key, key_href = data.get('key'), data.get('keyHref')
+    return {
+        'title': data.get('title'),
+        'key': key if isinstance(key, str) and key else None,
+        'keyHref': key_href if isinstance(key_href, str) and key_href else None,
+        'lang': lang,
+        'updated': data.get('updated') if isinstance(data.get('updated'), str) else None,
+        'counts': counts,
+        'total': len(items),
+        'states': states,
+        'nowLabel': now_label if now_label is not None else blocked_label,
+        'eta': payload.get('eta'),
+        'etaCalibrated': payload.get('etaCalibrated'),
+        'renderedAt': at,
+        'hooked': bool(hooked),
+        'allDone': bool(items) and counts['done'] == len(items),
     }
 
 
@@ -408,6 +469,14 @@ def main(argv):
     html_open += '>'
     tpl = tpl.replace(HTML_OPEN, html_open)
 
+    if tpl.count('__THEME_CSS__') != 1:
+        die('템플릿에 __THEME_CSS__ 가 정확히 하나 있지 않다')
+    try:
+        css = theme_css()
+    except OSError as e:
+        die('테마 CSS 를 읽지 못했다: %s' % e)
+    tpl = tpl.replace('__THEME_CSS__', css)
+
     key = data.get('key')
     has_key = isinstance(key, str) and bool(key)
     if lang == 'en':
@@ -420,10 +489,15 @@ def main(argv):
 
     now = current_time()
     now_text = now.isoformat(timespec='seconds')
+    # 예상 시각의 기준은 렌더 시각이 아니라 데이터가 마지막으로 쓰인 시각이다.
+    # 훅이 데이터를 바꾸지 않은 채 페이지를 다시 렌더해도 예상 시각이 밀리지 않는다.
+    data_at = now if os.environ.get('DEADHD_NOW') else datetime.fromtimestamp(os.path.getmtime(data_path)).astimezone()
+    data_at_text = data_at.isoformat(timespec='seconds')
     payload_data = dict(data)
     payload_data['renderedAt'] = now_text
+    payload_data['dataAt'] = data_at_text
     items = payload_data['items']
-    eta = compute_eta(items, now)
+    eta = compute_eta(items, data_at)
     if eta is None:
         payload_data.pop('eta', None)
     else:
@@ -446,17 +520,27 @@ def main(argv):
     factor = calibration(read_history(history_path()))
     if factor is not None and total_minutes is not None:
         payload_data['etaCalibrated'] = (
-            now + timedelta(minutes=factor['factor'] * total_minutes)).isoformat(timespec='seconds')
+            data_at + timedelta(minutes=factor['factor'] * total_minutes)).isoformat(timespec='seconds')
         payload_data['calibration'] = factor
 
     if session_state is not None:
-        payload_data['live'] = live_payload(session_state, now_text)
+        live = live_payload(session_state, now_text)
+        hooked = bool(session_state.get('hooked'))
+        # 훅이 돌지 않은 설치에서는 띠를 붙이지 않는다. live 키 자체를 넣지 않는다.
+        if hooked:
+            payload_data['live'] = live
+        # 허브는 상태 파일의 이 요약만 읽는다. 데이터 JSON 은 다시 읽지 않는다.
+        session_state['summary'] = session_summary(data, items, lang, payload_data, now_text, hooked)
 
-    payload = json.dumps(payload_data, ensure_ascii=False)
-    # script 태그가 데이터 안의 문자열로 조기에 닫히지 않게 한다.
-    payload = payload.replace('</', '<\\/').replace('<!--', '<\\!--')
+    # hub.py 가 없거나 못 읽어도 페이지는 나와야 한다. 그때는 허브 링크를 넣지 않는다.
+    hub = None
+    try:
+        import hub
+        payload_data['hubHref'] = page_url(hub.hub_path())
+    except Exception:
+        pass
 
-    out = tpl.replace('__PROGRESS_TITLE__', title).replace('__PROGRESS_DATA__', payload)
+    out = tpl.replace('__PROGRESS_TITLE__', title).replace('__PROGRESS_DATA__', script_json(payload_data))
 
     out_dir = os.path.dirname(os.path.abspath(out_path))
     os.makedirs(out_dir, exist_ok=True)
@@ -477,6 +561,13 @@ def main(argv):
         try:
             session_state['updatedAt'] = now_text
             state.save_state(session, session_state)
+        except Exception:
+            pass
+
+    # 허브를 못 써도 페이지는 이미 나왔다.
+    if hub is not None:
+        try:
+            hub.write_hub(theme=theme, font=font, now=now)
         except Exception:
             pass
 

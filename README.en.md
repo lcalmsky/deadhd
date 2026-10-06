@@ -46,13 +46,14 @@ The browser draws a view from the data already in the page when you press its bu
 - The page design is fixed in `template.html`, and the model writes only the JSON data. `render.py` validates the data and generates the HTML.
 - When per-step start and finish times and remaining-time estimates are present, the expected completion time appears under the progress bar. The `tomorrow` or date notation is decided from the time you are viewing the page, so it changes on its own after midnight or when you reopen the window.
 - An open tab reloads every 15 seconds, and newly completed steps play a completion effect. The status band at the top of the page refreshes on the same cycle.
+- The page is opened over a static server bound to 127.0.0.1 (`serve.py`), because an in-app browser such as Orca blocks `file://` navigation from inside a page. It starts on its own the first time you open a page and serves only `deadhd-*.html` from `/tmp`.
 - When the user talks in English, the page's fixed labels (`done`, `In progress`, `Remaining`, and so on) are shown in English too. This is set by the data's `lang` field; without it the page is Korean.
 
 ## Waiting-for-you band and calibrated ETA
 
 - Installed as a plugin, the hooks in `hooks/hooks.json` take session events (permission request, turn end, tool run, compaction, session end), write the state to `/tmp/deadhd-state/<session ID>.json`, and re-render the page. A band appears at the top: `Waiting for permission · 12m`, `Waiting for your input · 23m`, `Working · Last tool Bash 8s ago`, `No signal`, `Session ended`. The hooks keep the band fresh even when the model forgets to update the page.
 - After a compaction, the session-start hook tells the model the data file path again.
-- The skill folder and Orca installs do not carry the hooks. To use them, add the same hooks to `~/.claude/settings.json`, replacing `${CLAUDE_PLUGIN_ROOT}` with the absolute path of the skill folder.
+- The skill folder and Orca installs do not carry the hooks. To use them, add the same hooks to `~/.claude/settings.json`, replacing `${CLAUDE_PLUGIN_ROOT}` with the absolute path of the skill folder. Without the hooks no status band appears on the page, and the hub lists the session as `No hooks` or `Done`.
 
 ```json
 {
@@ -68,6 +69,15 @@ The browser draws a view from the data already in the page when you press its bu
 ```
 
 - Calibration: when a step finishes, the estimate first written for it and the actual duration accumulate in `~/.config/deadhd/history.jsonl`, and from three records on a calibrated completion time is shown next to the raw one. What is recorded is only the step id, the estimate, and the actual minutes.
+
+## Hub
+
+One page that gathers the sessions running on this machine. Open it with `/deadhd hub`, or with the `허브 ↗` button at the top right of a session page. A tile carries the status badge, the title and key, a per-step mini strip, `6/12 done`, what is running now, and the completion estimate.
+
+- Sorted permission > no signal > input > working > ended, and within a state the session that has waited longest comes first.
+- Only sessions that write a state file (1.8.0 and later) are gathered. A session not updated for more than 24 hours folds into "Ended and past".
+- Pages are served by a static server bound to 127.0.0.1 (`serve.py`, port 47320, changeable with `DEADHD_PORT`), because the Orca built-in browser blocks `file://` navigation from inside a page. The server serves only `deadhd-*.html` from `/tmp`, does not follow symbolic links, and checks the `Host` header so an outside site cannot read it. It starts on its own the first time a page opens and stays after the session ends. To stop it, run `python3 ~/.claude/skills/deadhd/serve.py --stop` (the same path inside the plugin cache when installed as a plugin).
+- `render.py` rewrites the hub file whenever a session page renders and on every hook event (`/tmp/deadhd-hub.html`, changeable with `DEADHD_HUB`).
 
 ## Requirements
 
@@ -120,6 +130,7 @@ Installed this way, the invocation name is `/deadhd`.
 | `/deadhd -o` | Publishes as an Orca artifact (a web page with a shareable link). Requires an orca CLI login; falls back to a browser tab on failure |
 | `/deadhd -c` | Publishes as a Claude artifact |
 | `/deadhd setup` | Chooses the default open location again |
+| `/deadhd hub` | Opens the hub page that gathers this machine's sessions |
 | `/deadhd --open <mode>` | Opens in a different location for this run only |
 | `/deadhd --theme <theme>` | Renders with a different theme for this run only |
 | `/deadhd --font <preset>` | Renders this run with a different heading font |
@@ -136,7 +147,7 @@ On the first run, it asks once for the open location, the theme, and the font. T
 | `auto` | Opens an Orca tab when running inside Orca, otherwise the system browser |
 | `orca` | Opens an Orca tab when the `orca` command is available |
 | `browser` | Skips Orca and opens the system browser |
-| `desktop` | Does not open the page; prints only the path. Press that path in the Claude desktop app to open it in the in-app browser panel |
+| `desktop` | Does not open the page; prints only the path. Press that path in the Claude desktop app to open it in the in-app browser panel. You can press the printed http address instead |
 
 The theme uses these values.
 

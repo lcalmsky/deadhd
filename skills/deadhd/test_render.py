@@ -2,21 +2,32 @@
 """render.py 의 렌더 결과와 입력 검증을 확인한다."""
 import json
 import os
+import pathlib
 import re
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+import urllib.error
+import urllib.request
+from datetime import datetime, timedelta
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RENDER = os.path.join(HERE, 'render.py')
 STATE = os.path.join(HERE, 'state.py')
+HUB = os.path.join(HERE, 'hub.py')
+SERVE = os.path.join(HERE, 'serve.py')
 TEMPLATE = os.path.join(HERE, 'template.html')
+HUB_TEMPLATE = os.path.join(HERE, 'hub.html')
+THEMES_CSS = os.path.join(HERE, 'themes.css')
 EXAMPLE = os.path.join(HERE, 'example.json')
 MISSING_CONFIG = os.path.join(tempfile.gettempdir(), 'deadhd-no-such-config', 'config.json')
+# 테스트 렌더가 사용자의 실제 허브(/tmp/deadhd-hub.html)를 덮어쓰지 않게 임시 경로로 돌린다.
+TEST_HUB = os.path.join(tempfile.gettempdir(), 'deadhd-test-hub.html')
 
 EXTRA_THEMES = ('neon', 'synthwave', 'matrix', 'nord', 'paper', 'sakura', 'ink')
 FONT_PRESETS = (
@@ -38,6 +49,7 @@ def run_render(data_path, out_path, theme=None, config_path=None, env_extra=None
     # 세션·이력·상태가 이 테스트를 실행한 세션에서 새어 들어오지 않게 한다.
     for key in ('XDG_CONFIG_HOME', 'CLAUDE_CODE_SESSION_ID', 'DEADHD_STATE_DIR', 'DEADHD_HISTORY'):
         env.pop(key, None)
+    env['DEADHD_HUB'] = TEST_HUB
     if env_extra:
         env.update(env_extra)
     cmd = [sys.executable, RENDER]
@@ -54,6 +66,7 @@ def run_state(payload, state_dir, env_extra=None, raw=None):
     env['DEADHD_CONFIG'] = MISSING_CONFIG
     env.pop('XDG_CONFIG_HOME', None)
     env['DEADHD_STATE_DIR'] = state_dir
+    env['DEADHD_HUB'] = TEST_HUB
     if env_extra:
         env.update(env_extra)
     text = raw if raw is not None else json.dumps(payload, ensure_ascii=False)
@@ -74,6 +87,12 @@ VALID_SESSION_ID = load_valid_session_id()
 def load_example():
     with open(EXAMPLE, encoding='utf-8') as f:
         return json.load(f)
+
+
+def free_port():
+    with socket.socket() as s:
+        s.bind(('127.0.0.1', 0))
+        return s.getsockname()[1]
 
 
 def html_tag(html):
@@ -277,6 +296,165 @@ def script_block(html):
     return blocks[0]
 
 
+# 렌더된 허브 HTML 의 스크립트를 그대로 실행해 만든 DOM 을 꺼낸다.
+HUB_HARNESS = r'''
+const fs = require('fs');
+const code = fs.readFileSync(process.argv[2], 'utf8');
+const rawData = fs.readFileSync(process.argv[3], 'utf8');
+
+function textOf(n) {
+  if (n.tag === '#text') return n.text;
+  let s = '';
+  for (const k of n.children) s += textOf(k);
+  return s;
+}
+
+function textNode(s) {
+  const n = new El('#text');
+  n.text = String(s);
+  return n;
+}
+
+function El(tag) {
+  this.tag = tag;
+  this.tagName = tag === '#text' ? '#text' : tag.toUpperCase();
+  this.children = [];
+  this.attrs = {};
+  this.hidden = false;
+  this.text = '';
+  this.id = '';
+  this.href = null;
+  this._cls = '';
+  const self = this;
+  this.style = { setProperty: function (k, v) { this[k] = v; } };
+  this.classList = { add: function (c) { self._cls = self._cls ? self._cls + ' ' + c : c; } };
+}
+
+Object.defineProperty(El.prototype, 'className', {
+  get: function () { return this._cls; },
+  set: function (v) { this._cls = String(v); }
+});
+
+Object.defineProperty(El.prototype, 'textContent', {
+  get: function () { return textOf(this); },
+  set: function (v) {
+    v = String(v);
+    this.children = v === '' ? [] : [textNode(v)];
+  }
+});
+
+El.prototype.appendChild = function (c) {
+  if (c.tag === '#fragment') {
+    for (const k of c.children) this.children.push(k);
+    return c;
+  }
+  this.children.push(c);
+  return c;
+};
+El.prototype.setAttribute = function (k, v) {
+  this.attrs[k] = String(v);
+  if (k === 'class') this._cls = String(v);
+};
+El.prototype.addEventListener = function () {};
+
+function makeDocument(raw) {
+  const byId = new Map();
+  const doc = {
+    createElement: function (t) { return new El(t); },
+    createTextNode: function (t) { return textNode(t); },
+    createDocumentFragment: function () { return new El('#fragment'); },
+    getElementById: function (id) {
+      if (!byId.has(id)) { const e = new El('div'); e.id = id; byId.set(id, e); }
+      return byId.get(id);
+    }
+  };
+  doc.getElementById('hub-data').textContent = raw;
+  doc._byId = byId;
+  return doc;
+}
+
+function serialize(n) {
+  if (n.tag === '#text') return { t: '#text', text: n.text };
+  const o = { t: n.tagName, text: textOf(n) };
+  if (n.id) o.id = n.id;
+  if (n.className) o.cls = n.className;
+  if (n.href != null) o.href = n.href;
+  if (n.hidden) o.hidden = true;
+  if (n.attrs && Object.keys(n.attrs).length) o.attrs = Object.assign({}, n.attrs);
+  const style = {};
+  for (const k in n.style) { if (typeof n.style[k] !== 'function') style[k] = n.style[k]; }
+  if (Object.keys(style).length) o.style = style;
+  if (n.children.length) o.kids = n.children.map(serialize);
+  return o;
+}
+
+function fixClock(iso) {
+  const RealDate = Date;
+  const fixedMs = new RealDate(iso).getTime();
+  function FixedDate(...args) {
+    if (!new.target) return new RealDate(fixedMs).toString();
+    return args.length === 0 ? new RealDate(fixedMs) : new RealDate(...args);
+  }
+  FixedDate.prototype = RealDate.prototype;
+  FixedDate.now = function () { return fixedMs; };
+  FixedDate.parse = RealDate.parse;
+  FixedDate.UTC = RealDate.UTC;
+  globalThis.Date = FixedDate;
+}
+
+const fixedNow = process.argv[4] || '';
+if (fixedNow) fixClock(fixedNow);
+
+const doc = makeDocument(rawData);
+new Function('document', code)(doc);
+
+const nodes = {};
+for (const entry of doc._byId) {
+  if (entry[0] === 'hub-data') continue;
+  nodes[entry[0]] = serialize(entry[1]);
+}
+process.stdout.write(JSON.stringify({ nodes }));
+'''
+
+
+def hub_data_block(html):
+    m = re.search(r'<script id="hub-data" type="application/json">(.*?)</script>', html, re.S)
+    assert m is not None, '허브 데이터 script 블록을 찾지 못했다'
+    return m.group(1)
+
+
+def run_hub(state_dir, hub_path=None, theme=None, font=None, out=None, env_extra=None):
+    env = dict(os.environ)
+    env['DEADHD_CONFIG'] = MISSING_CONFIG
+    env.pop('XDG_CONFIG_HOME', None)
+    env['DEADHD_STATE_DIR'] = state_dir
+    env['DEADHD_HUB'] = hub_path if hub_path is not None else TEST_HUB
+    if env_extra:
+        env.update(env_extra)
+    cmd = [sys.executable, HUB]
+    if theme is not None:
+        cmd += ['--theme', theme]
+    if font is not None:
+        cmd += ['--font', font]
+    if out is not None:
+        cmd.append(out)
+    return subprocess.run(cmd, capture_output=True, text=True, env=env)
+
+
+def run_hub_harness(html, fixed_now=None):
+    with tempfile.TemporaryDirectory(prefix='progress-hub-') as d:
+        for name, text in (('harness.js', HUB_HARNESS), ('script.js', script_block(html)),
+                           ('data.txt', hub_data_block(html))):
+            with open(os.path.join(d, name), 'w', encoding='utf-8') as f:
+                f.write(text)
+        env = dict(os.environ, TZ='Asia/Seoul')
+        cmd = [NODE, os.path.join(d, 'harness.js'), os.path.join(d, 'script.js'),
+               os.path.join(d, 'data.txt'), fixed_now or '']
+        r = subprocess.run(cmd, capture_output=True, text=True, cwd=d, env=env)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)
+
+
 def run_linkify_harness(html, cases=None, fixed_now=None, flow_width=None):
     with tempfile.TemporaryDirectory(prefix='progress-linkify-') as d:
         files = {}
@@ -443,11 +621,25 @@ class EtaTest(unittest.TestCase):
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False)
         out = os.path.join(self.tmp, 'out.html')
-        r = run_render(path, out, env_extra={'DEADHD_NOW': now})
+        r = run_render(path, out, env_extra={'DEADHD_NOW': now} if now else {})
         if r.returncode != 0:
             return r, None
         with open(out, encoding='utf-8') as f:
             return r, parse_block(data_block(f.read()))
+
+    def render_file(self, path):
+        out = os.path.join(self.tmp, 'out.html')
+        r = run_render(path, out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding='utf-8') as f:
+            return parse_block(data_block(f.read()))
+
+    def render_with_mtime(self, items, mtime):
+        path = os.path.join(self.tmp, 'data.json')
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump({'title': 'T', 'items': items}, f, ensure_ascii=False)
+        os.utime(path, (mtime, mtime))
+        return path, self.render_file(path)
 
     def payload(self, items, **kwargs):
         r, parsed = self.render(items, **kwargs)
@@ -533,6 +725,23 @@ class EtaTest(unittest.TestCase):
     def test_started_at_alone_is_accepted(self):
         items = [mini_item('a', 'now', startedAt='2026-10-03T09:00:00+09:00', estimate=30)]
         self.assertEqual(self.payload(items)['eta'], '2026-10-03T10:30:00+09:00')
+
+    def test_eta_baseline_is_the_data_file_mtime(self):
+        mtime = 1759500000
+        _, parsed = self.render_with_mtime(
+            [mini_item('a', 'now', estimate=30), mini_item('b', 'left', estimate=15)], mtime
+        )
+        base = datetime.fromtimestamp(mtime).astimezone()
+        self.assertEqual(parsed['dataAt'], base.isoformat(timespec='seconds'))
+        self.assertEqual(parsed['eta'], (base + timedelta(minutes=45)).isoformat(timespec='seconds'))
+
+    def test_eta_does_not_move_when_only_the_render_time_changes(self):
+        path, first = self.render_with_mtime([mini_item('a', 'now', estimate=30)], 1759500000)
+        time.sleep(1.05)
+        second = self.render_file(path)
+        self.assertNotEqual(second['renderedAt'], first['renderedAt'])
+        self.assertEqual(second['dataAt'], first['dataAt'])
+        self.assertEqual(second['eta'], first['eta'])
 
 
 class TemplateTimeFormatTest(unittest.TestCase):
@@ -686,6 +895,16 @@ class TemplateDomStateTest(unittest.TestCase):
         )
         rows = [k for k in self.find(result, 'etime')[0]['kids'] if 'etime-row' in (k.get('cls') or '').split()]
         self.assertEqual(rows[1]['kids'][0]['text'], '경과 0분')
+
+    def test_past_node_when_gets_suffix_and_class(self):
+        result = self.render_dom(
+            [mini_item('a', 'now', startedAt='2026-10-03T09:00:00+09:00', estimate=30)],
+            view='2026-10-03T11:00:00+09:00'
+        )
+        cls, text = self.when_text(result, 'a')
+        self.assertEqual(text, '~10:30 (지남)')
+        self.assertIn('when-past', cls.split())
+        self.assertIn('when-now', cls.split())
 
     def test_lane_band_height_follows_time_rows(self):
         with_time = [
@@ -885,6 +1104,7 @@ class RenderTest(unittest.TestCase):
             html = f.read()
         self.assertNotIn('__PROGRESS_DATA__', html)
         self.assertNotIn('__PROGRESS_TITLE__', html)
+        self.assertNotIn('__THEME_CSS__', html)
         self.assertIn('SHOP-128 진행 상황', html)
 
     def test_input_data_file_is_left_untouched(self):
@@ -899,17 +1119,41 @@ class RenderTest(unittest.TestCase):
     def test_render_leaves_no_bytecode_in_skill_dir(self):
         skill = os.path.join(self.tmp, 'skill')
         os.mkdir(skill)
-        for name in ('render.py', 'state.py', 'config.py', 'template.html'):
+        for name in ('render.py', 'state.py', 'config.py', 'hub.py', 'serve.py',
+                     'template.html', 'hub.html', 'themes.css'):
             shutil.copy(os.path.join(HERE, name), skill)
         env = dict(os.environ)
         env.pop('PYTHONDONTWRITEBYTECODE', None)
         for key in ('CLAUDE_CODE_SESSION_ID', 'DEADHD_STATE_DIR', 'DEADHD_HISTORY'):
             env.pop(key, None)
         env['DEADHD_CONFIG'] = MISSING_CONFIG
+        env['DEADHD_HUB'] = os.path.join(self.tmp, 'hub.html')
         r = subprocess.run([sys.executable, os.path.join(skill, 'render.py'), EXAMPLE, self.out()],
                            capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertFalse(os.path.exists(os.path.join(skill, '__pycache__')))
+
+    def test_render_survives_a_missing_hub_module(self):
+        skill = os.path.join(self.tmp, 'skill-no-hub')
+        os.mkdir(skill)
+        for name in ('render.py', 'state.py', 'config.py', 'serve.py',
+                     'template.html', 'hub.html', 'themes.css'):
+            shutil.copy(os.path.join(HERE, name), skill)
+        env = dict(os.environ)
+        for key in ('CLAUDE_CODE_SESSION_ID', 'DEADHD_STATE_DIR', 'DEADHD_HISTORY'):
+            env.pop(key, None)
+        env['DEADHD_CONFIG'] = MISSING_CONFIG
+        hub = os.path.join(self.tmp, 'hub.html')
+        env['DEADHD_HUB'] = hub
+        out = self.out()
+        r = subprocess.run([sys.executable, os.path.join(skill, 'render.py'), EXAMPLE, out],
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding='utf-8') as f:
+            html = f.read()
+        self.assertIn('SHOP-128 진행 상황', html)
+        self.assertNotIn('hubHref', parse_block(data_block(html)))
+        self.assertFalse(os.path.exists(hub))
 
     def test_refresh_meta_present(self):
         out = self.out()
@@ -1118,6 +1362,7 @@ class RenderTest(unittest.TestCase):
             tpl = f.read()
         self.assertEqual(tpl.count('__PROGRESS_DATA__'), 1)
         self.assertEqual(tpl.count('__PROGRESS_TITLE__'), 1)
+        self.assertEqual(tpl.count('__THEME_CSS__'), 1)
 
 
 class RenderThemeTest(unittest.TestCase):
@@ -1206,6 +1451,7 @@ class RenderFontTest(unittest.TestCase):
         env['DEADHD_CONFIG'] = config_path if config_path is not None else MISSING_CONFIG
         for key in ('XDG_CONFIG_HOME', 'CLAUDE_CODE_SESSION_ID', 'DEADHD_STATE_DIR', 'DEADHD_HISTORY'):
             env.pop(key, None)
+        env['DEADHD_HUB'] = TEST_HUB
         return subprocess.run([sys.executable, RENDER, *argv], capture_output=True, text=True, env=env)
 
     def render(self, *flags, config_path=None):
@@ -1460,7 +1706,7 @@ class TemplateCompactTest(unittest.TestCase):
 
 class TemplateThemeTest(unittest.TestCase):
     def setUp(self):
-        with open(TEMPLATE, encoding='utf-8') as f:
+        with open(THEMES_CSS, encoding='utf-8') as f:
             self.tpl = f.read()
 
     def block(self, theme):
@@ -1487,30 +1733,44 @@ class TemplateThemeTest(unittest.TestCase):
                     self.assertIn(token + ':', body)
 
     def test_css_rules_do_not_hardcode_state_colors(self):
-        style = re.search(r'<style>(.*?)</style>', self.tpl, re.S).group(1)
-        body = re.sub(r':root[^{]*\{[^}]*\}', '', style)
+        body = re.sub(r':root[^{]*\{[^}]*\}', '', self.tpl)
         for color in ('#059669', '#f97316', '#dc2626'):
             with self.subTest(color=color):
                 self.assertNotIn(color, body)
 
+    def test_rendered_page_carries_variable_block(self):
+        self.tmp = tempfile.mkdtemp(prefix='progress-theme-css-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        out = os.path.join(self.tmp, 'out.html')
+        r = run_render(EXAMPLE, out, theme='dark')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding='utf-8') as f:
+            html = f.read()
+        self.assertIn(':root[data-theme="dark"]', html)
+        self.assertIn('--bg: #07080d', html)
+
     def test_ink_overrides_and_tally_classes_exist(self):
-        self.assertIn('[data-theme="ink"] .fnode.blocked .node {', self.tpl)
-        self.assertIn('.tally i.done { background: var(--done); }', self.tpl)
-        self.assertIn('dot.className = k;', self.tpl)
-        self.assertNotIn('dot.style.background', self.tpl)
+        with open(TEMPLATE, encoding='utf-8') as f:
+            tpl = f.read()
+        self.assertIn('[data-theme="ink"] .fnode.blocked .node {', tpl)
+        self.assertIn('.tally i.done { background: var(--done); }', tpl)
+        self.assertIn('dot.className = k;', tpl)
+        self.assertNotIn('dot.style.background', tpl)
 
 
 class TemplateFontTest(unittest.TestCase):
     def setUp(self):
         with open(TEMPLATE, encoding='utf-8') as f:
             self.tpl = f.read()
+        with open(THEMES_CSS, encoding='utf-8') as f:
+            self.css = f.read()
 
     def test_preset_rules_exist_once_with_heading_vars(self):
         for preset in FONT_PRESETS:
             with self.subTest(preset=preset):
                 rule = '[data-font="%s"] body {' % preset
-                self.assertEqual(self.tpl.count(rule), 1)
-                body = self.tpl.split(rule, 1)[1].split('}', 1)[0]
+                self.assertEqual(self.css.count(rule), 1)
+                body = self.css.split(rule, 1)[1].split('}', 1)[0]
                 for var in ('--f-head', '--head-w', '--head-ls'):
                     self.assertIn(var, body)
 
@@ -1528,9 +1788,178 @@ class TemplateFontTest(unittest.TestCase):
 
     def test_presets_come_after_ink_theme_line(self):
         self.assertGreater(
-            self.tpl.index('[data-font="pretendard"] body {'),
-            self.tpl.index('[data-theme="ink"] body {'),
+            self.css.index('[data-font="pretendard"] body {'),
+            self.css.index('[data-theme="ink"] body {'),
         )
+
+
+class ServeScriptTest(unittest.TestCase):
+    """serve.py 가 규칙에 맞는 파일만 127.0.0.1 로 제공하는지 확인한다."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='progress-serve-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.port = free_port()
+        self.env = dict(os.environ)
+        self.env['DEADHD_SERVE_ROOT'] = self.tmp
+        self.env['DEADHD_PORT'] = str(self.port)
+        self.env['DEADHD_CONFIG'] = MISSING_CONFIG
+        self.env.pop('XDG_CONFIG_HOME', None)
+        self.addCleanup(self.stop_server)
+        self.write('deadhd-page.html', '<!doctype html><html><body>hi</body></html>')
+
+    def write(self, name, text='<!doctype html><html></html>'):
+        path = os.path.join(self.tmp, name)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(text)
+        return path
+
+    def serve(self, *args):
+        return subprocess.run([sys.executable, SERVE] + list(args),
+                              capture_output=True, text=True, env=self.env)
+
+    def stop_server(self):
+        self.serve('--stop')
+        self.wait_down()
+
+    def fetch(self, path, host=None, method='GET', data=None, headers=None):
+        request = urllib.request.Request(
+            'http://127.0.0.1:%d%s' % (self.port, path), method=method, data=data)
+        if host is not None:
+            request.add_header('Host', host)
+        for name, value in (headers or {}).items():
+            request.add_header(name, value)
+        try:
+            with urllib.request.urlopen(request, timeout=3) as r:
+                return r.status, dict(r.headers), r.read()
+        except urllib.error.HTTPError as e:
+            try:
+                return e.code, dict(e.headers), e.read()
+            finally:
+                e.close()
+
+    def wait_down(self, timeout=3.0):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                self.fetch('/healthz')
+            except Exception:
+                return True
+            time.sleep(0.05)
+        return False
+
+    def daemon_count(self):
+        r = subprocess.run(['pgrep', '-f', SERVE + ' --daemon'],
+                           capture_output=True, text=True)
+        if r.returncode not in (0, 1):
+            return None
+        return len(r.stdout.split())
+
+    def test_serves_a_rule_file_without_caching(self):
+        r = self.serve('--ensure')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), 'base: http://127.0.0.1:%d/' % self.port)
+        status, headers, body = self.fetch('/deadhd-page.html')
+        self.assertEqual(status, 200)
+        self.assertEqual(headers.get('Content-Type'), 'text/html; charset=utf-8')
+        self.assertEqual(headers.get('Cache-Control'), 'no-store')
+        self.assertIn(b'hi', body)
+
+    def test_other_names_are_not_found(self):
+        self.write('other.html')
+        self.assertEqual(self.serve('--ensure').returncode, 0)
+        self.assertEqual(self.fetch('/other.html')[0], 404)
+        self.assertEqual(self.fetch('/deadhd-missing.html')[0], 404)
+
+    def test_parent_traversal_is_not_found(self):
+        os.makedirs(os.path.join(self.tmp, 'sub'), exist_ok=True)
+        self.write(os.path.join('sub', 'deadhd-page.html'))
+        self.assertEqual(self.serve('--ensure').returncode, 0)
+        self.assertEqual(self.fetch('/../deadhd-page.html')[0], 404)
+        self.assertEqual(self.fetch('/sub/deadhd-page.html')[0], 404)
+
+    def test_symlink_outside_the_root_is_not_found(self):
+        outside = tempfile.mkdtemp(prefix='progress-serve-outside-')
+        self.addCleanup(shutil.rmtree, outside, True)
+        secret = os.path.join(outside, 'deadhd-secret.html')
+        with open(secret, 'w', encoding='utf-8') as f:
+            f.write('<!doctype html><html><body>secret</body></html>')
+        os.symlink(secret, os.path.join(self.tmp, 'deadhd-link.html'))
+        self.assertEqual(self.serve('--ensure').returncode, 0)
+        status, _, body = self.fetch('/deadhd-link.html')
+        self.assertEqual(status, 404)
+        self.assertNotIn(b'secret', body)
+        self.assertEqual(self.serve('--url', os.path.join(self.tmp, 'deadhd-link.html')).returncode, 2)
+
+    def test_foreign_host_is_forbidden(self):
+        self.assertEqual(self.serve('--ensure').returncode, 0)
+        self.assertEqual(self.fetch('/deadhd-page.html', host='evil.test')[0], 403)
+        self.assertEqual(self.fetch('/healthz', host='evil.test')[0], 403)
+        self.assertEqual(self.fetch('/deadhd-page.html', host='127.0.0.1')[0], 200)
+        self.assertEqual(self.fetch('/deadhd-page.html', host='localhost:%d' % self.port)[0], 200)
+
+    def test_healthz_answers_ok(self):
+        self.assertEqual(self.serve('--ensure').returncode, 0)
+        status, _, body = self.fetch('/healthz')
+        self.assertEqual(status, 200)
+        self.assertEqual(body.strip(), b'ok')
+
+    def test_post_outside_quit_is_method_not_allowed(self):
+        self.assertEqual(self.serve('--ensure').returncode, 0)
+        self.assertEqual(self.fetch('/deadhd-page.html', method='POST', data=b'')[0], 405)
+
+    def test_quit_stops_the_server(self):
+        self.assertEqual(self.serve('--ensure').returncode, 0)
+        self.assertEqual(self.fetch('/quit', method='POST', data=b'',
+                                     headers={'X-Deadhd': 'stop'})[0], 200)
+        self.assertTrue(self.wait_down(), '서버가 /quit 뒤에도 살아 있다')
+        self.assertEqual(self.serve('--stop').stdout.strip(), 'stopped: none')
+
+    def test_quit_without_the_stop_header_is_forbidden(self):
+        self.assertEqual(self.serve('--ensure').returncode, 0)
+        self.assertEqual(self.fetch('/quit', method='POST', data=b'')[0], 403)
+        self.assertEqual(self.fetch('/healthz')[0], 200)
+        self.assertEqual(self.fetch('/quit', method='POST', data=b'',
+                                     headers={'X-Deadhd': 'nope'})[0], 403)
+        self.assertEqual(self.fetch('/healthz')[0], 200)
+        self.assertEqual(self.fetch('/quit', method='POST', data=b'',
+                                     headers={'X-Deadhd': 'stop'})[0], 200)
+        self.assertTrue(self.wait_down(), '서버가 /quit 뒤에도 살아 있다')
+
+    def test_ensure_does_not_start_a_second_server(self):
+        before = self.daemon_count()
+        first = self.serve('--ensure')
+        self.assertEqual(first.returncode, 0, first.stderr)
+        started = self.daemon_count()
+        second = self.serve('--ensure')
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(second.stdout.strip(), 'base: http://127.0.0.1:%d/' % self.port)
+        if before is not None and started is not None:
+            self.assertEqual(started, before + 1)
+            self.assertEqual(self.daemon_count(), started)
+
+    def test_stop_without_a_server_says_none(self):
+        self.assertEqual(self.serve('--stop').stdout.strip(), 'stopped: none')
+
+    def test_url_prints_the_address_of_a_rule_file(self):
+        page = os.path.join(self.tmp, 'deadhd-page.html')
+        r = self.serve('--url', page)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), 'http://127.0.0.1:%d/deadhd-page.html' % self.port)
+
+    def test_url_rejects_paths_outside_the_rule(self):
+        cases = (self.write('other.html'), os.path.join(self.tmp, 'sub', 'deadhd-page.html'))
+        for path in cases:
+            with self.subTest(path=path):
+                r = self.serve('--url', path)
+                self.assertEqual(r.returncode, 2)
+                self.assertFalse(r.stdout.strip())
+
+    def test_daemon_on_a_busy_port_exits_zero(self):
+        self.assertEqual(self.serve('--ensure').returncode, 0)
+        r = self.serve('--daemon')
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(r.stdout, '')
 
 
 class OpenScriptTest(unittest.TestCase):
@@ -1560,16 +1989,32 @@ class OpenScriptTest(unittest.TestCase):
             json.dump({'open': value}, f)
         return self.config
 
-    def run_open(self, path, worktree_id=None, path_prefix=None, mode=None, config=None):
+    def serve_env(self):
+        root = os.path.join(self.tmp, 'serve')
+        os.makedirs(root, exist_ok=True)
+        port = free_port()
+        env = {'DEADHD_SERVE_ROOT': root, 'DEADHD_PORT': str(port)}
+        stop_env = dict(os.environ)
+        stop_env.update(env)
+        self.addCleanup(subprocess.run, [sys.executable, SERVE, '--stop'],
+                        capture_output=True, text=True, env=stop_env)
+        return root, port, env
+
+    def run_open(self, path, worktree_id=None, path_prefix=None, mode=None, config=None,
+                 dry=True, env_extra=None):
         env = dict(os.environ)
-        env['PROGRESS_OPEN_DRY'] = '1'
         env['DEADHD_CONFIG'] = self.config if config is None else config
         env.pop('ORCA_WORKTREE_ID', None)
         env.pop('XDG_CONFIG_HOME', None)
+        env.pop('PROGRESS_OPEN_DRY', None)
+        if dry:
+            env['PROGRESS_OPEN_DRY'] = '1'
         if worktree_id is not None:
             env['ORCA_WORKTREE_ID'] = worktree_id
         if path_prefix is not None:
             env['PATH'] = path_prefix + os.pathsep + env.get('PATH', '')
+        if env_extra:
+            env.update(env_extra)
         cmd = ['bash', os.path.join(HERE, 'open.sh')]
         if mode is not None:
             cmd += ['--mode', mode]
@@ -1647,6 +2092,42 @@ class OpenScriptTest(unittest.TestCase):
         r = self.run_open(page, mode='nope')
         self.assertEqual(r.returncode, 2)
         self.assertTrue(r.stderr.strip())
+
+    def test_orca_opens_the_page_over_http(self):
+        root, port, env = self.serve_env()
+        page = os.path.join(root, 'deadhd-x.html')
+        with open(page, 'w', encoding='utf-8') as f:
+            f.write('<!doctype html><html></html>')
+        r = self.run_open(page, mode='orca', dry=False, path_prefix=self.fake_orca_dir(),
+                          env_extra=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.splitlines(), [
+            'opened: orca-tab ' + page,
+            'url: http://127.0.0.1:%d/deadhd-x.html' % port,
+        ])
+
+    def test_desktop_prints_the_http_url(self):
+        root, port, env = self.serve_env()
+        page = os.path.join(root, 'deadhd-x.html')
+        with open(page, 'w', encoding='utf-8') as f:
+            f.write('<!doctype html><html></html>')
+        r = self.run_open(page, mode='desktop', dry=False, env_extra=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.splitlines(), [
+            'opened: desktop ' + page,
+            'url: http://127.0.0.1:%d/deadhd-x.html' % port,
+        ])
+
+    def test_page_outside_the_serving_rule_keeps_the_file_url(self):
+        page = self.write_file('page.html')
+        _, _, env = self.serve_env()
+        r = self.run_open(page, mode='desktop', dry=False, env_extra=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('skip: serve', r.stderr)
+        self.assertEqual(r.stdout.splitlines(), [
+            'opened: desktop ' + page,
+            'url: file://' + page,
+        ])
 
 
 class ConfigScriptTest(unittest.TestCase):
@@ -2002,6 +2483,324 @@ class StateScriptTest(unittest.TestCase):
         self.assertEqual(sorted(os.listdir(self.state_dir)), ['s1.json'])
 
 
+class HubTest(unittest.TestCase):
+    """hub.py 가 상태 파일을 버킷으로 나눠 허브 페이지를 쓰는지 확인한다."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='progress-hub-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.state_dir = os.path.join(self.tmp, 'state')
+        os.makedirs(self.state_dir)
+        self.hub = os.path.join(self.tmp, 'hub.html')
+
+    def write_state(self, session, status, since, updated, lang='ko', out=None,
+                    hooked=True, all_done=False):
+        state = {
+            'sessionId': session,
+            'out': out or os.path.join(self.tmp, session + '.html'),
+            'status': status,
+            'since': since,
+            'updatedAt': updated,
+            'message': None,
+            'lastTool': None,
+            'backgroundTasks': [],
+            'compactions': {'count': 0, 'lastAt': None},
+            'cwd': '/tmp',
+            'summary': {
+                'title': session + ' 제목', 'key': session.upper(), 'keyHref': None, 'lang': lang,
+                'updated': None, 'counts': {'done': 1, 'now': 0, 'side': 0, 'left': 1, 'blocked': 0},
+                'total': 2, 'states': ['done', 'left'], 'nowLabel': None,
+                'eta': None, 'etaCalibrated': None, 'renderedAt': updated,
+                'hooked': hooked, 'allDone': all_done,
+            },
+        }
+        with open(os.path.join(self.state_dir, session + '.json'), 'w', encoding='utf-8') as f:
+            json.dump(state, f, ensure_ascii=False)
+
+    def write_raw(self, session, text):
+        with open(os.path.join(self.state_dir, session + '.json'), 'w', encoding='utf-8') as f:
+            f.write(text)
+
+    def run_hub(self, **kwargs):
+        extra = {'DEADHD_NOW': FIXED_NOW}
+        extra.update(kwargs.pop('env_extra', {}) or {})
+        return run_hub(self.state_dir, self.hub, env_extra=extra, **kwargs)
+
+    def page(self, **kwargs):
+        r = self.run_hub(**kwargs)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), 'rendered: ' + self.hub)
+        with open(self.hub, encoding='utf-8') as f:
+            return f.read()
+
+    def sessions(self, **kwargs):
+        return parse_block(hub_data_block(self.page(**kwargs)))['sessions']
+
+    def test_sessions_are_bucketed_and_sorted(self):
+        self.write_state('a', 'idle', '2026-10-03T09:50:00+09:00', FIXED_NOW)
+        self.write_state('b', 'waiting_permission', '2026-10-03T09:40:00+09:00', FIXED_NOW)
+        self.write_state('c', 'working', '2026-10-03T09:30:00+09:00', FIXED_NOW)
+        self.write_state('d', 'ended', '2026-10-03T09:20:00+09:00', FIXED_NOW)
+        self.write_state('e', 'idle', '2026-10-03T09:10:00+09:00', '2026-10-01T10:00:00+09:00')
+        self.write_raw('f', '{}')
+        self.write_raw('g', '{not json')
+
+        sessions = self.sessions()
+        self.assertEqual([s['sessionId'] for s in sessions], ['b', 'a', 'c', 'd', 'e'])
+        self.assertEqual([s['bucket'] for s in sessions], ['wait', 'idle', 'working', 'ended', 'stale'])
+        self.assertEqual(sessions[0]['href'], 'file://' + os.path.join(self.tmp, 'b.html'))
+
+    def test_servable_page_becomes_an_http_href(self):
+        root = os.path.join(self.tmp, 'serve')
+        os.makedirs(root)
+        port = free_port()
+        self.write_state('a', 'idle', '2026-10-03T09:50:00+09:00', FIXED_NOW,
+                         out=os.path.join(root, 'deadhd-a.html'))
+        sessions = self.sessions(env_extra={'DEADHD_SERVE_ROOT': root, 'DEADHD_PORT': str(port)})
+        self.assertEqual(sessions[0]['href'], 'http://127.0.0.1:%d/deadhd-a.html' % port)
+
+    def test_page_outside_the_serve_root_keeps_the_file_url(self):
+        out = os.path.join(self.tmp, 'deadhd-a.html')
+        self.write_state('a', 'idle', '2026-10-03T09:50:00+09:00', FIXED_NOW, out=out)
+        self.assertEqual(self.sessions(env_extra={'DEADHD_PORT': str(free_port())})[0]['href'],
+                         'file://' + out)
+
+    def test_recently_moved_tool_is_stalled(self):
+        self.write_state('a', 'working', '2026-10-03T09:00:00+09:00', FIXED_NOW)
+        path = os.path.join(self.state_dir, 'a.json')
+        with open(path, encoding='utf-8') as f:
+            state = json.load(f)
+        state['lastTool'] = {'name': 'Bash', 'at': '2026-10-03T09:49:00+09:00', 'durationMs': None}
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(state, f, ensure_ascii=False)
+        self.assertEqual([s['bucket'] for s in self.sessions()], ['stall'])
+
+    def test_missing_state_dir_writes_empty_page(self):
+        shutil.rmtree(self.state_dir)
+        html = self.page()
+        self.assertEqual(parse_block(hub_data_block(html))['sessions'], [])
+        self.assertIn('<title>deadhd 허브</title>', html)
+
+    def test_all_english_sessions_switch_page_language(self):
+        self.write_state('a', 'idle', '2026-10-03T09:50:00+09:00', FIXED_NOW, lang='en')
+        self.write_state('b', 'idle', '2026-10-03T09:40:00+09:00', FIXED_NOW, lang='en')
+        html = self.page()
+        self.assertEqual(html_tag(html), '<html lang="en">')
+        self.assertIn('<title>deadhd hub</title>', html)
+
+        self.write_state('b', 'idle', '2026-10-03T09:40:00+09:00', FIXED_NOW)
+        self.assertEqual(html_tag(self.page()), '<html lang="ko">')
+
+    def test_theme_and_font_flags_set_html_attributes(self):
+        self.write_state('a', 'idle', '2026-10-03T09:50:00+09:00', FIXED_NOW)
+        html = self.page(theme='ink', font='do-hyeon')
+        self.assertEqual(html_tag(html), '<html lang="ko" data-theme="ink" data-font="do-hyeon">')
+        self.assertIn(':root[data-theme="ink"]', html)
+
+    def test_output_path_argument_beats_default(self):
+        out = os.path.join(self.tmp, 'other.html')
+        r = run_hub(self.state_dir, self.hub, out=out, env_extra={'DEADHD_NOW': FIXED_NOW})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), 'rendered: ' + out)
+        self.assertTrue(os.path.exists(out))
+        self.assertFalse(os.path.exists(self.hub))
+
+    def test_unhooked_finished_session_buckets_as_done(self):
+        self.write_state('a', 'working', '2026-10-03T09:50:00+09:00', FIXED_NOW,
+                         hooked=False, all_done=True)
+        self.assertEqual([s['bucket'] for s in self.sessions()], ['done'])
+
+    def test_unhooked_unfinished_session_buckets_as_untracked(self):
+        self.write_state('a', 'working', '2026-10-03T09:50:00+09:00', FIXED_NOW, hooked=False)
+        self.assertEqual([s['bucket'] for s in self.sessions()], ['untracked'])
+
+    def test_old_untracked_and_done_sessions_are_stale(self):
+        old = '2026-08-29T10:00:00+09:00'
+        self.write_state('u', 'working', '2026-08-29T09:50:00+09:00', old, hooked=False)
+        self.write_state('d', 'working', '2026-08-29T09:40:00+09:00', old,
+                         hooked=False, all_done=True)
+        self.assertEqual([s['bucket'] for s in self.sessions()], ['stale', 'stale'])
+
+    def test_hooked_finished_session_buckets_as_done_regardless_of_status(self):
+        self.write_state('a', 'working', '2026-10-03T09:50:00+09:00', FIXED_NOW, all_done=True)
+        self.assertEqual([s['bucket'] for s in self.sessions()], ['done'])
+
+    def test_untracked_and_done_sort_before_ended(self):
+        self.write_state('u', 'working', '2026-10-03T09:50:00+09:00', FIXED_NOW, hooked=False)
+        self.write_state('d', 'working', '2026-10-03T09:40:00+09:00', FIXED_NOW,
+                         hooked=False, all_done=True)
+        self.write_state('e', 'ended', '2026-10-03T09:30:00+09:00', FIXED_NOW)
+        self.assertEqual([s['bucket'] for s in self.sessions()], ['untracked', 'done', 'ended'])
+
+    def test_unknown_theme_exits_1(self):
+        r = self.run_hub(theme='nope')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('nope', r.stderr)
+
+
+class HubPageTest(unittest.TestCase):
+    """허브 템플릿이 세션을 타일과 접힌 목록으로 그리는지 확인한다."""
+
+    def setUp(self):
+        if NODE is None:
+            self.skipTest('node 가 없어 템플릿 스크립트를 실행할 수 없다')
+        self.tmp = tempfile.mkdtemp(prefix='progress-hub-dom-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.state_dir = os.path.join(self.tmp, 'state')
+        os.makedirs(self.state_dir)
+        self.hub = os.path.join(self.tmp, 'hub.html')
+
+    def write_state(self, session, status, since, title, lang='ko', tool_at=None,
+                    key_href='https://x.test/SHOP-1', hooked=True, all_done=False):
+        state = {
+            'sessionId': session,
+            'out': os.path.join(self.tmp, session + '.html'),
+            'status': status,
+            'since': since,
+            'updatedAt': FIXED_NOW,
+            'message': 'Bash 권한' if status == 'waiting_permission' else None,
+            'lastTool': {'name': 'Bash', 'at': tool_at, 'durationMs': None} if tool_at else None,
+            'backgroundTasks': [],
+            'compactions': {'count': 0, 'lastAt': None},
+            'cwd': '/tmp',
+            'summary': {
+                'title': title, 'key': 'SHOP-1', 'keyHref': key_href, 'lang': lang,
+                'updated': None, 'counts': {'done': 3, 'now': 1, 'side': 0, 'left': 1, 'blocked': 0},
+                'total': 5, 'states': ['done', 'done', 'done', 'now', 'left'], 'nowLabel': '배포 검증',
+                'eta': '2026-10-03T10:30:00+09:00', 'etaCalibrated': '2026-10-03T10:48:00+09:00',
+                'renderedAt': FIXED_NOW, 'hooked': hooked, 'allDone': all_done,
+            },
+        }
+        with open(os.path.join(self.state_dir, session + '.json'), 'w', encoding='utf-8') as f:
+            json.dump(state, f, ensure_ascii=False)
+
+    def dom(self, theme=None, font=None):
+        r = run_hub(self.state_dir, self.hub, theme=theme, font=font,
+                    env_extra={'DEADHD_NOW': FIXED_NOW})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(self.hub, encoding='utf-8') as f:
+            return run_hub_harness(f.read(), fixed_now=FIXED_NOW)['nodes']
+
+    def tiles(self, nodes, grid):
+        return [n for n in iter_nodes(nodes[grid]) if 'tile' in (n.get('cls') or '').split()]
+
+    def texts(self, node, cls):
+        return [n['text'] for n in iter_nodes(node) if cls in (n.get('cls') or '').split()]
+
+    def test_wait_tile_shows_badge_and_eta(self):
+        self.write_state('w', 'waiting_permission', '2026-10-03T09:48:00+09:00', '상담 봇 검색 근거 등급 도입')
+        nodes = self.dom()
+        tile = self.tiles(nodes, 'waitGrid')[0]
+        self.assertEqual(tile['href'], 'file://' + os.path.join(self.tmp, 'w.html'))
+        self.assertEqual(self.texts(tile, 'badge'), ['권한 승인 대기 · 12분째'])
+        self.assertEqual(self.texts(tile, 'tile-count'), ['3/5'])
+        self.assertEqual(self.texts(tile, 'tile-now'), ['지금 · 배포 검증'])
+        self.assertEqual(self.texts(tile, 'raw'), ['10:30'])
+        self.assertEqual(self.texts(tile, 'tile-sub'), ['Bash 권한'])
+        self.assertEqual(self.texts(tile, 'tile-key'), ['SHOP-1'])
+        self.assertEqual([n['cls'] for n in iter_nodes(tile) if 'dot' in (n.get('cls') or '').split()],
+                         ['dot done', 'dot done', 'dot done', 'dot now', 'dot left'])
+
+    def test_tiles_are_ordered_wait_idle_working_and_ended_folds(self):
+        self.write_state('i', 'idle', '2026-10-03T09:50:00+09:00', '입력 대기 세션')
+        self.write_state('w', 'waiting_permission', '2026-10-03T09:40:00+09:00', '기다리는 세션')
+        self.write_state('k', 'working', '2026-10-03T09:30:00+09:00', '작업 중 세션')
+        self.write_state('e', 'ended', '2026-10-03T09:20:00+09:00', '끝난 세션')
+        nodes = self.dom()
+        self.assertEqual(self.texts(nodes['waitGrid'], 'tile-title'),
+                         ['기다리는 세션', '입력 대기 세션'])
+        self.assertEqual(self.texts(nodes['workGrid'], 'tile-title'), ['작업 중 세션'])
+        self.assertEqual(self.texts(nodes['endedList'], 'e-title'), ['끝난 세션'])
+        self.assertNotIn('hidden', nodes['sec-ended'])
+        self.assertNotIn('hidden', nodes['sec-wait'])
+        self.assertEqual(nodes['h1']['text'], '세션 4 · 나를 기다리는 세션 2')
+        self.assertIn('승인 대기 1', nodes['sub']['text'])
+        self.assertIn('입력 대기 1', nodes['sub']['text'])
+        self.assertIn('작업 중 1', nodes['sub']['text'])
+        self.assertIn('종료 1', nodes['sub']['text'])
+
+    def test_done_and_untracked_tiles(self):
+        self.write_state('d', 'working', '2026-10-03T09:50:00+09:00', '완료 세션',
+                         hooked=False, all_done=True)
+        self.write_state('u', 'working', '2026-10-03T09:40:00+09:00', '훅 없는 세션', hooked=False)
+        nodes = self.dom()
+        self.assertEqual(nodes['doneHead']['text'], '완료된 세션')
+        self.assertNotIn('hidden', nodes['sec-done'])
+        self.assertEqual(self.texts(self.tiles(nodes, 'doneGrid')[0], 'badge'), ['완료 · 갱신 10:00'])
+        self.assertEqual(self.texts(self.tiles(nodes, 'workGrid')[0], 'badge'),
+                         ['훅 없음 · 갱신 10:00'])
+        self.assertIn('완료 1', nodes['sub']['text'])
+        self.assertIn('훅 없음 1', nodes['sub']['text'])
+        self.assertEqual(nodes['h1']['text'], '세션 2 · 나를 기다리는 세션 0')
+
+    def test_sections_without_sessions_are_hidden(self):
+        self.write_state('k', 'working', '2026-10-03T09:30:00+09:00', '작업 중 세션')
+        nodes = self.dom()
+        self.assertEqual(nodes['sec-wait']['hidden'], True)
+        self.assertEqual(nodes['sec-done']['hidden'], True)
+        self.assertEqual(nodes['sec-ended']['hidden'], True)
+        self.assertNotIn('hidden', nodes['sec-working'])
+
+    def test_empty_page_shows_the_sentence(self):
+        nodes = self.dom()
+        self.assertIn('아직 세션이 없다', nodes['empty']['text'])
+        self.assertNotIn('hidden', nodes['empty'])
+        self.assertEqual(nodes['h1']['text'], '세션 0 · 나를 기다리는 세션 0')
+
+    def test_english_labels(self):
+        self.write_state('w', 'waiting_permission', '2026-10-03T09:48:00+09:00', 'Waiting session', lang='en')
+        nodes = self.dom()
+        self.assertEqual(nodes['eyebrowText']['text'], 'deadhd hub')
+        self.assertEqual(self.texts(self.tiles(nodes, 'waitGrid')[0], 'badge'),
+                         ['Waiting for permission · for 12m'])
+        self.assertEqual(nodes['waitHead']['text'], 'Waiting for you')
+
+    def test_working_tile_shows_the_last_tool(self):
+        self.write_state('k', 'working', '2026-10-03T09:30:00+09:00', '작업 중 세션',
+                         tool_at='2026-10-03T09:58:00+09:00')
+        nodes = self.dom()
+        tile = self.tiles(nodes, 'workGrid')[0]
+        self.assertEqual(self.texts(tile, 'badge'), ['작업 중 · 2분 전'])
+        self.assertEqual(self.texts(tile, 'tile-sub'), ['Bash'])
+
+    def test_stalled_working_waits_in_the_first_section(self):
+        self.write_state('k', 'working', '2026-10-03T09:00:00+09:00', '멈춘 세션',
+                         tool_at='2026-10-03T09:49:00+09:00')
+        nodes = self.dom()
+        self.assertEqual(self.texts(nodes['waitGrid'], 'badge'), ['신호 없음 · 11분째'])
+        self.assertIn('hidden', nodes['sec-working'])
+
+    def test_ink_theme_marks_the_wait_tile(self):
+        self.write_state('w', 'waiting_permission', '2026-10-03T09:48:00+09:00', '기다리는 세션')
+        nodes = self.dom(theme='ink')
+        self.assertEqual(self.tiles(nodes, 'waitGrid')[0]['cls'], 'tile tile-wait')
+
+    def key_links(self, tile):
+        chip = [k for k in tile.get('kids', ()) if 'tile-key' in (k.get('cls') or '').split()][0]
+        return [k for k in chip.get('kids', ()) if k['t'] == 'A']
+
+    def test_http_key_href_becomes_a_link(self):
+        self.write_state('w', 'waiting_permission', '2026-10-03T09:48:00+09:00', '기다리는 세션')
+        nodes = self.dom()
+        self.assertEqual([l['href'] for l in self.key_links(self.tiles(nodes, 'waitGrid')[0])],
+                         ['https://x.test/SHOP-1'])
+
+    def test_key_href_outside_http_stays_a_plain_chip(self):
+        self.write_state('w', 'waiting_permission', '2026-10-03T09:48:00+09:00', '기다리는 세션',
+                         key_href='javascript:alert(1)')
+        nodes = self.dom()
+        tile = self.tiles(nodes, 'waitGrid')[0]
+        self.assertEqual(self.texts(tile, 'tile-key'), ['SHOP-1'])
+        self.assertEqual(self.key_links(tile), [])
+
+    def test_tile_opens_in_the_same_tab(self):
+        self.write_state('w', 'waiting_permission', '2026-10-03T09:48:00+09:00', '기다리는 세션')
+        nodes = self.dom()
+        tile = self.tiles(nodes, 'waitGrid')[0]
+        self.assertNotIn('target', tile.get('attrs') or {})
+        self.assertNotIn('rel', tile.get('attrs') or {})
+
+
 class SessionIdValidationTest(unittest.TestCase):
     """state.valid_session_id 가 경로를 벗어나는 값을 막는지 확인한다."""
 
@@ -2038,7 +2837,20 @@ class RenderSessionTest(unittest.TestCase):
         with open(self.out, encoding='utf-8') as f:
             return parse_block(data_block(f.read()))
 
+    def seed_state(self, session, **extra):
+        """훅이 이미 돈 세션처럼 상태 파일을 미리 둔다."""
+        os.makedirs(self.state_dir, exist_ok=True)
+        state = {'hooked': True}
+        state.update(extra)
+        with open(os.path.join(self.state_dir, session + '.json'), 'w', encoding='utf-8') as f:
+            json.dump(state, f, ensure_ascii=False)
+
+    def read_state(self, session='abc'):
+        with open(os.path.join(self.state_dir, session + '.json'), encoding='utf-8') as f:
+            return json.load(f)
+
     def test_session_flag_creates_absolute_state(self):
+        self.seed_state('abc')
         self.assertEqual(self.render(session='abc').returncode, 0)
         with open(os.path.join(self.state_dir, 'abc.json'), encoding='utf-8') as f:
             state = json.load(f)
@@ -2055,10 +2867,84 @@ class RenderSessionTest(unittest.TestCase):
         self.assertFalse(os.path.isdir(self.state_dir))
 
     def test_env_var_links_session(self):
+        self.seed_state('env-1')
         self.assertEqual(self.render(env_extra={'CLAUDE_CODE_SESSION_ID': 'env-1'}).returncode, 0)
         with open(os.path.join(self.state_dir, 'env-1.json'), encoding='utf-8') as f:
             self.assertEqual(json.load(f)['sessionId'], 'env-1')
         self.assertEqual(self.payload()['live']['status'], 'working')
+
+    def test_unhooked_render_has_no_live_band(self):
+        self.assertEqual(self.render(session='abc').returncode, 0)
+        self.assertNotIn('live', self.payload())
+        self.assertFalse(self.read_state().get('hooked'))
+
+    def test_hooked_render_keeps_the_live_band(self):
+        self.seed_state('abc', status='working', since=FIXED_NOW)
+        self.assertEqual(self.render(session='abc').returncode, 0)
+        self.assertEqual(self.payload()['live']['status'], 'working')
+        self.assertTrue(self.read_state()['hooked'])
+
+    def test_hook_event_turns_the_live_band_on(self):
+        self.assertEqual(self.render(session='abc').returncode, 0)
+        self.assertNotIn('live', self.payload())
+        r = run_state({'session_id': 'abc', 'hook_event_name': 'UserPromptSubmit', 'prompt': 'hi'},
+                      self.state_dir)
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(self.payload()['live']['status'], 'working')
+        self.assertTrue(self.read_state()['hooked'])
+        self.assertTrue(self.read_state()['summary']['hooked'])
+
+    def test_state_carries_summary_for_the_hub(self):
+        self.assertEqual(self.render(session='abc').returncode, 0)
+        with open(os.path.join(self.state_dir, 'abc.json'), encoding='utf-8') as f:
+            summary = json.load(f)['summary']
+        example = load_example()
+        states = [it['state'] for it in example['items']]
+        self.assertEqual(summary['title'], example['title'])
+        self.assertEqual(summary['key'], example['key'])
+        self.assertEqual(summary['total'], len(example['items']))
+        self.assertEqual(summary['states'], states)
+        self.assertEqual(summary['counts']['done'], states.count('done'))
+        self.assertEqual(summary['nowLabel'], example['items'][states.index('now')]['label'])
+        self.assertEqual(summary['renderedAt'], self.payload()['renderedAt'])
+        self.assertIn('eta', summary)
+        self.assertFalse(summary['hooked'])
+        self.assertFalse(summary['allDone'])
+
+    def test_payload_has_hub_href(self):
+        hub = os.path.join(self.tmp, 'hub.html')
+        self.assertEqual(self.render(env_extra={'DEADHD_HUB': hub}).returncode, 0)
+        self.assertEqual(self.payload()['hubHref'], 'file://' + hub)
+
+    def test_payload_links_a_servable_hub_over_http(self):
+        root = os.path.join(self.tmp, 'serve')
+        os.makedirs(root)
+        hub = os.path.join(root, 'deadhd-hub.html')
+        port = free_port()
+        r = self.render(env_extra={'DEADHD_HUB': hub, 'DEADHD_SERVE_ROOT': root,
+                                   'DEADHD_PORT': str(port)})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.payload()['hubHref'],
+                         'http://127.0.0.1:%d/deadhd-hub.html' % port)
+
+    def test_payload_keeps_the_file_url_outside_the_serving_rule(self):
+        hub = os.path.join(self.tmp, 'x', 'other.html')
+        r = self.render(env_extra={'DEADHD_HUB': hub, 'DEADHD_PORT': str(free_port())})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.payload()['hubHref'], 'file://' + hub)
+
+    def test_render_writes_the_hub(self):
+        hub = os.path.join(self.tmp, 'hub.html')
+        self.assertEqual(self.render(session='abc', env_extra={'DEADHD_HUB': hub}).returncode, 0)
+        with open(hub, encoding='utf-8') as f:
+            data = parse_block(hub_data_block(f.read()))
+        self.assertEqual([s['sessionId'] for s in data['sessions']], ['abc'])
+        self.assertEqual(data['sessions'][0]['summary']['title'], load_example()['title'])
+
+    def test_render_without_session_still_writes_the_hub(self):
+        hub = os.path.join(self.tmp, 'hub.html')
+        self.assertEqual(self.render(env_extra={'DEADHD_HUB': hub}).returncode, 0)
+        self.assertTrue(os.path.exists(hub))
 
     def test_parent_traversal_session_dies(self):
         cases = (
@@ -2207,12 +3093,14 @@ class LiveBandTest(unittest.TestCase):
             json.dump(load_example(), f, ensure_ascii=False)
         self.out = os.path.join(self.tmp, 'out.html')
 
-    def band(self):
+    def harness(self):
         with open(self.out, encoding='utf-8') as f:
-            result = run_linkify_harness(f.read(), fixed_now=FIXED_NOW)
-        return result['nodes']['live']
+            return run_linkify_harness(f.read(), fixed_now=FIXED_NOW)
 
-    def band_with_state(self, state, lang=None):
+    def band(self):
+        return self.harness()['nodes']['status']
+
+    def render_with_state(self, state, lang=None):
         os.makedirs(self.state_dir, exist_ok=True)
         with open(os.path.join(self.state_dir, 's1.json'), 'w', encoding='utf-8') as f:
             json.dump(state, f, ensure_ascii=False)
@@ -2226,17 +3114,22 @@ class LiveBandTest(unittest.TestCase):
             'DEADHD_HISTORY': os.path.join(self.tmp, 'history.jsonl'),
         })
         self.assertEqual(r.returncode, 0, r.stderr)
-        return self.band()
+        return self.harness()
+
+    def band_with_state(self, state, lang=None):
+        return self.render_with_state(state, lang)['nodes']['status']
 
     def texts(self, node, cls):
         return [n['text'] for n in iter_nodes(node) if cls in (n.get('cls') or '').split()]
 
+    def test_unhooked_session_has_no_band(self):
+        result = self.render_with_state({})
+        self.assertNotIn('status', result['nodes'])
+
     def test_working_band(self):
-        self.assertEqual(run_render(self.data, self.out, session='s1',
-                                    env_extra={'DEADHD_STATE_DIR': self.state_dir}).returncode, 0)
-        node = self.band()
-        self.assertIn('live-working', node['cls'])
-        self.assertEqual(self.texts(node, 'live-title'), ['작업 중'])
+        node = self.band_with_state({'hooked': True})
+        self.assertIn('status-working', node['cls'])
+        self.assertEqual(self.texts(node, 'status-title'), ['작업 중'])
 
     def test_permission_band_carries_message(self):
         self.assertEqual(run_render(self.data, self.out, session='s1',
@@ -2245,35 +3138,53 @@ class LiveBandTest(unittest.TestCase):
                        'notification_type': 'permission_prompt', 'message': 'Bash 권한'}, self.state_dir)
         self.assertEqual(r.returncode, 0)
         node = self.band()
-        self.assertIn('live-waiting_permission', node['cls'])
-        self.assertTrue(self.texts(node, 'live-title')[0].startswith('권한 승인 대기 · '))
-        self.assertEqual(self.texts(node, 'live-what'), ['Bash 권한'])
+        self.assertIn('status-waiting_permission', node['cls'])
+        self.assertTrue(self.texts(node, 'status-title')[0].startswith('권한 승인 대기 · '))
+        self.assertEqual(self.texts(node, 'status-what'), ['Bash 권한'])
 
     def test_stalled_working_band(self):
         node = self.band_with_state({
+            'hooked': True,
             'status': 'working',
             'since': '2026-10-03T09:00:00+09:00',
             'lastTool': {'name': 'Bash', 'at': '2026-10-03T09:49:00+09:00', 'durationMs': 1200},
         })
-        self.assertIn('live-stall', node['cls'].split())
-        self.assertEqual(self.texts(node, 'live-title'), ['신호 없음 · 11분째'])
+        self.assertIn('status-stall', node['cls'].split())
+        self.assertEqual(self.texts(node, 'status-title'), ['신호 없음 · 11분째'])
 
     def test_idle_band(self):
-        node = self.band_with_state({'status': 'idle', 'since': '2026-10-03T09:48:00+09:00'})
-        self.assertIn('live-idle', node['cls'].split())
-        self.assertEqual(self.texts(node, 'live-title'), ['입력 대기 · 12분째'])
+        node = self.band_with_state({'hooked': True, 'status': 'idle',
+                                     'since': '2026-10-03T09:48:00+09:00'})
+        self.assertIn('status-idle', node['cls'].split())
+        self.assertEqual(self.texts(node, 'status-title'), ['입력 대기 · 12분째'])
 
     def test_ended_band(self):
-        node = self.band_with_state({'status': 'ended', 'since': '2026-10-03T09:30:00+09:00'})
-        self.assertIn('live-ended', node['cls'].split())
-        self.assertTrue(self.texts(node, 'live-title')[0].startswith('세션 종료 '))
+        node = self.band_with_state({'hooked': True, 'status': 'ended',
+                                     'since': '2026-10-03T09:30:00+09:00'})
+        self.assertIn('status-ended', node['cls'].split())
+        self.assertTrue(self.texts(node, 'status-title')[0].startswith('세션 종료 '))
 
     def test_english_permission_band(self):
         node = self.band_with_state(
-            {'status': 'waiting_permission', 'since': '2026-10-03T09:48:00+09:00', 'message': 'Bash'},
+            {'hooked': True, 'status': 'waiting_permission',
+             'since': '2026-10-03T09:48:00+09:00', 'message': 'Bash'},
             lang='en')
-        self.assertIn('live-waiting_permission', node['cls'].split())
-        self.assertEqual(self.texts(node, 'live-title'), ['Waiting for permission · for 12m'])
+        self.assertIn('status-waiting_permission', node['cls'].split())
+        self.assertEqual(self.texts(node, 'status-title'), ['Waiting for permission · for 12m'])
+
+    def test_status_band_and_live_lane_band_are_different_elements(self):
+        # 띠가 .live 클래스를 쓰면 흐름도의 .lane-band.live 밴드에 규칙이 번져 레인 이름표가
+        # 첫 노드와 겹친다. 두 요소가 클래스도 이름도 따로인지 확인한다.
+        result = self.render_with_state({'hooked': True, 'status': 'waiting_permission',
+                                         'since': '2026-10-03T09:48:00+09:00', 'message': 'Bash'})
+        bands = [k for k in result['nodes']['canvas']['kids']
+                 if 'lane-band' in (k.get('cls') or '').split()]
+        self.assertTrue(bands, '레인 밴드를 찾지 못했다')
+        self.assertIn('live', bands[0]['cls'].split())
+        status = result['nodes']['status']
+        self.assertIn('status-waiting_permission', status['cls'].split())
+        self.assertNotIn(status, bands)
+        self.assertNotIn('status-waiting_permission', bands[0]['cls'].split())
 
 
 class EtaCalibrationDisplayTest(unittest.TestCase):
@@ -2358,9 +3269,45 @@ class TemplateLiveStaticTest(unittest.TestCase):
     def test_template_has_live_slot_and_styles(self):
         with open(TEMPLATE, encoding='utf-8') as f:
             html = f.read()
-        self.assertIn('<section class="live" id="live" hidden aria-live="polite"></section>', html)
-        self.assertIn('.live-waiting_permission', html)
+        self.assertIn('<section class="status" id="status" hidden aria-live="polite"></section>', html)
+        self.assertIn('.status-waiting_permission', html)
         self.assertIn('.cal-note', html)
+
+    def test_template_css_has_no_live_class_selector(self):
+        # .live 로 시작하는 선택자가 남으면 흐름도의 .lane-band.live 밴드가 띠 스타일을 받는다.
+        with open(TEMPLATE, encoding='utf-8') as f:
+            html = f.read()
+        css = '\n'.join(re.findall(r'<style>(.*?)</style>', html, re.S))
+        self.assertNotEqual(css, '', '<style> 블록을 찾지 못했다')
+        m = re.search(r'(^|[\s,}])\.live\b', css)
+        self.assertIsNone(m, '입력 대기 띠가 .live 클래스를 쓴다: %r' % (m.group(0) if m else ''))
+
+
+class HubButtonTest(unittest.TestCase):
+    """세션 페이지의 허브 버튼이 payload 의 hubHref 로 열리는지 확인한다."""
+
+    def setUp(self):
+        if NODE is None:
+            self.skipTest('node 가 없어 템플릿 스크립트를 실행할 수 없다')
+        self.tmp = tempfile.mkdtemp(prefix='progress-hub-btn-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def test_hub_button_points_at_the_hub_page(self):
+        out = os.path.join(self.tmp, 'out.html')
+        r = run_render(EXAMPLE, out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding='utf-8') as f:
+            nodes = run_linkify_harness(f.read())['nodes']
+        self.assertEqual(nodes['hubBtn']['href'], pathlib.Path(TEST_HUB).as_uri())
+        self.assertEqual(nodes['hubBtn']['text'], '허브 ↗')
+
+    def test_template_has_hub_button_slot(self):
+        with open(TEMPLATE, encoding='utf-8') as f:
+            html = f.read()
+        tag = re.search(r'<a class="hub-btn" id="hubBtn"[^>]*>', html)
+        self.assertIsNotNone(tag)
+        self.assertNotIn('target=', tag.group(0))
+        self.assertNotIn('rel=', tag.group(0))
 
 
 class HooksJsonTest(unittest.TestCase):

@@ -67,6 +67,20 @@ abs=$(cd "$(dirname "$file")" && pwd)/$(basename "$file")
 url=$(python3 -c 'import sys, urllib.parse; print("file://" + urllib.parse.quote(sys.argv[1]))' "$abs")
 dry=${PROGRESS_OPEN_DRY:-}
 
+# Orca 내장 브라우저는 페이지 안 file:// 이동을 거부한다. 페이지를 http 로 주고 링크를 잇는다.
+if [ -z "$dry" ]; then
+  if python3 "$script_dir/serve.py" --ensure >/dev/null 2>&1; then
+    served=$(python3 "$script_dir/serve.py" --url "$abs" 2>/dev/null) || served=
+    if [ -n "$served" ]; then
+      url=$served
+    else
+      echo "skip: serve 서빙 규칙 밖 경로 $abs" >&2
+    fi
+  else
+    echo "skip: serve 서버를 띄우지 못했다" >&2
+  fi
+fi
+
 open_orca_tab() {
   if [ -n "$dry" ]; then
     echo "dry: orca tab create --url $url --json"
@@ -75,6 +89,7 @@ open_orca_tab() {
   fi
   if orca tab create --url "$url" --json >/dev/null 2>&1; then
     echo "opened: orca-tab $abs"
+    echo "url: $url"
     return 0
   fi
   echo "skip: orca-tab orca tab create 실패" >&2
@@ -88,7 +103,7 @@ open_browser() {
       echo "opened: browser $abs"
       return 0
     fi
-    if open "$abs"; then
+    if open "$url"; then
       echo "opened: browser $abs"
       return 0
     fi
@@ -101,7 +116,7 @@ open_browser() {
       echo "opened: browser $abs"
       return 0
     fi
-    if xdg-open "$abs"; then
+    if xdg-open "$url"; then
       echo "opened: browser $abs"
       return 0
     fi
@@ -114,6 +129,9 @@ open_browser() {
 
 if [ "$mode" = "desktop" ]; then
   echo "opened: desktop $abs"
+  if [ -z "$dry" ]; then
+    echo "url: $url"
+  fi
   exit 0
 fi
 

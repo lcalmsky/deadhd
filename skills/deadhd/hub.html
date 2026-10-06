@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="15">
+<title>__HUB_TITLE__</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Do+Hyeon&family=Gaegu:wght@700&family=Gowun+Batang:wght@400;700&family=Gowun+Dodum&family=Noto+Sans+KR:wght@400;700;900&family=Noto+Serif+KR:wght@400;700;900&family=IBM+Plex+Sans+KR:wght@400;600;700&family=Gothic+A1:wght@400;700;900&family=Nanum+Gothic:wght@400;700;800&family=Nanum+Myeongjo:wght@400;700;800&family=Hahmlet:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.css" rel="stylesheet">
+<style>
+@property --angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+
+__THEME_CSS__
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--f-body), -apple-system, "Apple SD Gothic Neo", sans-serif;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+.mono { font-family: var(--f-mono); font-size: .92em; }
+
+/* ---------- 배경 ---------- */
+.aurora { position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: 0; transition: opacity .8s; }
+.aurora i {
+  position: absolute; width: 60vmax; height: 60vmax; border-radius: 50%;
+  filter: blur(80px);
+}
+.aurora i:nth-child(1) { background: var(--glow-a); top: -25vmax; left: -15vmax; }
+.aurora i:nth-child(2) { background: var(--glow-b); top: 10vmax; right: -25vmax; }
+.aurora i:nth-child(3) { background: var(--glow-c); bottom: -30vmax; left: 20vmax; }
+[data-fx="max"] .aurora { opacity: 1; }
+@keyframes blink { 50% { opacity: .35; } }
+
+/* ---------- 머리말 ---------- */
+main { position: relative; z-index: 1; max-width: 1040px; margin: 0 auto; padding: 40px 16px 80px; }
+.eyebrow {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 500; color: var(--now);
+  padding: 4px 12px 4px 10px; border-radius: 999px;
+  background: color-mix(in srgb, var(--now) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--now) 30%, transparent);
+}
+.eyebrow .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--now); }
+h1 {
+  font-family: var(--f-head); font-weight: var(--head-w); letter-spacing: var(--head-ls);
+  font-size: clamp(24px, 3.6vw, 34px); line-height: 1.3; margin: 16px 0 8px;
+}
+.hub-sub { font-family: var(--f-mono); font-size: 12.5px; color: var(--ink-3); }
+
+/* ---------- 절 ---------- */
+.hub-h {
+  font-family: var(--f-head); font-weight: var(--head-w); letter-spacing: var(--head-ls);
+  font-size: 17px; margin: 30px 0 12px; color: var(--ink-2);
+}
+.grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+@media (min-width: 900px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ---------- 타일 ---------- */
+.tile {
+  display: block; padding: 14px 16px; border-radius: 16px;
+  background: var(--card); border: 1px solid var(--card-line);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  color: inherit; text-decoration: none;
+  transition: border-color .25s, box-shadow .25s;
+}
+.tile-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; }
+.tile-upd { margin-left: auto; color: var(--ink-3); white-space: nowrap; }
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 10px 2px 8px; border-radius: 999px; font-weight: 600;
+  color: var(--ink-3); background: color-mix(in srgb, var(--ink-3) 14%, transparent);
+}
+.badge i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: blink 1.6s ease-in-out infinite; }
+.tile-title {
+  font-family: var(--f-head); font-weight: var(--head-w); letter-spacing: var(--head-ls);
+  font-size: 17px; line-height: 1.35; margin: 8px 0 0;
+}
+.tile-key {
+  display: inline-block; margin-top: 4px; padding: 1px 6px; border-radius: 6px; border: 1px solid var(--card-line);
+  font-size: 11.5px; color: var(--ink-3); white-space: nowrap;
+}
+.tile-key a { color: inherit; text-decoration: none; }
+.strip { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 10px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
+.dot.done { background: var(--done); }
+.dot.now { background: var(--now); box-shadow: 0 0 0 3px color-mix(in srgb, var(--now) 25%, transparent); }
+.dot.side { border: 1.5px solid var(--side); background: linear-gradient(90deg, var(--side) 50%, transparent 50%); }
+.dot.left { border: 1.5px dashed var(--left); }
+.dot.blocked { background: var(--blocked); }
+.tile-main {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px;
+  margin-top: 10px; font-size: 12.5px; color: var(--ink-3);
+}
+.tile-count { font-family: var(--f-mono); font-size: 26px; font-weight: 600; color: var(--ink); letter-spacing: -.02em; }
+.tile-now { color: var(--ink-2); }
+.tile-eta { white-space: nowrap; }
+.tile-eta b { font-family: var(--f-mono); color: var(--ink); font-weight: 600; }
+.tile-eta .raw { opacity: .6; margin-right: 5px; font-weight: 400; }
+.tile-sub { margin-top: 6px; font-size: 11.5px; color: var(--ink-3); }
+
+.tile-wait { border-color: color-mix(in srgb, var(--now) 45%, transparent); box-shadow: 0 0 40px -8px color-mix(in srgb, var(--now) 50%, transparent); }
+.tile-wait .badge { color: var(--now); background: color-mix(in srgb, var(--now) 14%, transparent); }
+.tile-idle { border-color: color-mix(in srgb, var(--side) 45%, transparent); }
+.tile-idle .badge { color: var(--side); background: color-mix(in srgb, var(--side) 14%, transparent); }
+.tile-stall { border-color: color-mix(in srgb, var(--blocked) 45%, transparent); }
+.tile-stall .badge { color: var(--blocked); background: color-mix(in srgb, var(--blocked) 14%, transparent); }
+.tile-stall .badge i { animation: none; }
+.tile-working { border-color: color-mix(in srgb, var(--done) 35%, transparent); }
+.tile-working .badge { color: var(--done); background: color-mix(in srgb, var(--done) 14%, transparent); }
+.tile-done .badge { color: var(--ink-3); background: color-mix(in srgb, var(--ink-3) 14%, transparent); }
+.tile-untracked { border-color: var(--card-line); }
+.tile-untracked .badge { color: var(--ink-3); background: color-mix(in srgb, var(--ink-3) 14%, transparent); }
+.tile-done .badge i, .tile-untracked .badge i { animation: none; }
+.tile-ended, .tile-stale { opacity: .6; }
+.tile-ended .badge i, .tile-stale .badge i { animation: none; }
+[data-theme="ink"] .dot.blocked, [data-theme="ink"] .dot.left {
+  background: repeating-linear-gradient(45deg, var(--ink) 0 2px, transparent 2px 4px); border: 1px solid var(--ink);
+}
+[data-theme="ink"] .dot.now { box-shadow: none; }
+[data-theme="ink"] .tile-wait {
+  background-image: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--ink) 7%, transparent) 0 6px, transparent 6px 12px);
+  box-shadow: none; border-color: var(--ink);
+}
+[data-theme="ink"] .tile-wait .tile-main {
+  display: inline-flex; padding: 4px 10px; margin-left: -10px; border-radius: 8px; background: var(--bg);
+}
+
+/* ---------- 종료·지난 세션 ---------- */
+details { margin-top: 30px; }
+details summary {
+  font-family: var(--f-head); font-weight: var(--head-w); letter-spacing: var(--head-ls);
+  font-size: 17px; color: var(--ink-2); cursor: pointer;
+}
+.ended-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 2px; }
+.ended-list li { display: flex; gap: 10px; align-items: baseline; padding: 6px 2px; border-top: 1px solid var(--card-line); font-size: 12.5px; color: var(--ink-3); }
+.ended-list .e-title { color: var(--ink-2); }
+.ended-list .e-key { font-family: var(--f-mono); font-size: 11px; }
+.ended-list .e-upd { margin-left: auto; font-family: var(--f-mono); font-size: 11px; white-space: nowrap; }
+#empty { margin-top: 40px; color: var(--ink-3); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body data-fx="max">
+<div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+
+<main>
+  <span class="eyebrow"><span class="dot"></span><span id="eyebrowText"></span></span>
+  <h1 id="h1"></h1>
+  <div class="hub-sub" id="sub"></div>
+
+  <section id="sec-wait" hidden>
+    <h2 class="hub-h" id="waitHead"></h2>
+    <div class="grid" id="waitGrid"></div>
+  </section>
+  <section id="sec-working" hidden>
+    <h2 class="hub-h" id="workHead"></h2>
+    <div class="grid" id="workGrid"></div>
+  </section>
+  <section id="sec-done" hidden>
+    <h2 class="hub-h" id="doneHead"></h2>
+    <div class="grid" id="doneGrid"></div>
+  </section>
+  <details id="sec-ended" hidden>
+    <summary id="endedHead"></summary>
+    <ul class="ended-list" id="endedList"></ul>
+  </details>
+  <p id="empty" hidden></p>
+</main>
+
+<script id="hub-data" type="application/json">__HUB_DATA__</script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const el = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = String(text);
+    return n;
+  };
+
+  // 템플릿이 스스로 그리는 고정 문구만 담는다. ko/en 은 같은 키를 가진다.
+  const I18N = {
+    ko: {
+      eyebrow: 'deadhd 허브',
+      count: (n, m) => '세션 ' + n + ' · 나를 기다리는 세션 ' + m,
+      updated: t => '마지막 갱신 ' + t,
+      refreshed: '15초마다 새로 고침',
+      secWaiting: '나를 기다리는 세션',
+      secWorking: '작업 중',
+      secDone: '완료된 세션',
+      secEnded: '종료·지난 세션',
+      bucketWait: '승인 대기',
+      bucketStall: '신호 없음',
+      bucketIdle: '입력 대기',
+      bucketWorking: '작업 중',
+      bucketUntracked: '훅 없음',
+      bucketDone: '완료',
+      bucketEnded: '종료',
+      bucketStale: '지난',
+      empty: '아직 세션이 없다. 작업 중인 세션에서 /deadhd 를 실행하면 여기 모인다.',
+      countDone: '완료',
+      eta: '완료 예상 ',
+      now: l => '지금 · ' + l,
+      liveWait: d => '권한 승인 대기 · ' + d,
+      liveIdle: d => '입력 대기 · ' + d,
+      liveWorking: '작업 중',
+      liveStall: d => '신호 없음 · ' + d,
+      ended: t => '종료 ' + t,
+      stale: t => '지난 세션 · ' + t,
+      doneBadge: t => '완료 · 갱신 ' + t,
+      untrackedBadge: t => '훅 없음 · 갱신 ' + t,
+      liveBackground: n => '백그라운드 작업 ' + n,
+      tomorrow: '내일 ',
+      date: (m, d, hm) => m + '.' + d + ' ' + hm,
+      min: m => m + '분',
+      hour: h => h + '시간',
+      hourMin: (h, r) => h + '시간 ' + r + '분',
+      day: d => d + '일',
+      dayHour: (d, r) => d + '일 ' + r + '시간',
+      forDur: d => d + '째',
+      ago: d => d + ' 전',
+      sec: s => s + '초'
+    },
+    en: {
+      eyebrow: 'deadhd hub',
+      count: (n, m) => n + (n === 1 ? ' session' : ' sessions') + ' · ' + m + ' waiting for you',
+      updated: t => 'Updated ' + t,
+      refreshed: 'refreshes every 15s',
+      secWaiting: 'Waiting for you',
+      secWorking: 'Working',
+      secDone: 'Completed',
+      secEnded: 'Ended and past',
+      bucketWait: 'permission',
+      bucketStall: 'no signal',
+      bucketIdle: 'input',
+      bucketWorking: 'working',
+      bucketUntracked: 'no hooks',
+      bucketDone: 'done',
+      bucketEnded: 'ended',
+      bucketStale: 'past',
+      empty: 'No sessions yet. Run /deadhd in a working session and it shows up here.',
+      countDone: 'done',
+      eta: 'ETA ',
+      now: l => 'Now · ' + l,
+      liveWait: d => 'Waiting for permission · ' + d,
+      liveIdle: d => 'Waiting for your input · ' + d,
+      liveWorking: 'Working',
+      liveStall: d => 'No signal · ' + d,
+      ended: t => 'Ended ' + t,
+      stale: t => 'Past session · ' + t,
+      doneBadge: t => 'Done · updated ' + t,
+      untrackedBadge: t => 'No hooks · updated ' + t,
+      liveBackground: n => n + ' background task' + (n === 1 ? '' : 's'),
+      tomorrow: 'Tomorrow ',
+      date: (m, d, hm) => m + '/' + d + ' ' + hm,
+      min: m => m + 'm',
+      hour: h => h + 'h',
+      hourMin: (h, r) => h + 'h ' + r + 'm',
+      day: d => d + 'd',
+      dayHour: (d, r) => d + 'd ' + r + 'h',
+      forDur: d => 'for ' + d,
+      ago: d => d + ' ago',
+      sec: s => s + 's'
+    }
+  };
+
+  const toDate = v => (v instanceof Date ? v : new Date(v));
+  const pad2 = n => String(n).padStart(2, '0');
+  const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+
+  let data;
+  try {
+    data = JSON.parse($('hub-data').textContent.replace(/<\\!/g, '<!'));
+  } catch (err) {
+    console.error('hub: 데이터를 읽지 못했다', err);
+    return;
+  }
+  const L = I18N[data.lang] || I18N.ko;
+  const sessions = Array.isArray(data.sessions) ? data.sessions : [];
+  const viewNow = new Date();
+  const renderedAt = data.renderedAt ? toDate(data.renderedAt) : null;
+
+  // 표기는 보는 시점의 브라우저 로컬 날짜를 기준으로 정한다 (렌더 시점이 아니다).
+  function fmtClock(target, now) {
+    const t = toDate(target), v = toDate(now);
+    const hm = pad2(t.getHours()) + ':' + pad2(t.getMinutes());
+    if (sameDay(t, v)) return hm;
+    if (sameDay(t, new Date(v.getFullYear(), v.getMonth(), v.getDate() + 1))) return L.tomorrow + hm;
+    return L.date(t.getMonth() + 1, pad2(t.getDate()), hm);
+  }
+
+  function fmtDur(minutes) {
+    const m = Math.round(Number(minutes) || 0);
+    if (m < 60) return L.min(m);
+    if (m < 1440) {
+      const h = Math.floor(m / 60), rest = m % 60;
+      return rest ? L.hourMin(h, rest) : L.hour(h);
+    }
+    const h = Math.round(m / 60), d = Math.floor(h / 24), rest = h % 24;
+    return rest ? L.dayHour(d, rest) : L.day(d);
+  }
+
+  const relDur = v => {
+    const s = Math.max(0, Math.round((viewNow.getTime() - toDate(v).getTime()) / 1000));
+    return s < 60 ? L.sec(s) : fmtDur(s / 60);
+  };
+
+  const groups = { wait: [], stall: [], idle: [], working: [], untracked: [], done: [], ended: [], stale: [] };
+  sessions.forEach(s => { if (groups[s.bucket]) groups[s.bucket].push(s); });
+  const waiting = groups.wait.concat(groups.stall, groups.idle);
+  const working = groups.working.concat(groups.untracked);
+  const ended = groups.ended.concat(groups.stale);
+
+  $('eyebrowText').textContent = L.eyebrow;
+  $('h1').textContent = L.count(sessions.length, waiting.length);
+
+  const parts = [];
+  if (renderedAt) parts.push(L.updated(fmtClock(renderedAt, viewNow)));
+  parts.push(L.refreshed);
+  [['wait', L.bucketWait], ['stall', L.bucketStall], ['idle', L.bucketIdle],
+   ['working', L.bucketWorking], ['untracked', L.bucketUntracked], ['done', L.bucketDone],
+   ['ended', L.bucketEnded], ['stale', L.bucketStale]].forEach(([k, label]) => {
+    if (groups[k].length) parts.push(label + ' ' + groups[k].length);
+  });
+  $('sub').textContent = parts.join(' · ');
+
+  function badgeEl(session) {
+    const badge = el('span', 'badge');
+    badge.appendChild(el('i'));
+    const tool = session.lastTool || {};
+    const sum = session.summary || {};
+    let text = L.liveWorking;
+    if (session.bucket === 'wait') text = L.liveWait(L.forDur(relDur(session.since)));
+    else if (session.bucket === 'stall') text = L.liveStall(L.forDur(relDur(tool.at)));
+    else if (session.bucket === 'idle') text = L.liveIdle(L.forDur(relDur(session.since)));
+    else if (session.bucket === 'done') text = L.doneBadge(fmtClock(sum.renderedAt, viewNow));
+    else if (session.bucket === 'untracked') text = L.untrackedBadge(fmtClock(sum.renderedAt, viewNow));
+    else if (session.bucket === 'ended') text = L.ended(fmtClock(session.since, viewNow));
+    else if (session.bucket === 'stale') text = L.stale(fmtClock(session.updatedAt, viewNow));
+    else if (tool.at) text = L.liveWorking + ' · ' + L.ago(relDur(tool.at));
+    badge.appendChild(document.createTextNode(text));
+    return badge;
+  }
+
+  function tile(session) {
+    const sum = session.summary || {};
+    const a = el('a', 'tile tile-' + session.bucket);
+    if (session.href) a.href = session.href;
+
+    const top = el('div', 'tile-top');
+    top.appendChild(badgeEl(session));
+    if (session.updatedAt) {
+      top.appendChild(el('span', 'tile-upd mono', L.updated(fmtClock(toDate(session.updatedAt), viewNow))));
+    }
+    a.appendChild(top);
+
+    a.appendChild(el('h2', 'tile-title', sum.title == null ? '' : String(sum.title)));
+    if (sum.key) {
+      const chip = el('span', 'tile-key mono');
+      // 상태 파일의 keyHref 는 손으로 넣은 값일 수 있다. http(s) 만 링크로 만든다.
+      if (typeof sum.keyHref === 'string' && /^https?:\/\//i.test(sum.keyHref)) {
+        const link = el('a', null, sum.key);
+        link.href = sum.keyHref;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.addEventListener('click', e => e.stopPropagation());
+        chip.appendChild(link);
+      } else {
+        chip.textContent = sum.key;
+      }
+      a.appendChild(chip);
+    }
+
+    const states = Array.isArray(sum.states) ? sum.states : [];
+    if (states.length) {
+      const strip = el('div', 'strip');
+      states.forEach(st => strip.appendChild(el('i', 'dot ' + st)));
+      a.appendChild(strip);
+    }
+
+    const counts = sum.counts || {};
+    const main = el('div', 'tile-main');
+    main.appendChild(el('b', 'tile-count', (counts.done || 0) + '/' + (sum.total || 0)));
+    main.appendChild(el('span', null, L.countDone));
+    if (sum.nowLabel) main.appendChild(el('span', 'tile-now', L.now(sum.nowLabel)));
+    const etaAt = sum.etaCalibrated || sum.eta;
+    if (etaAt) {
+      const wrap = el('span', 'tile-eta');
+      wrap.appendChild(document.createTextNode(L.eta));
+      if (sum.etaCalibrated && sum.eta) wrap.appendChild(el('s', 'raw', fmtClock(toDate(sum.eta), viewNow)));
+      wrap.appendChild(el('b', null, fmtClock(toDate(etaAt), viewNow)));
+      main.appendChild(wrap);
+    }
+    a.appendChild(main);
+
+    const line = [];
+    if (session.status === 'waiting_permission' && session.message) line.push(session.message);
+    if (session.status === 'working' && session.lastTool && session.lastTool.name) line.push(session.lastTool.name);
+    const tasks = Array.isArray(session.backgroundTasks) ? session.backgroundTasks : [];
+    if (tasks.length) line.push(L.liveBackground(tasks.length));
+    if (line.length) a.appendChild(el('div', 'tile-sub mono', line.join(' · ')));
+    return a;
+  }
+
+  function endedRow(session) {
+    const sum = session.summary || {};
+    const li = el('li');
+    li.appendChild(el('span', 'e-title', sum.title == null ? '' : String(sum.title)));
+    if (sum.key) li.appendChild(el('span', 'e-key mono', sum.key));
+    if (session.updatedAt) li.appendChild(el('span', 'e-upd', fmtClock(toDate(session.updatedAt), viewNow)));
+    return li;
+  }
+
+  $('waitHead').textContent = L.secWaiting;
+  $('workHead').textContent = L.secWorking;
+  $('doneHead').textContent = L.secDone;
+  $('endedHead').textContent = L.secEnded + ' ' + ended.length;
+  waiting.forEach(s => $('waitGrid').appendChild(tile(s)));
+  working.forEach(s => $('workGrid').appendChild(tile(s)));
+  groups.done.forEach(s => $('doneGrid').appendChild(tile(s)));
+  ended.forEach(s => $('endedList').appendChild(endedRow(s)));
+  $('sec-wait').hidden = !waiting.length;
+  $('sec-working').hidden = !working.length;
+  $('sec-done').hidden = !groups.done.length;
+  $('sec-ended').hidden = !ended.length;
+  $('empty').hidden = sessions.length > 0;
+  if (!sessions.length) $('empty').textContent = L.empty;
+})();
+</script>
+</body>
+</html>
