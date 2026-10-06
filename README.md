@@ -101,13 +101,14 @@ cp -r deadhd/skills/deadhd ~/.claude/skills/
 | `/deadhd setup` | 기본 열기 위치를 다시 고릅니다 |
 | `/deadhd --open <모드>` | 이번 실행만 다른 위치로 엽니다 |
 | `/deadhd --theme <테마>` | 이번 실행만 다른 테마로 렌더합니다 |
+| `/deadhd --font <프리셋>` | 이번 실행만 다른 제목 글꼴로 렌더합니다 |
 | `/deadhd off` | 페이지 갱신을 중지합니다 |
 
 명령 대신 "진행 상황 띄워줘", "체크리스트로 보여줘" 처럼 요청해도 됩니다.
 
 ## 설정
 
-처음 실행할 때 열기 위치와 테마를 한 번 묻습니다. 고른 값은 다음 실행부터 그대로 쓰입니다.
+처음 실행할 때 열기 위치, 테마, 글꼴을 한 번 묻습니다. 고른 값은 다음 실행부터 그대로 쓰입니다.
 
 | 값 | 동작 |
 |---|---|
@@ -129,8 +130,28 @@ cp -r deadhd/skills/deadhd ~/.claude/skills/
 | `nord` | 노르드 아크틱: 오래 띄워 둬도 눈이 덜 피곤한 차분한 톤 |
 | `paper` | 페이퍼 노트북: 따뜻한 종이 질감의 라이트 테마, 명조 제목 |
 | `sakura` | 사쿠라: 벚꽃 분홍 라이트 테마, 손글씨 제목 |
+| `ink` | 잉크: 순흑 위 순백의 흑백 테마. 상태를 색 대신 채움·테두리·빗금으로 구분합니다 |
 
-설정 파일은 `~/.config/deadhd/config.json` 이고 `XDG_CONFIG_HOME` 을 지정하면 그 아래에 만들어집니다. `/deadhd setup` 으로 언제든 열기 위치와 테마를 다시 고를 수 있습니다.
+### 글꼴
+
+제목 글꼴은 프리셋 이름 하나로 고릅니다. 프리셋에는 글꼴·굵기·자간이 묶여 있고, 기본값 `default` 는 테마가 정한 제목 글꼴을 그대로 씁니다. `/deadhd setup` 에서 고르거나 `/deadhd --font <프리셋>` 으로 이번 실행만 바꿀 수 있습니다. 본문 글꼴은 바뀌지 않습니다.
+
+| 값 | 글꼴 | 굵기 · 자간 |
+|---|---|---|
+| `default` | 테마가 정한 글꼴 | 테마에 따름 |
+| `pretendard` | Pretendard Variable | 800 · -0.03em |
+| `noto-sans` | Noto Sans KR | 900 · -0.03em |
+| `plex-sans` | IBM Plex Sans KR | 700 · -0.02em |
+| `gothic-a1` | Gothic A1 | 900 · -0.03em |
+| `nanum-gothic` | Nanum Gothic | 800 · -0.02em |
+| `noto-serif` | Noto Serif KR | 900 · -0.02em |
+| `nanum-myeongjo` | Nanum Myeongjo | 800 · -0.02em |
+| `hahmlet` | Hahmlet | 900 · -0.02em |
+| `gowun-batang` | Gowun Batang | 700 · -0.01em |
+| `do-hyeon` | Do Hyeon | 400 · -0.04em |
+| `black-han-sans` | Black Han Sans | 400 · 0 |
+
+설정 파일은 `~/.config/deadhd/config.json` 이고 `XDG_CONFIG_HOME` 을 지정하면 그 아래에 만들어집니다. `/deadhd setup` 으로 언제든 열기 위치, 테마, 글꼴을 다시 고를 수 있습니다.
 
 `~/.config/deadhd/writing-rules.md` 를 두면 페이지 문장을 쓸 때 그 파일의 작성 규칙을 따릅니다. 없으면 기본 규칙(제목은 명사구, 분야 용어 사용, 의인화 금지)을 씁니다. 자기 작성 가이드 파일에 심볼릭 링크로 연결해도 됩니다.
 

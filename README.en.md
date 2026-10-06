@@ -101,13 +101,14 @@ Installed this way, the invocation name is `/deadhd`.
 | `/deadhd setup` | Chooses the default open location again |
 | `/deadhd --open <mode>` | Opens in a different location for this run only |
 | `/deadhd --theme <theme>` | Renders with a different theme for this run only |
+| `/deadhd --font <preset>` | Renders this run with a different heading font |
 | `/deadhd off` | Stops updating the page |
 
 Instead of a command, you can ask in plain words, e.g. "show progress" or "show me a checklist".
 
 ## Settings
 
-On the first run, it asks once for the open location and the theme. The chosen values are reused from the next run on.
+On the first run, it asks once for the open location, the theme, and the font. The chosen values are reused from the next run on.
 
 | Value | Behavior |
 |---|---|
@@ -129,8 +130,28 @@ The theme uses these values.
 | `nord` | Nord arctic: a calm palette that is easy on the eyes over a long session |
 | `paper` | Paper notebook: a warm paper-texture light theme with a serif heading |
 | `sakura` | Sakura: a cherry-blossom pink light theme with a handwritten heading |
+| `ink` | Ink: pure white on pure black. States are told apart by fill, outline, and hatching instead of color |
 
-The config file is `~/.config/deadhd/config.json`, created under `XDG_CONFIG_HOME` when that is set. `/deadhd setup` lets you choose the open location and theme again at any time.
+### Fonts
+
+A heading font is chosen by a single preset name. A preset bundles the family, weight, and letter spacing, and the default `default` keeps the heading font the theme already sets. Pick one in `/deadhd setup`, or change it for one run with `/deadhd --font <preset>`. The body font does not change.
+
+| Value | Family | Weight · letter spacing |
+|---|---|---|
+| `default` | The theme's own font | Follows the theme |
+| `pretendard` | Pretendard Variable | 800 · -0.03em |
+| `noto-sans` | Noto Sans KR | 900 · -0.03em |
+| `plex-sans` | IBM Plex Sans KR | 700 · -0.02em |
+| `gothic-a1` | Gothic A1 | 900 · -0.03em |
+| `nanum-gothic` | Nanum Gothic | 800 · -0.02em |
+| `noto-serif` | Noto Serif KR | 900 · -0.02em |
+| `nanum-myeongjo` | Nanum Myeongjo | 800 · -0.02em |
+| `hahmlet` | Hahmlet | 900 · -0.02em |
+| `gowun-batang` | Gowun Batang | 700 · -0.01em |
+| `do-hyeon` | Do Hyeon | 400 · -0.04em |
+| `black-han-sans` | Black Han Sans | 400 · 0 |
+
+The config file is `~/.config/deadhd/config.json`, created under `XDG_CONFIG_HOME` when that is set. `/deadhd setup` lets you choose the open location, theme, and font again at any time.
 
 If `~/.config/deadhd/writing-rules.md` exists, page sentences follow that file's rules. Without it, the default rules apply (noun-phrase titles, field terminology, no personification). You can symlink it to your own writing guide.
 

@@ -25,7 +25,9 @@ sys.dont_write_bytecode = True
 import config
 
 THEMES = config.ALLOWED['theme']
-USAGE = '사용법: render.py [--theme %s] <data.json> <out.html>' % '|'.join(THEMES)
+FONTS = config.ALLOWED['font']
+USAGE = '사용법: render.py [--theme %s] [--font %s] <data.json> <out.html>' % (
+    '|'.join(THEMES), '|'.join(FONTS))
 
 
 def die(msg):
@@ -221,17 +223,31 @@ def preserved_title(out_path):
 
 def main(argv):
     theme = None
+    font = None
     rest = argv[1:]
-    if rest[:1] == ['--theme']:
+    while rest[:1] in (['--theme'], ['--font']):
+        flag = rest[0]
         if len(rest) < 2:
             die(USAGE)
-        theme, rest = rest[1], rest[2:]
+        if flag == '--theme':
+            if theme is not None:
+                die(USAGE)
+            theme = rest[1]
+        else:
+            if font is not None:
+                die(USAGE)
+            font = rest[1]
+        rest = rest[2:]
     if theme is not None and theme not in THEMES:
         die('알 수 없는 테마: %s (%s 중 하나)' % (theme, '/'.join(THEMES)))
+    if font is not None and font not in FONTS:
+        die('알 수 없는 글꼴: %s (%s 중 하나)' % (font, '/'.join(FONTS)))
     if len(rest) != 2:
         die(USAGE)
     if theme is None:
         theme = config.get_value('theme') or 'system'
+    if font is None:
+        font = config.get_value('font') or 'default'
     data_path, out_path = rest
 
     try:
@@ -251,7 +267,12 @@ def main(argv):
     lang = data.get('lang') if data.get('lang') in LANGS else 'ko'
     if tpl.count(HTML_OPEN) != 1:
         die('템플릿에 %s 가 정확히 하나 있지 않다' % HTML_OPEN)
-    html_open = '<html lang="%s" data-theme="%s">' % (lang, theme) if theme != 'system' else '<html lang="%s">' % lang
+    html_open = '<html lang="%s"' % lang
+    if theme != 'system':
+        html_open += ' data-theme="%s"' % theme
+    if font != 'default':
+        html_open += ' data-font="%s"' % font
+    html_open += '>'
     tpl = tpl.replace(HTML_OPEN, html_open)
 
     key = data.get('key')

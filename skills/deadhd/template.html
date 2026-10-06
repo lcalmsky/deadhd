@@ -7,7 +7,9 @@
 <title>__PROGRESS_TITLE__</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Do+Hyeon&family=Gaegu:wght@700&family=Gowun+Batang:wght@400;700&family=Gowun+Dodum&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Do+Hyeon&family=Gaegu:wght@700&family=Gowun+Batang:wght@400;700&family=Gowun+Dodum&family=Noto+Sans+KR:wght@400;700;900&family=Noto+Serif+KR:wght@400;700;900&family=IBM+Plex+Sans+KR:wght@400;600;700&family=Gothic+A1:wght@400;700;900&family=Nanum+Gothic:wght@400;700;800&family=Nanum+Myeongjo:wght@400;700;800&family=Hahmlet:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.css" rel="stylesheet">
 <style>
 @property --angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
 
@@ -145,11 +147,36 @@
   --glow-a: rgba(247,131,172,.22); --glow-b: rgba(121,80,242,.10); --glow-c: rgba(255,212,59,.14);
   --tip: #f783ac; --count-end: #c2255c;
 }
+:root[data-theme="ink"] {
+  --bg: #000; --bg-2: #000; --card: rgba(255,255,255,.035); --card-line: rgba(255,255,255,.16);
+  --ink: #fff; --ink-2: #cfcfcf; --ink-3: #8a8a8a;
+  --done: #fff; --done-2: #fff; --done-deep: #dcdcdc;
+  --now: #fff; --now-2: #fff; --now-deep: #e8e8e8; --now-hi: #fff;
+  --side: #a0a0a0; --side-hi: #d0d0d0; --left: #3a3a3a;
+  --blocked: #fff; --blocked-2: #fff; --blocked-deep: #dcdcdc;
+  --track: rgba(255,255,255,.1); --scroll: rgba(255,255,255,.22); --scroll-hover: rgba(255,255,255,.4);
+  --glow-a: rgba(255,255,255,.06); --glow-b: rgba(255,255,255,.04); --glow-c: rgba(255,255,255,.05);
+  --tip: #fff; --count-end: #fff;
+}
 [data-theme="neon"] body { --f-head: "Black Han Sans"; }
 [data-theme="synthwave"] body { --f-head: "Do Hyeon"; }
 [data-theme="matrix"] body { --f-body: var(--f-mono); --f-head: var(--f-mono); }
 [data-theme="paper"] body { --f-head: "Gowun Batang"; }
 [data-theme="sakura"] body { --f-head: "Gaegu"; }
+[data-theme="ink"] body { --f-head: "Do Hyeon"; --head-w: 400; --head-ls: -.04em; }
+
+/* 글꼴 프리셋은 테마의 제목 글꼴보다 뒤에 와서 그것을 덮는다 */
+[data-font="pretendard"] body { --f-head: "Pretendard Variable", Pretendard; --head-w: 800; --head-ls: -.03em; }
+[data-font="noto-sans"] body { --f-head: "Noto Sans KR"; --head-w: 900; --head-ls: -.03em; }
+[data-font="plex-sans"] body { --f-head: "IBM Plex Sans KR"; --head-w: 700; --head-ls: -.02em; }
+[data-font="gothic-a1"] body { --f-head: "Gothic A1"; --head-w: 900; --head-ls: -.03em; }
+[data-font="nanum-gothic"] body { --f-head: "Nanum Gothic"; --head-w: 800; --head-ls: -.02em; }
+[data-font="noto-serif"] body { --f-head: "Noto Serif KR"; --head-w: 900; --head-ls: -.02em; }
+[data-font="nanum-myeongjo"] body { --f-head: "Nanum Myeongjo"; --head-w: 800; --head-ls: -.02em; }
+[data-font="hahmlet"] body { --f-head: "Hahmlet"; --head-w: 900; --head-ls: -.02em; }
+[data-font="gowun-batang"] body { --f-head: "Gowun Batang"; --head-w: 700; --head-ls: -.01em; }
+[data-font="do-hyeon"] body { --f-head: "Do Hyeon"; --head-w: 400; --head-ls: -.04em; }
+[data-font="black-han-sans"] body { --f-head: "Black Han Sans"; --head-w: 400; --head-ls: 0; }
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -282,6 +309,8 @@ h1 .key a { color: inherit; text-decoration: none; }
 .tally { display: flex; flex-wrap: wrap; gap: 8px; font-size: 13px; }
 .tally span { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
 .tally i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.tally i.done { background: var(--done); } .tally i.now { background: var(--now); } .tally i.blocked { background: var(--blocked); }
+.tally i.side { background: var(--side); } .tally i.left { background: var(--left); }
 
 /* ---------- 흐름 ---------- */
 .flow {
@@ -728,6 +757,32 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
 .cc-list li { display: flex; gap: 8px; align-items: center; }
 .cc-list li span:last-child { margin-left: auto; font-family: var(--f-mono); font-size: 11px; color: var(--ink-3); white-space: nowrap; }
 @media (max-width: 600px) { .seg-ctl button { padding: 0 7px; } }
+
+/* ---------- ink 테마 ---------- */
+[data-theme="ink"] .fnode.done .node, [data-theme="ink"] .fnode.now .node { color: var(--bg); }
+[data-theme="ink"] .sub-s.ok i, [data-theme="ink"] .sub-s.run i { color: var(--bg); }
+[data-theme="ink"] .fnode.blocked .node {
+  background: radial-gradient(circle, var(--bg) 0 58%, transparent 59%), repeating-linear-gradient(45deg, var(--ink) 0 3px, transparent 3px 7px);
+  border: 3px solid var(--ink); color: var(--ink); box-shadow: none;
+}
+[data-theme="ink"] .sub-s.blocked i { background: repeating-linear-gradient(45deg, var(--ink) 0 2px, transparent 2px 5px); color: var(--ink); border-color: var(--ink); box-shadow: none; }
+[data-theme="ink"] .card.blocked {
+  border: 1px solid var(--ink);
+  background-image: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--ink) 7%, transparent) 0 6px, transparent 6px 12px);
+  box-shadow: none !important;
+}
+[data-theme="ink"] .cx-dot.blocked, [data-theme="ink"] .cc-seg .blocked, [data-theme="ink"] .ca-strip .blocked .nd, [data-theme="ink"] .tally i.blocked {
+  background: repeating-linear-gradient(45deg, var(--ink) 0 2px, transparent 2px 4px); border: 1px solid var(--ink);
+}
+[data-theme="ink"] .fnode.side .node { border-style: dashed; box-shadow: none; }
+[data-theme="ink"] .cx-dot.side, [data-theme="ink"] .cc-seg .side, [data-theme="ink"] .tally i.side { background: linear-gradient(90deg, var(--side) 50%, transparent 50%); border: 1.5px solid var(--side); }
+[data-theme="ink"] .tally i.left { background: transparent; border: 1.5px dashed var(--ink-3); }
+[data-theme="ink"] .edge.blocked { stroke-dasharray: 8 6; }
+[data-theme="ink"] .lane-band.blocked .lane-label::before { background: repeating-linear-gradient(45deg, var(--ink) 0 1.5px, transparent 1.5px 3px); }
+[data-theme="ink"] body[data-fx="max"] h1 .shine { background-image: linear-gradient(100deg, var(--ink) 40%, var(--ink-3) 50%, var(--ink) 60%); }
+[data-theme="ink"] .eyebrow { background: transparent; border-color: var(--ink); }
+[data-theme="ink"] .goal { border-image: none; border-left-color: var(--ink); }
+[data-theme="ink"] .count b { font-family: var(--f-head); font-weight: var(--head-w); letter-spacing: var(--head-ls); font-size: 40px; }
 </style>
 </head>
 <body data-fx="max">
@@ -1096,7 +1151,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     if (!c) return;
     const s = el('span');
     const dot = el('i');
-    dot.style.background = 'var(--' + k + ')';
+    dot.className = k;
     s.appendChild(dot);
     s.appendChild(document.createTextNode(t + ' ' + c));
     tally.appendChild(s);

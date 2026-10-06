@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""deadhd 기본 열기 위치와 테마 설정을 읽고 쓴다."""
+"""deadhd 기본 열기 위치·테마·글꼴 설정을 읽고 쓴다."""
 import json
 import os
 import sys
@@ -7,7 +7,8 @@ import tempfile
 
 ALLOWED = {
     'open': ('auto', 'orca', 'browser', 'desktop'),
-    'theme': ('system', 'light', 'dark', 'neon', 'synthwave', 'matrix', 'nord', 'paper', 'sakura'),
+    'theme': ('system', 'light', 'dark', 'neon', 'synthwave', 'matrix', 'nord', 'paper', 'sakura', 'ink'),
+    'font': ('default', 'pretendard', 'noto-sans', 'plex-sans', 'gothic-a1', 'nanum-gothic', 'noto-serif', 'nanum-myeongjo', 'hahmlet', 'gowun-batang', 'do-hyeon', 'black-han-sans'),
 }
 KEYS = '|'.join(ALLOWED)
 

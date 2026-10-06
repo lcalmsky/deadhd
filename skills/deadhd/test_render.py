@@ -16,7 +16,11 @@ TEMPLATE = os.path.join(HERE, 'template.html')
 EXAMPLE = os.path.join(HERE, 'example.json')
 MISSING_CONFIG = os.path.join(tempfile.gettempdir(), 'deadhd-no-such-config', 'config.json')
 
-EXTRA_THEMES = ('neon', 'synthwave', 'matrix', 'nord', 'paper', 'sakura')
+EXTRA_THEMES = ('neon', 'synthwave', 'matrix', 'nord', 'paper', 'sakura', 'ink')
+FONT_PRESETS = (
+    'pretendard', 'noto-sans', 'plex-sans', 'gothic-a1', 'nanum-gothic', 'noto-serif',
+    'nanum-myeongjo', 'hahmlet', 'gowun-batang', 'do-hyeon', 'black-han-sans',
+)
 THEME_TOKENS = (
     '--bg', '--bg-2', '--card', '--card-line', '--ink', '--ink-2', '--ink-3',
     '--done', '--done-2', '--done-deep', '--now', '--now-2', '--now-deep', '--now-hi',
@@ -1143,12 +1147,85 @@ class RenderThemeTest(unittest.TestCase):
         self.assertIn('nope', r.stderr)
         self.assertFalse(os.path.exists(out))
 
+    def test_theme_ink_sets_html_attribute(self):
+        r, out = self.render(theme='ink')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.rendered_tag(out), '<html lang="ko" data-theme="ink">')
+
     def test_extra_themes_set_html_attribute(self):
         for theme in EXTRA_THEMES:
             with self.subTest(theme=theme):
                 r, out = self.render(theme=theme)
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assertEqual(self.rendered_tag(out), '<html lang="ko" data-theme="%s">' % theme)
+
+
+class RenderFontTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='progress-font-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.config = os.path.join(self.tmp, 'config.json')
+        self.out = os.path.join(self.tmp, 'out.html')
+
+    def save_font(self, value):
+        with open(self.config, 'w', encoding='utf-8') as f:
+            json.dump({'font': value}, f)
+
+    def run_render(self, argv, config_path=None):
+        env = dict(os.environ)
+        env['DEADHD_CONFIG'] = config_path if config_path is not None else MISSING_CONFIG
+        env.pop('XDG_CONFIG_HOME', None)
+        return subprocess.run([sys.executable, RENDER, *argv], capture_output=True, text=True, env=env)
+
+    def render(self, *flags, config_path=None):
+        return self.run_render([*flags, EXAMPLE, self.out], config_path=config_path)
+
+    def rendered_tag(self):
+        with open(self.out, encoding='utf-8') as f:
+            return html_tag(f.read())
+
+    def test_font_flag_sets_html_attribute(self):
+        r = self.render('--font', 'do-hyeon')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.rendered_tag(), '<html lang="ko" data-font="do-hyeon">')
+
+    def test_theme_and_font_flags_in_either_order(self):
+        orders = (
+            ('--theme', 'dark', '--font', 'pretendard'),
+            ('--font', 'pretendard', '--theme', 'dark'),
+        )
+        for flags in orders:
+            with self.subTest(flags=flags):
+                r = self.render(*flags)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(self.rendered_tag(), '<html lang="ko" data-theme="dark" data-font="pretendard">')
+
+    def test_font_default_leaves_html_untouched(self):
+        r = self.render('--font', 'default')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.rendered_tag(), '<html lang="ko">')
+
+    def test_invalid_font_flag_exits_1(self):
+        r = self.render('--font', 'nope')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('nope', r.stderr)
+        self.assertFalse(os.path.exists(self.out))
+
+    def test_saved_font_applies_without_flag(self):
+        self.save_font('hahmlet')
+        r = self.render(config_path=self.config)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.rendered_tag(), '<html lang="ko" data-font="hahmlet">')
+
+    def test_flag_beats_saved_font(self):
+        self.save_font('hahmlet')
+        r = self.render('--font', 'do-hyeon', config_path=self.config)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.rendered_tag(), '<html lang="ko" data-font="do-hyeon">')
+
+    def test_font_flag_without_value_exits_1(self):
+        r = self.run_render(['--font'])
+        self.assertEqual(r.returncode, 1)
 
 
 class LangTest(unittest.TestCase):
@@ -1385,6 +1462,45 @@ class TemplateThemeTest(unittest.TestCase):
             with self.subTest(color=color):
                 self.assertNotIn(color, body)
 
+    def test_ink_overrides_and_tally_classes_exist(self):
+        self.assertIn('[data-theme="ink"] .fnode.blocked .node {', self.tpl)
+        self.assertIn('.tally i.done { background: var(--done); }', self.tpl)
+        self.assertIn('dot.className = k;', self.tpl)
+        self.assertNotIn('dot.style.background', self.tpl)
+
+
+class TemplateFontTest(unittest.TestCase):
+    def setUp(self):
+        with open(TEMPLATE, encoding='utf-8') as f:
+            self.tpl = f.read()
+
+    def test_preset_rules_exist_once_with_heading_vars(self):
+        for preset in FONT_PRESETS:
+            with self.subTest(preset=preset):
+                rule = '[data-font="%s"] body {' % preset
+                self.assertEqual(self.tpl.count(rule), 1)
+                body = self.tpl.split(rule, 1)[1].split('}', 1)[0]
+                for var in ('--f-head', '--head-w', '--head-ls'):
+                    self.assertIn(var, body)
+
+    def test_google_fonts_link_lists_new_families(self):
+        m = re.search(r'<link href="https://fonts\.googleapis\.com/css2\?[^"]*"', self.tpl)
+        self.assertIsNotNone(m, 'Google Fonts 링크를 찾지 못했다')
+        link = m.group(0)
+        for family in ('Noto+Sans+KR', 'Noto+Serif+KR', 'IBM+Plex+Sans+KR', 'Gothic+A1',
+                       'Nanum+Gothic', 'Nanum+Myeongjo', 'Hahmlet'):
+            with self.subTest(family=family):
+                self.assertIn(family, link)
+
+    def test_pretendard_link_present(self):
+        self.assertIn('pretendardvariable.css', self.tpl)
+
+    def test_presets_come_after_ink_theme_line(self):
+        self.assertGreater(
+            self.tpl.index('[data-font="pretendard"] body {'),
+            self.tpl.index('[data-theme="ink"] body {'),
+        )
+
 
 class OpenScriptTest(unittest.TestCase):
     def setUp(self):
@@ -1585,6 +1701,18 @@ class ConfigScriptTest(unittest.TestCase):
         with open(self.path, encoding='utf-8') as f:
             data = json.load(f)
         self.assertEqual(data, {'open': 'orca', 'theme': 'light'})
+
+    def test_font_set_then_get_returns_value(self):
+        r = self.run_config('set', 'font', 'pretendard')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('saved: font=pretendard', r.stdout)
+        self.assertEqual(self.run_config('get', 'font').stdout.strip(), 'pretendard')
+
+    def test_font_set_invalid_value_exits_2(self):
+        r = self.run_config('set', 'font', 'nope')
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('nope', r.stderr)
+        self.assertFalse(os.path.exists(self.path))
 
     def test_unknown_key_exits_2(self):
         self.assertEqual(self.run_config('get', 'nope').returncode, 2)

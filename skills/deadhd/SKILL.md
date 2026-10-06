@@ -1,7 +1,7 @@
 ---
 name: deadhd
 description: Show a live checklist page of what this session has done, is doing now, and has left, opened beside the terminal and kept updated while the task runs. Use when the user types /deadhd or $deadhd, or asks "지금 뭐 하고 있어", "진행 상황 띄워줘", "체크리스트로 보여줘", or asks "what are you doing now", "show progress", "show me a checklist".
-argument-hint: "[setup] [-h|-o|-c] [--open auto|orca|browser|desktop] [--theme system|light|dark|neon|synthwave|matrix|nord|paper|sakura] [off]"
+argument-hint: "[setup] [-h|-o|-c] [--open auto|orca|browser|desktop] [--theme system|light|dark|neon|synthwave|matrix|nord|paper|sakura|ink] [--font default|pretendard|noto-sans|plex-sans|gothic-a1|nanum-gothic|noto-serif|nanum-myeongjo|hahmlet|gowun-batang|do-hyeon|black-han-sans] [off]"
 ---
 
 # deadhd
@@ -20,11 +20,12 @@ A status page for the task running in this session. The reader glanced away for 
 - `-c`: publish as a Claude artifact with the `Artifact` tool. Without that tool, fall back to `-h` and say so.
 - `setup`: ask for the default open location and save it (see Setup). After saving, reply in one line and stop.
 - `--open <mode>`: use this mode for this run only, instead of the saved default. Pass it to open.sh as `--mode <mode>`.
-- `--theme <theme>`: render with this theme for this run only, instead of the saved one. One of `system`, `light`, `dark`, `neon`, `synthwave`, `matrix`, `nord`, `paper`, `sakura`. Pass it to render.py as `--theme <theme>`.
+- `--theme <theme>`: render with this theme for this run only, instead of the saved one. One of `system`, `light`, `dark`, `neon`, `synthwave`, `matrix`, `nord`, `paper`, `sakura`, `ink`. Pass it to render.py as `--theme <theme>`.
+- `--font <preset>`: render with this heading font preset for this run only, instead of the saved one. One of `default`, `pretendard`, `noto-sans`, `plex-sans`, `gothic-a1`, `nanum-gothic`, `noto-serif`, `nanum-myeongjo`, `hahmlet`, `gowun-batang`, `do-hyeon`, `black-han-sans`. Pass it to render.py as `--font <preset>`.
 
 ## Setup
 
-Ask once, then save the answers as the defaults. There are two questions: the default open location and the default theme. Ask with the `AskUserQuestion` tool when it is available, otherwise ask in plain text; when the tool is available, put both questions in a single call.
+Ask once, then save the answers as the defaults. There are three questions: the default open location, the default theme, and the default heading font. Ask with the `AskUserQuestion` tool when it is available, otherwise ask in plain text; when the tool is available, put all three questions in a single call.
 
 Open location, four choices:
 
@@ -40,7 +41,7 @@ Theme, four choices:
 - `light`: always the light theme.
 - `more themes`: show the extra themes below and take the answer by name.
 
-`AskUserQuestion` allows at most four choices, which is why `more themes` is one of them. When the user picks it, list these in plain text, one line each with its description, and take the theme name as the answer:
+`AskUserQuestion` allows at most four choices, which is why `more themes` and `more fonts` are among them. When the user picks `more themes`, list these in plain text, one line each with its description, and take the theme name as the answer:
 
 - `neon` — cyberpunk neon: near-black violet with cyan, magenta, and fluorescent yellow.
 - `synthwave` — 80s sunset: deep violet under a pink-and-orange gradient.
@@ -48,10 +49,30 @@ Theme, four choices:
 - `nord` — calm arctic: muted northern palette, easy on the eyes over a long session.
 - `paper` — warm paper, light: cream stock with a serif heading, reads like a document.
 - `sakura` — cherry blossom, light: pink light theme with a handwritten heading.
+- `ink` — monochrome: pure white on pure black; states are told apart by fill, outline, and hatching instead of color.
 
-Save the answers with `python3 <skill-dir>/config.py set open <value>` and `python3 <skill-dir>/config.py set theme <value>`. Calling the skill with `setup` asks both questions again.
+Heading font, four choices:
 
-- First run: on an ordinary run that is not `-c`, `-o`, `--open`, `off`, or `setup`, run `python3 <skill-dir>/config.py get open` and `python3 <skill-dir>/config.py get theme` first. Ask only for the ones that print `unset`, save them, then continue the original work.
+- `default` (recommended): the heading font the theme already uses.
+- `pretendard`: clean sans, tight.
+- `do-hyeon`: bold display sans, tight.
+- `more fonts`: show the rest by name.
+
+When the user picks `more fonts`, list these in plain text, one line each with its description, and take the font name as the answer:
+
+- `noto-sans` — Noto Sans KR 900
+- `plex-sans` — IBM Plex Sans KR 700
+- `gothic-a1` — Gothic A1 900
+- `nanum-gothic` — Nanum Gothic 800
+- `noto-serif` — Noto Serif KR 900
+- `nanum-myeongjo` — Nanum Myeongjo 800
+- `hahmlet` — Hahmlet 900 serif
+- `gowun-batang` — Gowun Batang 700 serif
+- `black-han-sans` — Black Han Sans poster
+
+Save the answers with `python3 <skill-dir>/config.py set open <value>`, `python3 <skill-dir>/config.py set theme <value>`, and `python3 <skill-dir>/config.py set font <value>`. Calling the skill with `setup` asks all three questions again.
+
+- First run: on an ordinary run that is not `-c`, `-o`, `--open`, `off`, or `setup`, run `python3 <skill-dir>/config.py get open`, `python3 <skill-dir>/config.py get theme`, and `python3 <skill-dir>/config.py get font` first. Ask only for the ones that print `unset`, save them, then continue the original work.
 
 ## Gather the facts
 
@@ -123,10 +144,10 @@ Writing rules for all text in the data:
 ## Render
 
 ```bash
-python3 <skill-dir>/render.py [--theme system|light|dark|neon|synthwave|matrix|nord|paper|sakura] /tmp/deadhd-<slug>.json /tmp/deadhd-<slug>.html
+python3 <skill-dir>/render.py [--theme system|light|dark|neon|synthwave|matrix|nord|paper|sakura|ink] [--font <preset>] /tmp/deadhd-<slug>.json /tmp/deadhd-<slug>.html
 ```
 
-It applies the saved theme on its own, and the `--theme` value instead when this run has one. It validates the data and exits 1 with the reason when a field is wrong; fix the JSON and rerun. Reuse the same two paths for the rest of this conversation. Never edit the HTML by hand.
+It applies the saved theme and the saved font preset, and the `--theme` and `--font` values instead when this run has one. It validates the data and exits 1 with the reason when a field is wrong; fix the JSON and rerun. Reuse the same two paths for the rest of this conversation. Never edit the HTML by hand.
 
 ## Deliver
 
