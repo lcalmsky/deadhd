@@ -297,6 +297,8 @@ h1 .key a { color: inherit; text-decoration: none; }
 .eta { font-size: 13px; color: var(--ink-3); white-space: nowrap; }
 .eta b { font-family: var(--f-mono); font-size: 15px; font-weight: 600; color: var(--ink); }
 .eta.past { opacity: .6; }
+.eta .raw { opacity: .6; margin-right: 6px; font-weight: 400; }
+.cal-note { font-size: 11.5px; color: var(--ink-3); white-space: nowrap; }
 .count b {
   font-family: var(--f-mono); font-size: 34px; font-weight: 600; color: var(--ink);
   letter-spacing: -.03em;
@@ -783,6 +785,29 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
 [data-theme="ink"] .eyebrow { background: transparent; border-color: var(--ink); }
 [data-theme="ink"] .goal { border-image: none; border-left-color: var(--ink); }
 [data-theme="ink"] .count b { font-family: var(--f-head); font-weight: var(--head-w); letter-spacing: var(--head-ls); font-size: 40px; }
+
+/* ---------- 입력 대기 띠 ---------- */
+.live { margin: 22px 0 0; padding: 14px 18px; border-radius: 14px; background: var(--card); border: 1px solid var(--card-line); backdrop-filter: blur(16px); }
+.live-main { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.live-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ink-3); }
+.live-title { font-family: var(--f-head); font-weight: 700; font-size: 20px; line-height: 1.2; }
+.live-what { font-size: 12.5px; padding: 3px 9px; border: 1px solid var(--card-line); border-radius: 6px; color: var(--ink-2); }
+.live-sub { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; font-size: 12.5px; color: var(--ink-3); }
+.live-waiting_permission { border-color: color-mix(in srgb, var(--now) 45%, transparent); box-shadow: 0 0 40px -8px color-mix(in srgb, var(--now) 50%, transparent); }
+.live-waiting_permission .live-dot { background: var(--now); box-shadow: 0 0 10px var(--now); animation: blink 1.2s ease-in-out infinite; }
+.live-waiting_permission .live-title { color: var(--now-2); }
+.live-waiting_permission .live-what { border-color: color-mix(in srgb, var(--now) 30%, transparent); background: color-mix(in srgb, var(--now) 10%, transparent); }
+.live-idle { border-color: color-mix(in srgb, var(--side) 45%, transparent); }
+.live-idle .live-dot { background: var(--side); }
+.live-idle .live-title { color: var(--side-hi); }
+.live-working { padding: 10px 18px; }
+.live-working .live-title { font-size: 15px; font-weight: 500; color: var(--ink-2); }
+.live-working .live-dot { background: var(--done); box-shadow: 0 0 8px var(--done); animation: blink 1.6s ease-in-out infinite; }
+.live-stall .live-dot { background: var(--blocked); animation: none; }
+.live-stall .live-title { color: var(--blocked-2); }
+.live-ended { opacity: .6; }
+[data-theme="ink"] .live-waiting_permission { background-image: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--ink) 7%, transparent) 0 6px, transparent 6px 12px); box-shadow: none; border-color: var(--ink); }
+[data-theme="ink"] .live-waiting_permission .live-main { display: inline-flex; padding: 4px 10px; margin-left: -10px; border-radius: 8px; background: var(--bg); }
 </style>
 </head>
 <body data-fx="max">
@@ -831,6 +856,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
   <h1 id="h1"></h1>
   <div class="goal" id="goal"></div>
   <div class="meta" id="meta"></div>
+  <section class="live" id="live" hidden aria-live="polite"></section>
 
   <div class="progress">
     <div class="bar"><div class="fill"></div><div class="tip"></div></div>
@@ -901,7 +927,23 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       remainingTime: '남은 ',
       nowRemaining: '현재 단계 남은 시간',
       statesLabel: '단계별 상태',
-      stepListLabel: '단계 목록'
+      stepListLabel: '단계 목록',
+      liveWait: d => '권한 승인 대기 · ' + d,
+      liveIdle: d => '입력 대기 · ' + d,
+      liveWorking: '작업 중',
+      liveStall: d => '신호 없음 · ' + d,
+      liveEnded: t => '세션 종료 ' + t,
+      liveLastTool: (n, a) => '마지막 도구 ' + n + ' · ' + a,
+      liveBackground: n => '백그라운드 작업 ' + n,
+      liveCompact: (n, t) => '압축 ' + n + '회 · ' + t + ' 데이터 재주입',
+      liveSource: '훅',
+      forDur: d => d + '째',
+      ago: d => d + ' 전',
+      sec: s => s + '초',
+      etaRaw: '원래 예상 ',
+      calibrated: '보정 ',
+      calSlow: (f, n) => '예측이 ' + f + '배 느림 · 완료 ' + n + '단계 기준',
+      calFast: (f, n) => '예측이 ' + f + '배 빠름 · 완료 ' + n + '단계 기준'
     },
     en: {
       countDone: 'done',
@@ -941,7 +983,23 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       remainingTime: 'Remaining ',
       nowRemaining: 'Current step remaining',
       statesLabel: 'Step states',
-      stepListLabel: 'Step list'
+      stepListLabel: 'Step list',
+      liveWait: d => 'Waiting for permission · ' + d,
+      liveIdle: d => 'Waiting for your input · ' + d,
+      liveWorking: 'Working',
+      liveStall: d => 'No signal · ' + d,
+      liveEnded: t => 'Session ended ' + t,
+      liveLastTool: (n, a) => 'Last tool ' + n + ' · ' + a,
+      liveBackground: n => n + ' background task' + (n === 1 ? '' : 's'),
+      liveCompact: (n, t) => 'Compacted ' + n + '× · data re-injected ' + t,
+      liveSource: 'hook',
+      forDur: d => 'for ' + d,
+      ago: d => d + ' ago',
+      sec: s => s + 's',
+      etaRaw: 'Raw ETA ',
+      calibrated: 'Calibrated ',
+      calSlow: (f, n) => 'Estimates run ' + f + '× slow · from ' + n + ' done steps',
+      calFast: (f, n) => 'Estimates run ' + f + '× fast · from ' + n + ' done steps'
     }
   };
 
@@ -1116,6 +1174,50 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
   });
   if (!meta.children.length) meta.hidden = true;
 
+  // ---- 입력 대기 띠 (훅이 유지하는 상태) ----
+  const relDur = v => {
+    const s = Math.max(0, Math.round((viewNow.getTime() - toDate(v).getTime()) / 1000));
+    return s < 60 ? L.sec(s) : fmtDur(s / 60);
+  };
+  if (data.live) {
+    const lv = data.live;
+    const stallMs = 10 * 60 * 1000;
+    const lastToolAt = lv.lastTool && lv.lastTool.at ? toDate(lv.lastTool.at) : null;
+    const stalled = lv.status === 'working' && lastToolAt != null
+      && viewNow.getTime() - lastToolAt.getTime() > stallMs;
+    const band = $('live');
+    band.className = 'live live-' + lv.status + (stalled ? ' live-stall' : '');
+    band.hidden = false;
+
+    const main = el('div', 'live-main');
+    main.appendChild(el('i', 'live-dot'));
+    let title = L.liveWorking;
+    if (lv.status === 'waiting_permission') title = L.liveWait(L.forDur(relDur(lv.since)));
+    else if (lv.status === 'idle') title = L.liveIdle(L.forDur(relDur(lv.since)));
+    else if (lv.status === 'working' && stalled) title = L.liveStall(L.forDur(relDur(lv.lastTool.at)));
+    else if (lv.status === 'ended') title = L.liveEnded(fmtClock(toDate(lv.since), viewNow));
+    main.appendChild(el('b', 'live-title', title));
+    const what = lv.status === 'waiting_permission' ? lv.message
+      : lv.status === 'working' && lv.lastTool ? lv.lastTool.name : '';
+    if (what) main.appendChild(el('span', 'live-what mono', what));
+    band.appendChild(main);
+
+    const sub = el('div', 'live-sub');
+    if (lv.lastTool && lv.lastTool.name) {
+      sub.appendChild(el('span', null, L.liveLastTool(lv.lastTool.name, L.ago(relDur(lv.lastTool.at)))));
+    }
+    const tasks = Array.isArray(lv.backgroundTasks) ? lv.backgroundTasks : [];
+    if (tasks.length) {
+      const first = tasks[0] && tasks[0].description;
+      sub.appendChild(el('span', null, L.liveBackground(tasks.length) + (first ? ' · ' + first : '')));
+    }
+    const comp = lv.compactions;
+    if (comp && comp.count > 0 && comp.lastAt) {
+      sub.appendChild(el('span', null, L.liveCompact(comp.count, fmtClock(toDate(comp.lastAt), viewNow))));
+    }
+    if (sub.children.length) band.appendChild(sub);
+  }
+
   const goal = $('goal');
   const goalRow = (tag, tagCls, text) => {
     const row = el('div', 'goal-row');
@@ -1136,13 +1238,21 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
   $('countB').textContent = doneList.length + '/' + total;
 
   if (data.eta) {
-    const etaAt = toDate(data.eta);
+    const rawAt = toDate(data.eta);
+    const calAt = data.etaCalibrated ? toDate(data.etaCalibrated) : null;
+    const etaAt = calAt || rawAt;
     const past = etaAt.getTime() < viewNow.getTime();
     const line = el('div', past ? 'eta past' : 'eta');
     line.appendChild(document.createTextNode(L.eta));
+    if (calAt) line.appendChild(el('s', 'raw', fmtClock(rawAt, viewNow)));
     line.appendChild(el('b', null, fmtClock(etaAt, viewNow)));
     if (past) line.appendChild(document.createTextNode(L.overdue));
     $('countCol').appendChild(line);
+    if (calAt && data.calibration) {
+      const { factor, samples } = data.calibration;
+      const note = factor < 1 ? L.calFast(factor, samples) : L.calSlow(factor, samples);
+      $('countCol').appendChild(el('div', 'cal-note', note));
+    }
   }
 
   const tally = $('tally');
@@ -1522,7 +1632,8 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
 
   const keyHtml = data.key
     ? `<a class="cx-key" href="${esc(httpHref(data.keyHref) || '#')}" target="_blank" rel="noopener">${esc(data.key)}</a>` : '';
-  const etaHtml = data.eta ? `<span class="cx-eta">${L.eta}<b>${fmtClock(toDate(data.eta), viewNow)}</b></span>` : '';
+  const etaViewAt = data.eta ? toDate(data.etaCalibrated || data.eta) : null;
+  const etaHtml = etaViewAt ? `<span class="cx-eta">${L.eta}<b>${fmtClock(etaViewAt, viewNow)}</b></span>` : '';
   const pill = vNow
     ? `<span class="cx-pill"${vNow.state === 'blocked' ? ' style="color:var(--blocked)"' : ''}><i></i>${esc(vNow.state === 'blocked' ? L.eyebrowBlocked(vNow.label) : L.eyebrowNow(vNow.label))}</span>`
     : `<span class="cx-pill">${L.allDone}</span>`;
@@ -1573,7 +1684,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
             <div class="cc-tiles">
               <div class="cx-glass cc-tile"><small>${L.countDone}</small><div class="cc-ring"><svg viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15" fill="none" stroke="var(--track)" stroke-width="4"/><circle cx="18" cy="18" r="15" fill="none" stroke="var(--done-2)" stroke-width="4" stroke-linecap="round" stroke-dasharray="${f} ${C}" transform="rotate(-90 18 18)"/></svg><span class="cx-count"><b>${doneList.length}/${total}</b></span></div></div>
               <div class="cx-glass cc-tile"><small>${L.nowRemaining}</small><b>${vNow && vNow.estimate != null ? fmtDur(vNow.estimate) : '—'}</b></div>
-              <div class="cx-glass cc-tile"><small>${L.eta}</small><b>${data.eta ? fmtClock(toDate(data.eta), viewNow) : '—'}</b></div>
+              <div class="cx-glass cc-tile"><small>${L.eta}</small><b>${etaViewAt ? fmtClock(etaViewAt, viewNow) : '—'}</b></div>
             </div>
             <div class="cc-seg" aria-label="${esc(L.statesLabel)}">${items.map(i => `<span class="${i.state}" title="${esc(i.label)}"></span>`).join('')}</div>
             <div class="cc-legend">${counts.map(([k, l, a]) => `<span><i class="cx-dot ${k}"></i>${l} ${a.length}</span>`).join('')}</div>

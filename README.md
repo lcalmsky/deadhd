@@ -46,7 +46,28 @@ Orca 안에서 실행하면 기본 설정(`auto`)으로 터미널 옆 탭에 바
 - 페이지 디자인은 `template.html` 에 고정되어 있고, 모델은 JSON 데이터만 작성합니다. `render.py` 가 데이터를 검증한 뒤 HTML 을 생성합니다.
 - 사용자가 영어로 대화하면 페이지의 고정 문구(`완료`, `진행 중`, `남은 작업` 같은 라벨)도 영어로 표시됩니다. 데이터의 `lang` 필드로 정해지며, 없으면 한국어입니다.
 - 단계별 시작·완료 시각과 남은 시간 추정치가 있으면 진행 바 아래에 완료 예상 시각이 표시됩니다. `내일`이나 날짜로 붙는 표기는 페이지를 보고 있는 시점의 시각을 기준으로 정해지므로, 자정이 지나거나 창을 다시 열면 자동으로 바뀝니다.
-- 열어 둔 탭은 15초마다 새로 고쳐지고, 새로 완료된 단계에는 완료 효과가 재생됩니다.
+- 열어 둔 탭은 15초마다 새로 고쳐지고, 새로 완료된 단계에는 완료 효과가 재생됩니다. 페이지 상단의 상태 띠도 같은 주기로 갱신됩니다.
+
+## 입력 대기 알림과 예상 시간 보정
+
+- 플러그인으로 설치하면 `hooks/hooks.json` 의 훅이 세션 이벤트(권한 요청, 답변 종료, 도구 실행, 압축, 세션 종료)를 받아 `/tmp/deadhd-state/<세션 ID>.json` 에 상태를 쓰고 페이지를 다시 렌더합니다. 페이지 상단에 `권한 승인 대기 · 12분째`, `입력 대기 · 23분째`, `작업 중 · 마지막 도구 Bash 8초 전`, `신호 없음`, `세션 종료` 띠가 붙습니다. 모델이 갱신을 잊어도 띠는 훅이 유지합니다.
+- 압축 뒤에는 세션 시작 훅이 데이터 파일 경로를 모델에 다시 알려 줍니다.
+- 스킬 폴더나 Orca 로 설치하면 훅이 따라오지 않습니다. 쓰려면 `~/.claude/settings.json` 에 같은 훅을 넣습니다. `${CLAUDE_PLUGIN_ROOT}` 자리에 스킬 폴더의 절대 경로를 씁니다.
+
+```json
+{
+  "hooks": {
+    "Notification": [{ "matcher": "permission_prompt|idle_prompt", "hooks": [{ "type": "command", "command": "python3 \"$HOME/.claude/skills/deadhd/state.py\"" }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "python3 \"$HOME/.claude/skills/deadhd/state.py\"" }] }],
+    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "python3 \"$HOME/.claude/skills/deadhd/state.py\"" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "python3 \"$HOME/.claude/skills/deadhd/state.py\"" }] }],
+    "SessionStart": [{ "matcher": "compact", "hooks": [{ "type": "command", "command": "python3 \"$HOME/.claude/skills/deadhd/state.py\"" }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "python3 \"$HOME/.claude/skills/deadhd/state.py\"" }] }]
+  }
+}
+```
+
+- 보정: 단계가 완료될 때 처음 적힌 예상과 실제 소요가 `~/.config/deadhd/history.jsonl` 에 쌓이고, 3건부터 보정 완료 예상이 원래 값 옆에 표시됩니다. 기록되는 것은 단계 id·예상·실제 분 수뿐입니다.
 
 ## 요구 사항
 

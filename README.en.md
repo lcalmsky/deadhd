@@ -45,8 +45,29 @@ The browser draws a view from the data already in the page when you press its bu
 - Each step shows its supporting evidence: file paths, PRs, commits, test pass counts.
 - The page design is fixed in `template.html`, and the model writes only the JSON data. `render.py` validates the data and generates the HTML.
 - When per-step start and finish times and remaining-time estimates are present, the expected completion time appears under the progress bar. The `tomorrow` or date notation is decided from the time you are viewing the page, so it changes on its own after midnight or when you reopen the window.
-- An open tab reloads every 15 seconds, and newly completed steps play a completion effect.
+- An open tab reloads every 15 seconds, and newly completed steps play a completion effect. The status band at the top of the page refreshes on the same cycle.
 - When the user talks in English, the page's fixed labels (`done`, `In progress`, `Remaining`, and so on) are shown in English too. This is set by the data's `lang` field; without it the page is Korean.
+
+## Waiting-for-you band and calibrated ETA
+
+- Installed as a plugin, the hooks in `hooks/hooks.json` take session events (permission request, turn end, tool run, compaction, session end), write the state to `/tmp/deadhd-state/<session ID>.json`, and re-render the page. A band appears at the top: `Waiting for permission · 12m`, `Waiting for your input · 23m`, `Working · Last tool Bash 8s ago`, `No signal`, `Session ended`. The hooks keep the band fresh even when the model forgets to update the page.
+- After a compaction, the session-start hook tells the model the data file path again.
+- The skill folder and Orca installs do not carry the hooks. To use them, add the same hooks to `~/.claude/settings.json`, replacing `${CLAUDE_PLUGIN_ROOT}` with the absolute path of the skill folder.
+
+```json
+{
+  "hooks": {
+    "Notification": [{ "matcher": "permission_prompt|idle_prompt", "hooks": [{ "type": "command", "command": "python3 \"$HOME/.claude/skills/deadhd/state.py\"" }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "python3 \"$HOME/.claude/skills/deadhd/state.py\"" }] }],
+    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "python3 \"$HOME/.claude/skills/deadhd/state.py\"" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "python3 \"$HOME/.claude/skills/deadhd/state.py\"" }] }],
+    "SessionStart": [{ "matcher": "compact", "hooks": [{ "type": "command", "command": "python3 \"$HOME/.claude/skills/deadhd/state.py\"" }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "python3 \"$HOME/.claude/skills/deadhd/state.py\"" }] }]
+  }
+}
+```
+
+- Calibration: when a step finishes, the estimate first written for it and the actual duration accumulate in `~/.config/deadhd/history.jsonl`, and from three records on a calibrated completion time is shown next to the raw one. What is recorded is only the step id, the estimate, and the actual minutes.
 
 ## Requirements
 

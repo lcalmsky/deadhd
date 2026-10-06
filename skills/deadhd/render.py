@@ -23,10 +23,11 @@ sys.path.insert(0, HERE)
 # 스킬 폴더는 Orca 공유 등으로 통째로 게시되므로 __pycache__ 를 남기지 않는다.
 sys.dont_write_bytecode = True
 import config
+import state
 
 THEMES = config.ALLOWED['theme']
 FONTS = config.ALLOWED['font']
-USAGE = '사용법: render.py [--theme %s] [--font %s] <data.json> <out.html>' % (
+USAGE = '사용법: render.py [--theme %s] [--font %s] [--session <id>] <data.json> <out.html>' % (
     '|'.join(THEMES), '|'.join(FONTS))
 
 
@@ -60,21 +61,144 @@ def parse_when(value):
     return parsed if parsed.tzinfo is not None else None
 
 
-def compute_eta(items, now):
+def pending_minutes(items):
     pending = []
     for it in items:
-        state = it.get('state')
-        if state == 'blocked':
+        item_state = it.get('state')
+        if item_state == 'blocked':
             return None
-        if state not in ('now', 'left'):
+        if item_state not in ('now', 'left'):
             continue
         estimate = it.get('estimate')
         if isinstance(estimate, bool) or not isinstance(estimate, (int, float)):
             return None
         pending.append(estimate)
-    if not pending:
+    return sum(pending) if pending else None
+
+
+def compute_eta(items, now):
+    total = pending_minutes(items)
+    return None if total is None else now + timedelta(minutes=total)
+
+
+def is_number(value):
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value))
+
+
+def history_path():
+    override = os.environ.get('DEADHD_HISTORY')
+    if override:
+        return override
+    return os.path.join(os.path.dirname(config.config_path()), 'history.jsonl')
+
+
+def read_history(path):
+    entries = []
+    try:
+        with open(path, encoding='utf-8') as f:
+            lines = f.readlines()
+    except OSError:
+        return entries
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict):
+            entries.append(row)
+    return entries
+
+
+def calibration(entries):
+    estimates, actuals = [], []
+    for row in entries[-30:]:
+        est, actual = row.get('est'), row.get('actual')
+        if not is_number(est) or not is_number(actual):
+            continue
+        estimates.append(est)
+        actuals.append(actual)
+    if len(estimates) < 3:
         return None
-    return now + timedelta(minutes=sum(pending))
+    total = sum(estimates)
+    if total <= 0:
+        return None
+    factor = max(0.5, min(5.0, sum(actuals) / total))
+    return {'factor': round(factor, 2), 'samples': len(estimates)}
+
+
+def record_estimates(ledger, items, at):
+    for it in items:
+        iid = it.get('id')
+        if not isinstance(iid, str) or not iid or iid in ledger:
+            continue
+        if it.get('state') not in ('now', 'left', 'side'):
+            continue
+        estimate = it.get('estimate')
+        if not is_number(estimate):
+            continue
+        ledger[iid] = {'est': estimate, 'firstSeenAt': at, 'recorded': False}
+
+
+def record_history(ledger, items, path, session_id, at):
+    for it in items:
+        iid = it.get('id')
+        if not isinstance(iid, str) or it.get('state') != 'done':
+            continue
+        entry = ledger.get(iid)
+        if not isinstance(entry, dict) or entry.get('recorded'):
+            continue
+        started, finished = parse_when(it.get('startedAt')), parse_when(it.get('doneAt'))
+        if started is None or finished is None:
+            continue
+        actual = round((finished - started).total_seconds() / 60, 1)
+        if actual <= 0:
+            continue
+        row = {'at': at, 'session': session_id, 'item': iid, 'est': entry.get('est'), 'actual': actual}
+        try:
+            directory = os.path.dirname(path)
+            if directory:
+                os.makedirs(directory, exist_ok=True)
+            with open(path, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(row, ensure_ascii=False) + '\n')
+        except OSError:
+            continue
+        entry['recorded'] = True
+
+
+def calibrate(session_state, items, session_id, at):
+    ledger = session_state.get('estimates')
+    if not isinstance(ledger, dict):
+        ledger = {}
+        session_state['estimates'] = ledger
+    record_estimates(ledger, items, at)
+    record_history(ledger, items, history_path(), session_id, at)
+
+
+def live_payload(session_state, at):
+    if not session_state.get('status'):
+        session_state['status'] = 'working'
+    if not session_state.get('since'):
+        session_state['since'] = at
+    last_tool = session_state.get('lastTool')
+    background = session_state.get('backgroundTasks')
+    compactions = session_state.get('compactions')
+    if not isinstance(compactions, dict):
+        compactions = {}
+    count = compactions.get('count')
+    if not isinstance(count, int) or isinstance(count, bool):
+        count = 0
+    return {
+        'status': session_state['status'],
+        'since': session_state['since'],
+        'message': session_state.get('message'),
+        'lastTool': last_tool if isinstance(last_tool, dict) else None,
+        'backgroundTasks': background if isinstance(background, list) else [],
+        'compactions': {'count': count, 'lastAt': compactions.get('lastAt')},
+    }
 
 
 def current_time():
@@ -224,8 +348,9 @@ def preserved_title(out_path):
 def main(argv):
     theme = None
     font = None
+    session = None
     rest = argv[1:]
-    while rest[:1] in (['--theme'], ['--font']):
+    while rest[:1] in (['--theme'], ['--font'], ['--session']):
         flag = rest[0]
         if len(rest) < 2:
             die(USAGE)
@@ -233,10 +358,14 @@ def main(argv):
             if theme is not None:
                 die(USAGE)
             theme = rest[1]
-        else:
+        elif flag == '--font':
             if font is not None:
                 die(USAGE)
             font = rest[1]
+        else:
+            if session is not None:
+                die(USAGE)
+            session = rest[1]
         rest = rest[2:]
     if theme is not None and theme not in THEMES:
         die('알 수 없는 테마: %s (%s 중 하나)' % (theme, '/'.join(THEMES)))
@@ -248,6 +377,10 @@ def main(argv):
         theme = config.get_value('theme') or 'system'
     if font is None:
         font = config.get_value('font') or 'default'
+    if session is None:
+        session = os.environ.get('CLAUDE_CODE_SESSION_ID') or None
+    if session is not None and not state.valid_session_id(session):
+        die('세션 id 가 올바르지 않다: %r' % session)
     data_path, out_path = rest
 
     try:
@@ -286,13 +419,38 @@ def main(argv):
         title = prev_title
 
     now = current_time()
+    now_text = now.isoformat(timespec='seconds')
     payload_data = dict(data)
-    payload_data['renderedAt'] = now.isoformat(timespec='seconds')
-    eta = compute_eta(payload_data['items'], now)
+    payload_data['renderedAt'] = now_text
+    items = payload_data['items']
+    eta = compute_eta(items, now)
     if eta is None:
         payload_data.pop('eta', None)
     else:
         payload_data['eta'] = eta.isoformat(timespec='seconds')
+    total_minutes = pending_minutes(items)
+
+    session_state = None
+    if session:
+        session_state = state.load_state(session)
+        session_state['sessionId'] = session
+        session_state['data'] = os.path.abspath(data_path)
+        session_state['out'] = os.path.abspath(out_path)
+        session_state['cwd'] = os.getcwd()
+        session_state.setdefault('message', None)
+        session_state.setdefault('lastTool', None)
+        session_state.setdefault('backgroundTasks', [])
+        session_state.setdefault('compactions', {'count': 0, 'lastAt': None})
+        calibrate(session_state, items, session, now_text)
+
+    factor = calibration(read_history(history_path()))
+    if factor is not None and total_minutes is not None:
+        payload_data['etaCalibrated'] = (
+            now + timedelta(minutes=factor['factor'] * total_minutes)).isoformat(timespec='seconds')
+        payload_data['calibration'] = factor
+
+    if session_state is not None:
+        payload_data['live'] = live_payload(session_state, now_text)
 
     payload = json.dumps(payload_data, ensure_ascii=False)
     # script 태그가 데이터 안의 문자열로 조기에 닫히지 않게 한다.
@@ -313,6 +471,14 @@ def main(argv):
         except OSError:
             pass
         raise
+
+    if session_state is not None:
+        # 상태 파일을 못 써도 페이지는 이미 나왔다.
+        try:
+            session_state['updatedAt'] = now_text
+            state.save_state(session, session_state)
+        except Exception:
+            pass
 
     print('rendered: ' + out_path)
 

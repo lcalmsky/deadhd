@@ -109,6 +109,7 @@ Each item:
 - `evidence`: file paths, PR, commit, test counts, Jira comments, each with an `icon` and an `href` when the identifier has a URL.
 - `startedAt`, `doneAt`: when the step actually started and finished, ISO 8601 with a timezone offset, e.g. `2026-10-02T22:35:00+09:00`. Use a real time only: the output of `date -Iseconds` taken when you start or finish the step, or a timestamp that appeared in this session's tool results. Never invent one; leave the field out when you do not know.
 - `estimate`: your estimate in minutes. On the `now` item it is the minutes left from now; on a `left` or `side` item it is how long that step will take. Leave it out when you have no basis for the number.
+- `render.py` records each step's first estimate against its real duration (`startedAt` to `doneAt`) in `~/.config/deadhd/history.jsonl` and, once three or more steps are recorded, shows a calibrated completion time next to the raw one. Keep `estimate`, `startedAt`, and `doneAt` honest; never backfill them.
 - Draw numbers instead of writing them. A pass count goes in `stats` as `ring`; a single large number goes in `stats` as `number`; an A-versus-B measurement or a risk ratio goes in `compare`. A sequence of sub-steps inside the current item goes in `substeps`; a sub-step with a URL carries its own `href`.
 
 `render.py` computes the completion estimate from these fields and writes it into the page. Do not write a total or an end time into the data yourself. The line appears only when no item is `blocked` and every `now` and `left` item has an `estimate`; one missing estimate hides it.
@@ -161,6 +162,8 @@ On the first render only:
 ## Keep it updated
 
 After the first render, update the JSON and rerun `render.py` whenever an item changes state (finished, started, blocked) until the task ends or the user says `/deadhd off`.
+
+The plugin's hooks (`hooks/hooks.json`) keep a status band on the page fresh on their own: waiting for permission, waiting for input, last tool, background tasks, compactions. `render.py` links the page to this session through `CLAUDE_CODE_SESSION_ID`; nothing to do for that. After a context compaction the session-start hook tells you the data file path; keep using it.
 
 - The open tab reloads itself every 15 seconds and plays the completion effect on items that became `done`.
 - When a step changes state, record its `startedAt` and `doneAt` and refresh the remaining `estimate` values.

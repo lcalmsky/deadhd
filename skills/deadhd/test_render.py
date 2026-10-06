@@ -8,10 +8,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RENDER = os.path.join(HERE, 'render.py')
+STATE = os.path.join(HERE, 'state.py')
 TEMPLATE = os.path.join(HERE, 'template.html')
 EXAMPLE = os.path.join(HERE, 'example.json')
 MISSING_CONFIG = os.path.join(tempfile.gettempdir(), 'deadhd-no-such-config', 'config.json')
@@ -30,17 +32,43 @@ THEME_TOKENS = (
 )
 
 
-def run_render(data_path, out_path, theme=None, config_path=None, env_extra=None):
+def run_render(data_path, out_path, theme=None, config_path=None, env_extra=None, session=None):
     env = dict(os.environ)
     env['DEADHD_CONFIG'] = config_path if config_path is not None else MISSING_CONFIG
-    env.pop('XDG_CONFIG_HOME', None)
+    # 세션·이력·상태가 이 테스트를 실행한 세션에서 새어 들어오지 않게 한다.
+    for key in ('XDG_CONFIG_HOME', 'CLAUDE_CODE_SESSION_ID', 'DEADHD_STATE_DIR', 'DEADHD_HISTORY'):
+        env.pop(key, None)
     if env_extra:
         env.update(env_extra)
     cmd = [sys.executable, RENDER]
     if theme is not None:
         cmd += ['--theme', theme]
+    if session is not None:
+        cmd += ['--session', session]
     cmd += [data_path, out_path]
     return subprocess.run(cmd, capture_output=True, text=True, env=env)
+
+
+def run_state(payload, state_dir, env_extra=None, raw=None):
+    env = dict(os.environ)
+    env['DEADHD_CONFIG'] = MISSING_CONFIG
+    env.pop('XDG_CONFIG_HOME', None)
+    env['DEADHD_STATE_DIR'] = state_dir
+    if env_extra:
+        env.update(env_extra)
+    text = raw if raw is not None else json.dumps(payload, ensure_ascii=False)
+    return subprocess.run([sys.executable, STATE], input=text, capture_output=True, text=True, env=env)
+
+
+def load_valid_session_id():
+    """state.py 를 import 하면 sys.path 와 __pycache__ 를 건드려야 해서 소스만 실행해 꺼낸다."""
+    namespace = {'__name__': 'state_under_test', '__file__': STATE}
+    with open(STATE, encoding='utf-8') as f:
+        exec(compile(f.read(), STATE, 'exec'), namespace)
+    return namespace['valid_session_id']
+
+
+VALID_SESSION_ID = load_valid_session_id()
 
 
 def load_example():
@@ -871,10 +899,12 @@ class RenderTest(unittest.TestCase):
     def test_render_leaves_no_bytecode_in_skill_dir(self):
         skill = os.path.join(self.tmp, 'skill')
         os.mkdir(skill)
-        for name in ('render.py', 'config.py', 'template.html'):
+        for name in ('render.py', 'state.py', 'config.py', 'template.html'):
             shutil.copy(os.path.join(HERE, name), skill)
         env = dict(os.environ)
         env.pop('PYTHONDONTWRITEBYTECODE', None)
+        for key in ('CLAUDE_CODE_SESSION_ID', 'DEADHD_STATE_DIR', 'DEADHD_HISTORY'):
+            env.pop(key, None)
         env['DEADHD_CONFIG'] = MISSING_CONFIG
         r = subprocess.run([sys.executable, os.path.join(skill, 'render.py'), EXAMPLE, self.out()],
                            capture_output=True, text=True, env=env)
@@ -1174,7 +1204,8 @@ class RenderFontTest(unittest.TestCase):
     def run_render(self, argv, config_path=None):
         env = dict(os.environ)
         env['DEADHD_CONFIG'] = config_path if config_path is not None else MISSING_CONFIG
-        env.pop('XDG_CONFIG_HOME', None)
+        for key in ('XDG_CONFIG_HOME', 'CLAUDE_CODE_SESSION_ID', 'DEADHD_STATE_DIR', 'DEADHD_HISTORY'):
+            env.pop(key, None)
         return subprocess.run([sys.executable, RENDER, *argv], capture_output=True, text=True, env=env)
 
     def render(self, *flags, config_path=None):
@@ -1823,6 +1854,533 @@ class SkillDocTest(unittest.TestCase):
         for needle in needles:
             with self.subTest(needle=needle):
                 self.assertNotIn(needle, text)
+
+
+class StateScriptTest(unittest.TestCase):
+    """state.py 가 훅 이벤트를 상태 파일과 재렌더로 옮기는지 확인한다."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='progress-state-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.state_dir = os.path.join(self.tmp, 'state')
+        os.makedirs(self.state_dir)
+        self.data = os.path.join(self.tmp, 'data.json')
+        with open(self.data, 'w', encoding='utf-8') as f:
+            json.dump(load_example(), f, ensure_ascii=False)
+        self.out = os.path.join(self.tmp, 'out.html')
+
+    def render_session(self, session='s1'):
+        r = run_render(self.data, self.out, session=session,
+                       env_extra={'DEADHD_STATE_DIR': self.state_dir})
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def event(self, payload, raw=None, session='s1'):
+        if raw is None:
+            payload = dict(payload, session_id=session)
+        return run_state(payload, self.state_dir, raw=raw)
+
+    def read_state(self, session='s1'):
+        with open(os.path.join(self.state_dir, session + '.json'), encoding='utf-8') as f:
+            return json.load(f)
+
+    def out_payload(self):
+        with open(self.out, encoding='utf-8') as f:
+            return parse_block(data_block(f.read()))
+
+    def test_missing_state_file_writes_nothing(self):
+        r = self.event({'hook_event_name': 'Notification', 'notification_type': 'permission_prompt',
+                        'message': 'm'}, session='ghost')
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(os.listdir(self.state_dir), [])
+
+    def test_permission_prompt_marks_waiting_and_rerenders(self):
+        self.render_session()
+        before = os.stat(self.out).st_mtime_ns
+        r = self.event({'hook_event_name': 'Notification', 'notification_type': 'permission_prompt',
+                        'message': 'Claude needs your permission to use Bash'})
+        self.assertEqual(r.returncode, 0)
+        state = self.read_state()
+        self.assertEqual(state['status'], 'waiting_permission')
+        self.assertEqual(state['message'], 'Claude needs your permission to use Bash')
+        self.assertEqual(self.out_payload()['live']['status'], 'waiting_permission')
+        self.assertGreater(os.stat(self.out).st_mtime_ns, before)
+
+    def test_idle_prompt_clears_message(self):
+        self.render_session()
+        self.event({'hook_event_name': 'Notification', 'notification_type': 'permission_prompt',
+                    'message': 'x'})
+        self.event({'hook_event_name': 'Notification', 'notification_type': 'idle_prompt',
+                    'message': 'x'})
+        state = self.read_state()
+        self.assertEqual(state['status'], 'idle')
+        self.assertIsNone(state['message'])
+
+    def test_post_tool_use_updates_state_but_skips_recent_render(self):
+        self.render_session()
+        first = self.event({'hook_event_name': 'PostToolUse', 'tool_name': 'Bash',
+                            'tool_input': {}, 'tool_response': {}, 'duration_ms': 1200})
+        self.assertEqual(first.returncode, 0)
+        state = self.read_state()
+        self.assertEqual(state['status'], 'working')
+        self.assertEqual(state['lastTool']['name'], 'Bash')
+        self.assertEqual(state['lastTool']['durationMs'], 1200)
+
+        rendered = os.stat(self.out).st_mtime_ns
+        second = self.event({'hook_event_name': 'PostToolUse', 'tool_name': 'Read', 'tool_input': {}})
+        self.assertEqual(second.returncode, 0)
+        self.assertEqual(os.stat(self.out).st_mtime_ns, rendered)
+        self.assertEqual(self.read_state()['lastTool']['name'], 'Read')
+        self.assertIsNone(self.read_state()['lastTool']['durationMs'])
+
+    def test_stop_records_idle_and_background_tasks(self):
+        self.render_session()
+        r = self.event({'hook_event_name': 'Stop', 'last_assistant_message': 'done',
+                        'background_tasks': [{'id': 't1', 'type': 'shell', 'status': 'running',
+                                              'description': 'pytest -q'}]})
+        self.assertEqual(r.returncode, 0)
+        state = self.read_state()
+        self.assertEqual(state['status'], 'idle')
+        self.assertEqual(state['backgroundTasks'], [{'type': 'shell', 'description': 'pytest -q'}])
+
+    def test_stop_without_tasks_clears_them(self):
+        self.render_session()
+        self.event({'hook_event_name': 'Stop',
+                    'background_tasks': [{'type': 'shell', 'description': 'x'}]})
+        self.event({'hook_event_name': 'Stop'})
+        self.assertEqual(self.read_state()['backgroundTasks'], [])
+
+    def test_compact_counts_and_returns_context(self):
+        self.render_session()
+        r = self.event({'hook_event_name': 'SessionStart', 'source': 'compact'})
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(self.read_state()['compactions']['count'], 1)
+        note = json.loads(r.stdout)['hookSpecificOutput']
+        self.assertEqual(note['hookEventName'], 'SessionStart')
+        self.assertIn(self.data, note['additionalContext'])
+        self.assertIn(self.out, note['additionalContext'])
+
+    def test_session_start_without_compact_is_ignored(self):
+        self.render_session()
+        r = self.event({'hook_event_name': 'SessionStart', 'source': 'startup'})
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(r.stdout, '')
+        self.assertEqual(self.read_state()['compactions']['count'], 0)
+
+    def test_session_end_marks_ended(self):
+        self.render_session()
+        r = self.event({'hook_event_name': 'SessionEnd', 'reason': 'exit'})
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(self.read_state()['status'], 'ended')
+
+    def test_broken_stdin_exits_zero(self):
+        self.render_session()
+        r = self.event(None, raw='{not json')
+        self.assertEqual(r.returncode, 0)
+        r = self.event(None, raw='')
+        self.assertEqual(r.returncode, 0)
+
+    def test_stale_state_files_are_dropped(self):
+        self.render_session()
+        other = os.path.join(self.state_dir, 'old.json')
+        with open(other, 'w', encoding='utf-8') as f:
+            f.write('{}')
+        old = time.time() - 8 * 24 * 3600
+        os.utime(other, (old, old))
+        self.event({'hook_event_name': 'UserPromptSubmit', 'prompt': 'hi'})
+        self.assertFalse(os.path.exists(other))
+        self.assertTrue(os.path.exists(os.path.join(self.state_dir, 's1.json')))
+
+    def test_parent_traversal_id_is_ignored(self):
+        outside = os.path.join(self.tmp, 'esc.json')
+        with open(outside, 'w', encoding='utf-8') as f:
+            f.write('{"x": 1}')
+        self.render_session()
+        r = run_state({'session_id': '../esc', 'hook_event_name': 'Stop'}, self.state_dir)
+        self.assertEqual(r.returncode, 0)
+        with open(outside, encoding='utf-8') as f:
+            self.assertEqual(f.read(), '{"x": 1}')
+        self.assertEqual(sorted(os.listdir(self.state_dir)), ['s1.json'])
+
+
+class SessionIdValidationTest(unittest.TestCase):
+    """state.valid_session_id 가 경로를 벗어나는 값을 막는지 확인한다."""
+
+    def test_valid_ids(self):
+        for value in ('abc-123_x.y', '20684f98-14a3-46ef-a83d-c281d90ea44b'):
+            with self.subTest(value=value):
+                self.assertTrue(VALID_SESSION_ID(value))
+
+    def test_invalid_ids(self):
+        for value in ('', '.', '..', 'a/b', 'a' * 129, None, 7):
+            with self.subTest(value=repr(value)):
+                self.assertFalse(VALID_SESSION_ID(value))
+
+
+class RenderSessionTest(unittest.TestCase):
+    """render.py 가 세션 id 로 상태 파일을 만들고 payload 에 live 를 넣는지 확인한다."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='progress-session-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.state_dir = os.path.join(self.tmp, 'state')
+        self.data = os.path.join(self.tmp, 'data.json')
+        with open(self.data, 'w', encoding='utf-8') as f:
+            json.dump(load_example(), f, ensure_ascii=False)
+        self.out = os.path.join(self.tmp, 'out.html')
+
+    def render(self, session=None, env_extra=None):
+        extra = {'DEADHD_STATE_DIR': self.state_dir}
+        if env_extra:
+            extra.update(env_extra)
+        return run_render(self.data, self.out, session=session, env_extra=extra)
+
+    def payload(self):
+        with open(self.out, encoding='utf-8') as f:
+            return parse_block(data_block(f.read()))
+
+    def test_session_flag_creates_absolute_state(self):
+        self.assertEqual(self.render(session='abc').returncode, 0)
+        with open(os.path.join(self.state_dir, 'abc.json'), encoding='utf-8') as f:
+            state = json.load(f)
+        self.assertEqual(state['sessionId'], 'abc')
+        self.assertEqual(state['data'], os.path.abspath(self.data))
+        self.assertEqual(state['out'], os.path.abspath(self.out))
+        self.assertTrue(os.path.isabs(state['data']))
+        self.assertTrue(os.path.isabs(state['out']))
+        self.assertEqual(self.payload()['live']['status'], 'working')
+
+    def test_without_session_payload_has_no_live(self):
+        self.assertEqual(self.render().returncode, 0)
+        self.assertNotIn('live', self.payload())
+        self.assertFalse(os.path.isdir(self.state_dir))
+
+    def test_env_var_links_session(self):
+        self.assertEqual(self.render(env_extra={'CLAUDE_CODE_SESSION_ID': 'env-1'}).returncode, 0)
+        with open(os.path.join(self.state_dir, 'env-1.json'), encoding='utf-8') as f:
+            self.assertEqual(json.load(f)['sessionId'], 'env-1')
+        self.assertEqual(self.payload()['live']['status'], 'working')
+
+    def test_parent_traversal_session_dies(self):
+        cases = (
+            {'session': '../esc'},
+            {'env_extra': {'CLAUDE_CODE_SESSION_ID': '../esc'}},
+        )
+        for kwargs in cases:
+            with self.subTest(kwargs=kwargs):
+                r = self.render(**kwargs)
+                self.assertEqual(r.returncode, 1)
+                self.assertIn('세션 id', r.stderr)
+                self.assertFalse(os.path.exists(os.path.join(self.tmp, 'esc.json')))
+                self.assertFalse(os.path.exists(self.out))
+
+
+class CalibrationTest(unittest.TestCase):
+    """예상 대비 실제 이력이 보정 계수와 완료 예상으로 이어지는지 확인한다."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='progress-cal-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.history = os.path.join(self.tmp, 'history.jsonl')
+        self.state_dir = os.path.join(self.tmp, 'state')
+        self.out = os.path.join(self.tmp, 'out.html')
+
+    def write_data(self, items, name='data.json'):
+        path = os.path.join(self.tmp, name)
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump({'title': 'T', 'items': items}, f, ensure_ascii=False)
+        return path
+
+    def write_history(self, rows, broken=False):
+        with open(self.history, 'w', encoding='utf-8') as f:
+            if broken:
+                f.write('not json\n')
+                f.write('\n')
+            for row in rows:
+                f.write(json.dumps(row) + '\n')
+
+    def entries(self):
+        if not os.path.exists(self.history):
+            return []
+        with open(self.history, encoding='utf-8') as f:
+            return [json.loads(line) for line in f if line.strip()]
+
+    def render(self, path, session=None):
+        env = {'DEADHD_HISTORY': self.history, 'DEADHD_NOW': FIXED_NOW,
+               'DEADHD_STATE_DIR': self.state_dir}
+        r = run_render(path, self.out, session=session, env_extra=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(self.out, encoding='utf-8') as f:
+            return parse_block(data_block(f.read()))
+
+    def test_factor_needs_three_samples(self):
+        items = [mini_item('a', 'now', estimate=30)]
+        cases = ([], [{'est': 10, 'actual': 16}],
+                 [{'est': 10, 'actual': 16}, {'est': 20, 'actual': 32}])
+        for rows in cases:
+            with self.subTest(samples=len(rows)):
+                self.write_history(rows)
+                payload = self.render(self.write_data(items))
+                self.assertNotIn('etaCalibrated', payload)
+                self.assertNotIn('calibration', payload)
+                self.assertEqual(payload['eta'], '2026-10-03T10:30:00+09:00')
+
+    def test_factor_and_calibrated_eta(self):
+        self.write_history([
+            {'est': 10, 'actual': 16},
+            {'est': 20, 'actual': 32},
+            {'est': 30, 'actual': 48},
+        ])
+        payload = self.render(self.write_data([mini_item('a', 'now', estimate=30)]))
+        self.assertEqual(payload['calibration'], {'factor': 1.6, 'samples': 3})
+        self.assertEqual(payload['eta'], '2026-10-03T10:30:00+09:00')
+        self.assertEqual(payload['etaCalibrated'], '2026-10-03T10:48:00+09:00')
+
+    def test_broken_history_lines_are_skipped(self):
+        self.write_history([
+            {'est': 10, 'actual': 16},
+            {'est': 20, 'actual': 32},
+            {'est': 30, 'actual': 48},
+        ], broken=True)
+        payload = self.render(self.write_data([mini_item('a', 'now', estimate=10)]))
+        self.assertEqual(payload['calibration'], {'factor': 1.6, 'samples': 3})
+
+    def test_factor_is_clamped(self):
+        self.write_history([{'est': 1, 'actual': 10}] * 3)
+        payload = self.render(self.write_data([mini_item('a', 'now', estimate=100)]))
+        self.assertEqual(payload['calibration']['factor'], 5.0)
+        self.assertEqual(payload['etaCalibrated'], '2026-10-03T18:20:00+09:00')
+
+    def test_blocked_step_hides_calibrated_eta(self):
+        self.write_history([{'est': 10, 'actual': 16}] * 3)
+        items = [mini_item('a', 'now', estimate=30), mini_item('b', 'blocked')]
+        payload = self.render(self.write_data(items))
+        self.assertNotIn('eta', payload)
+        self.assertNotIn('etaCalibrated', payload)
+
+    def test_ledger_records_first_estimate_once(self):
+        path = self.write_data([mini_item('a', 'now', estimate=10)])
+        self.render(path, session='cal')
+        with open(os.path.join(self.state_dir, 'cal.json'), encoding='utf-8') as f:
+            ledger = json.load(f)['estimates']
+        self.assertEqual(ledger['a']['est'], 10)
+        self.assertFalse(ledger['a']['recorded'])
+
+    def test_done_step_appends_history_once(self):
+        path = self.write_data([mini_item('a', 'now', estimate=10)])
+        self.render(path, session='cal')
+        done = [mini_item('a', 'done', estimate=10,
+                          startedAt='2026-10-03T09:00:00+09:00',
+                          doneAt='2026-10-03T10:00:00+09:00')]
+        self.write_data(done)
+        self.render(path, session='cal')
+        entries = self.entries()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]['item'], 'a')
+        self.assertEqual(entries[0]['est'], 10)
+        self.assertEqual(entries[0]['actual'], 60.0)
+        self.assertEqual(entries[0]['session'], 'cal')
+
+        self.render(path, session='cal')
+        self.assertEqual(len(self.entries()), 1)
+
+    def test_zero_length_step_is_not_recorded(self):
+        path = self.write_data([mini_item('a', 'now', estimate=10)])
+        self.render(path, session='cal')
+        same = [mini_item('a', 'done', estimate=10,
+                          startedAt='2026-10-03T10:00:00+09:00',
+                          doneAt='2026-10-03T10:00:00+09:00')]
+        self.render(self.write_data(same, 'data2.json'), session='cal')
+        self.assertEqual(self.entries(), [])
+
+
+class LiveBandTest(unittest.TestCase):
+    """템플릿 스크립트가 live 상태를 띠로 그리는지 확인한다."""
+
+    def setUp(self):
+        if NODE is None:
+            self.skipTest('node 가 없어 템플릿 스크립트를 실행할 수 없다')
+        self.tmp = tempfile.mkdtemp(prefix='progress-live-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.state_dir = os.path.join(self.tmp, 'state')
+        self.data = os.path.join(self.tmp, 'data.json')
+        with open(self.data, 'w', encoding='utf-8') as f:
+            json.dump(load_example(), f, ensure_ascii=False)
+        self.out = os.path.join(self.tmp, 'out.html')
+
+    def band(self):
+        with open(self.out, encoding='utf-8') as f:
+            result = run_linkify_harness(f.read(), fixed_now=FIXED_NOW)
+        return result['nodes']['live']
+
+    def band_with_state(self, state, lang=None):
+        os.makedirs(self.state_dir, exist_ok=True)
+        with open(os.path.join(self.state_dir, 's1.json'), 'w', encoding='utf-8') as f:
+            json.dump(state, f, ensure_ascii=False)
+        data = load_example()
+        if lang is not None:
+            data['lang'] = lang
+        with open(self.data, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+        r = run_render(self.data, self.out, session='s1', env_extra={
+            'DEADHD_STATE_DIR': self.state_dir,
+            'DEADHD_HISTORY': os.path.join(self.tmp, 'history.jsonl'),
+        })
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return self.band()
+
+    def texts(self, node, cls):
+        return [n['text'] for n in iter_nodes(node) if cls in (n.get('cls') or '').split()]
+
+    def test_working_band(self):
+        self.assertEqual(run_render(self.data, self.out, session='s1',
+                                    env_extra={'DEADHD_STATE_DIR': self.state_dir}).returncode, 0)
+        node = self.band()
+        self.assertIn('live-working', node['cls'])
+        self.assertEqual(self.texts(node, 'live-title'), ['작업 중'])
+
+    def test_permission_band_carries_message(self):
+        self.assertEqual(run_render(self.data, self.out, session='s1',
+                                    env_extra={'DEADHD_STATE_DIR': self.state_dir}).returncode, 0)
+        r = run_state({'session_id': 's1', 'hook_event_name': 'Notification',
+                       'notification_type': 'permission_prompt', 'message': 'Bash 권한'}, self.state_dir)
+        self.assertEqual(r.returncode, 0)
+        node = self.band()
+        self.assertIn('live-waiting_permission', node['cls'])
+        self.assertTrue(self.texts(node, 'live-title')[0].startswith('권한 승인 대기 · '))
+        self.assertEqual(self.texts(node, 'live-what'), ['Bash 권한'])
+
+    def test_stalled_working_band(self):
+        node = self.band_with_state({
+            'status': 'working',
+            'since': '2026-10-03T09:00:00+09:00',
+            'lastTool': {'name': 'Bash', 'at': '2026-10-03T09:49:00+09:00', 'durationMs': 1200},
+        })
+        self.assertIn('live-stall', node['cls'].split())
+        self.assertEqual(self.texts(node, 'live-title'), ['신호 없음 · 11분째'])
+
+    def test_idle_band(self):
+        node = self.band_with_state({'status': 'idle', 'since': '2026-10-03T09:48:00+09:00'})
+        self.assertIn('live-idle', node['cls'].split())
+        self.assertEqual(self.texts(node, 'live-title'), ['입력 대기 · 12분째'])
+
+    def test_ended_band(self):
+        node = self.band_with_state({'status': 'ended', 'since': '2026-10-03T09:30:00+09:00'})
+        self.assertIn('live-ended', node['cls'].split())
+        self.assertTrue(self.texts(node, 'live-title')[0].startswith('세션 종료 '))
+
+    def test_english_permission_band(self):
+        node = self.band_with_state(
+            {'status': 'waiting_permission', 'since': '2026-10-03T09:48:00+09:00', 'message': 'Bash'},
+            lang='en')
+        self.assertIn('live-waiting_permission', node['cls'].split())
+        self.assertEqual(self.texts(node, 'live-title'), ['Waiting for permission · for 12m'])
+
+
+class EtaCalibrationDisplayTest(unittest.TestCase):
+    """템플릿 스크립트가 보정 완료 예상을 원본 보기와 컴팩트 보기에 쓰는지 확인한다."""
+
+    def setUp(self):
+        if NODE is None:
+            self.skipTest('node 가 없어 템플릿 스크립트를 실행할 수 없다')
+        self.tmp = tempfile.mkdtemp(prefix='progress-eta-cal-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.history = os.path.join(self.tmp, 'history.jsonl')
+
+    def write_history(self, est, actual):
+        with open(self.history, 'w', encoding='utf-8') as f:
+            for _ in range(3):
+                f.write(json.dumps({'est': est, 'actual': actual}) + '\n')
+
+    def render(self, lang=None):
+        data = {'title': 'T', 'items': [mini_item('a', 'now', estimate=30)]}
+        if lang is not None:
+            data['lang'] = lang
+        path = os.path.join(self.tmp, 'data.json')
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+        out = os.path.join(self.tmp, 'out.html')
+        r = run_render(path, out, env_extra={'DEADHD_HISTORY': self.history, 'DEADHD_NOW': FIXED_NOW})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding='utf-8') as f:
+            return f.read()
+
+    def harness(self, html, cases=None):
+        return run_linkify_harness(html, cases, fixed_now=FIXED_NOW)
+
+    def find(self, result, cls):
+        found = []
+        for tree in result['nodes'].values():
+            for node in iter_nodes(tree):
+                if cls in (node.get('cls') or '').split():
+                    found.append(node)
+        return found
+
+    def test_eta_line_shows_raw_and_calibrated(self):
+        self.write_history(10, 16)
+        result = self.harness(self.render())
+        eta = self.find(result, 'eta')
+        self.assertEqual(len(eta), 1)
+        raw = self.find(result, 'raw')
+        self.assertEqual([n['t'] for n in raw], ['S'])
+        self.assertEqual([n['text'] for n in raw], ['10:30'])
+        self.assertEqual([n['text'] for n in eta[0]['kids'] if n['t'] == 'B'], ['10:48'])
+        self.assertEqual([n['text'] for n in self.find(result, 'cal-note')],
+                         ['예측이 1.6배 느림 · 완료 3단계 기준'])
+
+    def test_english_slow_note(self):
+        self.write_history(10, 16)
+        result = self.harness(self.render(lang='en'))
+        self.assertEqual([n['text'] for n in self.find(result, 'cal-note')],
+                         ['Estimates run 1.6× slow · from 3 done steps'])
+
+    def test_fast_factor_note(self):
+        self.write_history(10, 8)
+        cases = (
+            (None, '예측이 0.8배 빠름 · 완료 3단계 기준'),
+            ('en', 'Estimates run 0.8× fast · from 3 done steps'),
+        )
+        for lang, expected in cases:
+            with self.subTest(lang=lang):
+                result = self.harness(self.render(lang=lang))
+                self.assertEqual([n['text'] for n in self.find(result, 'cal-note')], [expected])
+
+    def test_compact_views_use_calibrated_eta(self):
+        self.write_history(10, 16)
+        html = self.render()
+        for view in ('a', 'b', 'c'):
+            with self.subTest(view=view):
+                out = self.harness(html, {'compact': {'v': view, 'oe': 'port', 'chip': 'done'}})['compact']
+                self.assertIn('10:48', out)
+                self.assertNotIn('10:30', out)
+
+
+class TemplateLiveStaticTest(unittest.TestCase):
+    def test_template_has_live_slot_and_styles(self):
+        with open(TEMPLATE, encoding='utf-8') as f:
+            html = f.read()
+        self.assertIn('<section class="live" id="live" hidden aria-live="polite"></section>', html)
+        self.assertIn('.live-waiting_permission', html)
+        self.assertIn('.cal-note', html)
+
+
+class HooksJsonTest(unittest.TestCase):
+    def test_hooks_file_points_at_state_script(self):
+        root = os.path.dirname(os.path.dirname(HERE))
+        with open(os.path.join(root, 'hooks', 'hooks.json'), encoding='utf-8') as f:
+            hooks = json.load(f)['hooks']
+        self.assertEqual(sorted(hooks), sorted([
+            'Notification', 'UserPromptSubmit', 'PostToolUse',
+            'Stop', 'SessionStart', 'SessionEnd']))
+        self.assertEqual(hooks['Notification'][0]['matcher'], 'permission_prompt|idle_prompt')
+        self.assertEqual(hooks['SessionStart'][0]['matcher'], 'compact')
+        for event, groups in hooks.items():
+            with self.subTest(event=event):
+                for group in groups:
+                    for hook in group['hooks']:
+                        self.assertEqual(hook['type'], 'command')
+                        self.assertIn('${CLAUDE_PLUGIN_ROOT}/', hook['command'])
+                        rel = hook['command'].split('${CLAUDE_PLUGIN_ROOT}/')[1].rstrip('"')
+                        self.assertTrue(os.path.exists(os.path.join(root, rel)), rel)
 
 
 if __name__ == '__main__':
