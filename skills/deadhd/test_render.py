@@ -3330,5 +3330,288 @@ class HooksJsonTest(unittest.TestCase):
                         self.assertTrue(os.path.exists(os.path.join(root, rel)), rel)
 
 
+BOARD_STAGES = ['분석', '설계', '구현', '검증']
+DEMO_EPIC = os.path.join(os.path.dirname(os.path.dirname(HERE)), 'docs', 'demos', 'epic.json')
+
+
+def board_lane(lid, state, **extra):
+    lane = {'id': lid, 'label': lid + ' 작업', 'state': state}
+    lane.update(extra)
+    return lane
+
+
+def board_data(board):
+    data = {'title': 'T', 'items': [mini_item('a', 'done')]}
+    if board is not None:
+        data['board'] = board
+    return data
+
+
+class BoardValidateTest(unittest.TestCase):
+    """board 필드의 검증 규칙을 확인한다."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='progress-board-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.count = 0
+
+    def render(self, data):
+        self.count += 1
+        path = os.path.join(self.tmp, 'data%d.json' % self.count)
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+        out = os.path.join(self.tmp, 'out%d.html' % self.count)
+        return run_render(path, out), out
+
+    def rejected(self, board, needle):
+        r, out = self.render(board_data(board))
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn(needle, r.stderr)
+        self.assertFalse(os.path.exists(out))
+
+    def test_valid_board_renders(self):
+        board = {
+            'stages': BOARD_STAGES,
+            'lanes': [
+                board_lane('l1', 'done', stage='검증', worker='deepseek', note='n', body='끝났다',
+                           startedAt='2026-10-03T09:00:00+09:00', doneAt='2026-10-03T09:40:00+09:00',
+                           lastSignal='2026-10-03T09:40:00+09:00', estimate=30, stallAfter=10,
+                           evidence=[{'text': 'x', 'href': 'https://x.test/a'}],
+                           log=[{'at': '2026-10-03T09:40:00+09:00', 'text': '완료'}]),
+                board_lane('l2', 'now', stage='구현', dependsOn=['l1']),
+                board_lane('l3', 'waiting'),
+                board_lane('l4', 'left'),
+                board_lane('l5', 'blocked'),
+            ],
+        }
+        r, out = self.render(board_data(board))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding='utf-8') as f:
+            html = f.read()
+        parsed = parse_block(data_block(html))
+        self.assertEqual(parsed['board']['lanes'][0]['id'], 'l1')
+
+    def test_board_without_stages_allows_any_stage(self):
+        board = {'lanes': [board_lane('l1', 'now', stage='임의 단계')]}
+        self.assertEqual(self.render(board_data(board))[0].returncode, 0)
+
+    def test_board_must_be_an_object(self):
+        self.rejected(['nope'], 'board 가 객체가 아니다')
+
+    def test_lanes_must_be_a_non_empty_array(self):
+        self.rejected({'lanes': []}, 'board.lanes')
+        self.rejected({'stages': BOARD_STAGES}, 'board.lanes')
+
+    def test_stages_must_be_non_empty_unique_strings(self):
+        lanes = [board_lane('l1', 'now')]
+        self.rejected({'stages': [], 'lanes': lanes}, 'board.stages')
+        self.rejected({'stages': ['a', 'a'], 'lanes': lanes}, 'board.stages 에 중복')
+        self.rejected({'stages': [1], 'lanes': lanes}, 'board.stages')
+
+    def test_lane_id_and_label_are_required(self):
+        self.rejected({'lanes': [board_lane('', 'now')]}, 'id 가 비어 있지 않은 문자열이 아니다')
+        self.rejected({'lanes': [{'id': 'l1', 'state': 'now'}]}, 'label 이 문자열이 아니다')
+
+    def test_duplicate_lane_id_is_rejected(self):
+        board = {'lanes': [board_lane('l1', 'now'), board_lane('l1', 'left')]}
+        self.rejected(board, '중복')
+
+    def test_unknown_lane_state_is_rejected(self):
+        self.rejected({'lanes': [board_lane('l1', 'side')]}, 'state')
+
+    def test_stage_outside_stages_is_rejected(self):
+        board = {'stages': BOARD_STAGES, 'lanes': [board_lane('l1', 'now', stage='배포')]}
+        self.rejected(board, 'stage')
+
+    def test_unknown_depends_on_is_rejected(self):
+        board = {'lanes': [board_lane('l1', 'now', dependsOn=['nope'])]}
+        self.rejected(board, 'dependsOn')
+        self.rejected({'lanes': [board_lane('l1', 'now', dependsOn='l1')]}, 'dependsOn')
+
+    def test_bad_timestamps_are_rejected(self):
+        self.rejected({'lanes': [board_lane('l1', 'now', lastSignal='2026-10-03T09:00:00')]}, 'lastSignal')
+        self.rejected({'lanes': [board_lane('l1', 'now', startedAt='어제')]}, 'startedAt')
+        self.rejected(
+            {'lanes': [board_lane('l1', 'done', startedAt='2026-10-03T09:00:00+09:00',
+                                  doneAt='2026-10-03T08:00:00+09:00')]},
+            '앞선다')
+        self.rejected({'lanes': [board_lane('l1', 'now', log=[{'at': '2026-10-03T09:00:00'}])]}, 'log[0].at')
+
+    def test_log_entry_needs_text(self):
+        self.rejected({'lanes': [board_lane('l1', 'now', log=[{'at': '2026-10-03T09:00:00+09:00'}])]}, 'log[0].text')
+        self.rejected({'lanes': [board_lane('l1', 'now', log='메모')]}, 'log 가 배열이 아니다')
+
+    def test_stall_after_must_be_positive_number(self):
+        self.rejected({'lanes': [board_lane('l1', 'now', stallAfter=0)]}, 'stallAfter')
+        self.rejected({'lanes': [board_lane('l1', 'now', stallAfter=-5)]}, 'stallAfter')
+        self.rejected({'lanes': [board_lane('l1', 'now', stallAfter='15')]}, 'stallAfter')
+
+    def test_estimate_rule_matches_items(self):
+        self.rejected({'lanes': [board_lane('l1', 'now', estimate=0)]}, 'estimate')
+        self.rejected({'lanes': [board_lane('l1', 'now', estimate='30')]}, 'estimate')
+
+    def test_evidence_href_must_be_http(self):
+        board = {'lanes': [board_lane('l1', 'now', evidence=[{'text': 'x', 'href': 'ftp://x.test/a'}])]}
+        self.rejected(board, 'evidence')
+
+    def test_optional_text_fields_must_be_strings(self):
+        self.rejected({'lanes': [board_lane('l1', 'now', worker=3)]}, 'worker')
+        self.rejected({'lanes': [board_lane('l1', 'now', note=None, body=5)]}, 'body')
+
+    def test_board_without_board_field_still_renders(self):
+        r, out = self.render(board_data(None))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding='utf-8') as f:
+            parsed = parse_block(data_block(f.read()))
+        self.assertNotIn('board', parsed)
+
+
+class BoardDomTest(unittest.TestCase):
+    """board 가 있을 때만 보드 섹션이 만들어지고 정체가 드러나는지 확인한다."""
+
+    def setUp(self):
+        if NODE is None:
+            self.skipTest('node 가 없어 템플릿 스크립트를 실행할 수 없다')
+        self.tmp = tempfile.mkdtemp(prefix='progress-board-dom-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def render_dom(self, data, now=FIXED_NOW, view=FIXED_NOW):
+        path = os.path.join(self.tmp, 'data.json')
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+        out = os.path.join(self.tmp, 'out.html')
+        r = run_render(path, out, env_extra={'DEADHD_NOW': now, 'DEADHD_PORT': '47410'})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding='utf-8') as f:
+            return run_linkify_harness(f.read(), fixed_now=view)
+
+    def find(self, result, cls):
+        found = []
+        for tree in result['nodes'].values():
+            for node in iter_nodes(tree):
+                if cls in (node.get('cls') or '').split():
+                    found.append(node)
+        return found
+
+    def lane_node(self, result, lid):
+        for node in iter_nodes(result['nodes']['board']):
+            if (node.get('data') or {}).get('lane') == lid:
+                return node
+        self.fail('레인 행을 찾지 못했다: ' + lid)
+
+    def test_board_absent_leaves_no_section(self):
+        result = self.render_dom({'title': 'T', 'items': [mini_item('a', 'done')]})
+        self.assertNotIn('board', result['nodes'])
+
+    def test_board_section_is_built_from_data(self):
+        board = {
+            'stages': BOARD_STAGES,
+            'lanes': [
+                board_lane('l1', 'done', stage='검증', worker='deepseek'),
+                board_lane('l2', 'now', stage='구현', worker='leader', note='검토 중'),
+                board_lane('l3', 'blocked', stage='설계'),
+            ],
+        }
+        result = self.render_dom(board_data(board))
+        self.assertIn('board', result['nodes'])
+        rows = self.find(result, 'bd-row')
+        # 머리 행 하나 + 레인 3행
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(rows[0]['text'], '작업 · 작업자분석설계구현검증마지막 신호')
+        self.assertEqual(
+            [n['text'] for n in self.find(result, 'bd-grp')],
+            ['▾주의 필요1', '▾진행 중1', '▾완료1'],
+        )
+        cells = self.lane_node(result, 'l2')
+        self.assertEqual([c.get('cls') for c in cells['kids'] if 'bd-cell' in (c.get('cls') or '').split()],
+                         ['bd-cell done', 'bd-cell done', 'bd-cell now', 'bd-cell pending'])
+
+    def test_stalled_lane_is_marked_and_active_lane_is_not(self):
+        board = {
+            'stages': BOARD_STAGES,
+            'lanes': [
+                board_lane('stale', 'now', stage='구현', lastSignal='2026-10-03T09:30:00+09:00'),
+                board_lane('live', 'now', stage='구현', lastSignal='2026-10-03T09:55:00+09:00'),
+            ],
+        }
+        result = self.render_dom(board_data(board))
+        stale = self.lane_node(result, 'stale')
+        self.assertIn('bd-cell stall', [k.get('cls') for k in stale['kids']])
+        self.assertEqual([n['text'] for n in iter_nodes(stale) if 'bd-ago' in (n.get('cls') or '').split()],
+                         ['30분 전'])
+        self.assertEqual([n.get('cls') for n in iter_nodes(stale) if 'bd-ago' in (n.get('cls') or '').split()],
+                         ['bd-ago stall'])
+        live = self.lane_node(result, 'live')
+        self.assertIn('bd-cell now', [k.get('cls') for k in live['kids']])
+        self.assertEqual([n.get('cls') for n in iter_nodes(live) if 'bd-ago' in (n.get('cls') or '').split()],
+                         ['bd-ago'])
+        tags = [n['text'] for n in self.find(result, 'bd-tag')]
+        self.assertEqual(tags, ['정체 30분'])
+
+    def test_lane_without_signal_says_so(self):
+        board = {'stages': BOARD_STAGES, 'lanes': [board_lane('l1', 'now', stage='구현', stallAfter=5)]}
+        result = self.render_dom(board_data(board))
+        self.assertEqual([n['text'] for n in self.find(result, 'bd-ago')], ['신호 기록 없음'])
+        self.assertIn('bd-ago none', [n['cls'] for n in self.find(result, 'bd-ago')])
+
+    def test_started_at_is_the_fallback_signal(self):
+        board = {'stages': BOARD_STAGES,
+                 'lanes': [board_lane('l1', 'now', stage='구현', startedAt='2026-10-03T09:00:00+09:00')]}
+        result = self.render_dom(board_data(board))
+        self.assertEqual([n['text'] for n in self.find(result, 'bd-ago')], ['1시간 전'])
+        self.assertIn('bd-cell stall', [n['cls'] for n in self.find(result, 'bd-cell')])
+
+    def test_done_group_starts_collapsed(self):
+        board = {'stages': BOARD_STAGES,
+                 'lanes': [board_lane('l1', 'done', stage='검증'), board_lane('l2', 'now', stage='구현')]}
+        result = self.render_dom(board_data(board))
+        closed = [n for n in self.find(result, 'bd-grp') if 'closed' in (n.get('cls') or '').split()]
+        self.assertEqual([n['text'] for n in closed], ['▾완료1'])
+
+    def test_stage_missing_shows_one_text_cell(self):
+        board = {'lanes': [board_lane('l1', 'now', stage='배포'), board_lane('l2', 'left')]}
+        result = self.render_dom(board_data(board))
+        header = [n['text'] for n in self.find(result, 'bd-st')]
+        self.assertEqual(header, ['단계'])
+        self.assertEqual([n['text'] for n in self.find(result, 'bd-cell-text')], ['배포', '—'])
+
+    def test_worker_timeline_groups_bars(self):
+        board = {
+            'lanes': [
+                board_lane('l1', 'done', worker='deepseek',
+                           startedAt='2026-10-03T09:00:00+09:00', doneAt='2026-10-03T09:30:00+09:00'),
+                board_lane('l2', 'now', worker='deepseek', startedAt='2026-10-03T09:40:00+09:00',
+                           lastSignal='2026-10-03T09:55:00+09:00'),
+                board_lane('l3', 'left'),
+            ],
+        }
+        result = self.render_dom(board_data(board))
+        names = [n['text'] for n in self.find(result, 'bd-tl-nm')]
+        self.assertEqual(names, ['deepseek2개 레인'])
+        bars = self.find(result, 'bd-bar')
+        self.assertEqual([b['text'] for b in bars], ['l1', 'l2'])
+        self.assertEqual([b.get('cls') for b in bars], ['bd-bar done', 'bd-bar now'])
+
+    def test_english_labels(self):
+        board = {'stages': BOARD_STAGES, 'lanes': [board_lane('l1', 'now', stage='구현')]}
+        data = board_data(board)
+        data['lang'] = 'en'
+        result = self.render_dom(data)
+        self.assertEqual(self.lane_node(result, 'l1')['kids'][0]['text'], 'l1l1 작업Unassigned')
+        self.assertEqual(self.find(result, 'bd-wk')[0]['text'], 'Unassigned')
+        self.assertEqual([n['text'] for n in self.find(result, 'bd-grp')], ['▾In progress1'])
+
+    def test_demo_epic_has_exactly_one_stalled_lane(self):
+        with open(DEMO_EPIC, encoding='utf-8') as f:
+            data = json.load(f)
+        # 데모의 now 는 14:30 이다. 그 시각으로 볼 때 정체는 SHOP-208 하나뿐이어야 한다.
+        result = self.render_dom(data, view='2026-10-07T14:30:00+09:00')
+        stalled = [n for n in self.find(result, 'bd-ago') if 'stall' in (n.get('cls') or '').split()]
+        self.assertEqual([n['text'] for n in stalled], ['18분 전'])
+        active = self.lane_node(result, 'SHOP-205')
+        self.assertIn('bd-cell now', [k.get('cls') for k in active['kids']])
+        self.assertEqual([n['text'] for n in self.find(result, 'bd-tag')], ['정체 18분', '막힘'])
+
+
 if __name__ == '__main__':
     unittest.main()

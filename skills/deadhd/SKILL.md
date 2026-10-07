@@ -100,6 +100,7 @@ Write `/tmp/deadhd-<task-slug>.json`. `<skill-dir>/example.json` is a complete e
 | `links` | Identifiers that appear in the text and have a URL: `{"SHOP-130": "https://...", "shop-api#4120": "https://..."}`. Every occurrence in the text below becomes a link, and a bare `http(s)://` URL is linked on its own |
 | `lanes` | Only when work runs on more than one track (repositories, a parallel branch). Omit for a single line |
 | `items` | One per step, in flow order. Fields below |
+| `board` | Subtask lanes, when four or more work units run in parallel. Fields in the `board` section below |
 | `edges` | Only the connections the lane does not already draw: steps next to each other in one lane are joined automatically, so list a branch, a merge, or a cross-lane dependency here |
 | `changes` | A plan change and its reason, when one happened |
 
@@ -114,6 +115,25 @@ Each item:
 - Draw numbers instead of writing them. A pass count goes in `stats` as `ring`; a single large number goes in `stats` as `number`; an A-versus-B measurement or a risk ratio goes in `compare`. A sequence of sub-steps inside the current item goes in `substeps`; a sub-step with a URL carries its own `href`.
 
 `render.py` computes the completion estimate from these fields and writes it into the page. Do not write a total or an end time into the data yourself. The line appears only when no item is `blocked` and every `now` and `left` item has an `estimate`; one missing estimate hides it.
+
+### `board`
+
+Use `board` when four or more work units run at once: an epic's subtasks, several delegated workers (a DeepSeek lane, a subagent, this leader session). Keep `items` short as the program-level steps — planning, subtask progress, audit — and put the subtasks in `board.lanes`. A page without `board` draws only the flow, exactly as before.
+
+- `stages`: the stage names in order, e.g. `["분석", "설계", "구현", "검증", "배포", "회귀", "보고"]`. Optional. Without it every lane shows its `stage` string in one column. Values must not repeat.
+- `lanes`: one entry per work unit, in the order they should read. At least one.
+  - `id`: the ticket key or work-unit id, unique in the board. `label`: a short noun phrase.
+  - `state`: `done` (finished), `now` (a worker is on it), `waiting` (held by `dependsOn`), `left` (not started), `blocked` (failed or waiting on the user). Any number of lanes may be `now`.
+  - `stage`: the stage it is in now. When `stages` is present it must be one of them; leave it out for a lane that has not started.
+  - `worker`: who runs it, e.g. `deepseek:impl-205`, `subagent:sonnet`, `leader`. A lane without it is grouped under `Unassigned`.
+  - `dependsOn`: the ids of the lanes this one waits for. The row shows them as `↳ … waiting`.
+  - `startedAt`, `doneAt`: same rule as on an item — a real time only, never invented.
+  - `lastSignal`: the last time a tool result in this session showed that worker's output: a result file update, a completion notice, a log line. Never invent it, and refresh it every time you look. The page prints it as `N ago` and turns the lane `stalled` once the silence passes `stallAfter`.
+  - `stallAfter`: minutes of silence before a `now` lane counts as stalled. Defaults to 15. The page decides this in the browser, so a lane you stopped updating still shows up as stalled.
+  - `estimate`: minutes left, as on a `now` item.
+  - `note`: a few words under the current stage dot, e.g. `code-reviewer`.
+  - `body`: the text the row expands to, one or two sentences.
+  - `evidence`: chips, as on an item. `log`: the lane's own transitions, `{"at": …, "text": …}` each; the page shows the eight newest of all lanes together.
 
 Link rules:
 
@@ -169,7 +189,7 @@ The plugin's hooks (`hooks/hooks.json`) keep a status band on the page fresh on 
 Every render also rewrites the hub page (`/tmp/deadhd-hub.html`), which lists this machine's sessions; the page's `허브 ↗` button opens it.
 
 - The open tab reloads itself every 15 seconds and plays the completion effect on items that became `done`.
-- When a step changes state, record its `startedAt` and `doneAt` and refresh the remaining `estimate` values.
+- When a step changes state, record its `startedAt` and `doneAt` and refresh the remaining `estimate` values. A lane in `board.lanes` is updated the same way: its `state`, `lastSignal`, and a new `log` line.
 - Do not run the delivery or open script again.
 - For a Claude artifact or an Orca artifact, republish only at the end of the task or when the user asks, not at every change. Republish an Orca artifact with `bash <skill-dir>/share.sh --update /tmp/deadhd-<slug>.html`.
 - On the first render and when the task ends, reread the data once against the writing rules (the writing-rules file's procedure when it has one). Skip this on intermediate updates.

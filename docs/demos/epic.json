@@ -1,0 +1,290 @@
+{
+  "key": "SHOP-200",
+  "keyHref": "https://example.atlassian.net/browse/SHOP-200",
+  "links": {
+    "SHOP-200": "https://example.atlassian.net/browse/SHOP-200",
+    "SHOP-201": "https://example.atlassian.net/browse/SHOP-201",
+    "SHOP-202": "https://example.atlassian.net/browse/SHOP-202",
+    "SHOP-203": "https://example.atlassian.net/browse/SHOP-203",
+    "SHOP-204": "https://example.atlassian.net/browse/SHOP-204",
+    "SHOP-205": "https://example.atlassian.net/browse/SHOP-205",
+    "SHOP-206": "https://example.atlassian.net/browse/SHOP-206",
+    "SHOP-207": "https://example.atlassian.net/browse/SHOP-207",
+    "SHOP-208": "https://example.atlassian.net/browse/SHOP-208",
+    "SHOP-209": "https://example.atlassian.net/browse/SHOP-209",
+    "SHOP-210": "https://example.atlassian.net/browse/SHOP-210",
+    "SHOP-211": "https://example.atlassian.net/browse/SHOP-211",
+    "SHOP-212": "https://example.atlassian.net/browse/SHOP-212",
+    "shop-api#4288": "https://github.com/example/shop-api/pull/4288",
+    "shop-api#4302": "https://github.com/example/shop-api/pull/4302",
+    "shop-api#4310": "https://github.com/example/shop-api/pull/4310"
+  },
+  "title": "환불 처리 개편 에픽의 하위 작업 12건 배포",
+  "goal": "부분 환불과 쿠폰 복원까지 한 흐름으로 처리하도록 주문·결제·정산 하위 작업을 나눠 병렬로 구현하고, dev 통합 레인에서 회귀 검증까지 마친다.",
+  "doneWhen": "하위 작업 12건이 모두 dev 에 배포되고 통합 회귀 18건을 통과한다.",
+  "updated": "2026-10-07 14:30 KST",
+  "meta": [
+    "rd-refund-20261007",
+    "development",
+    {"text": "feat/SHOP-200", "href": "https://github.com/example/shop-api/tree/feat/SHOP-200"},
+    "동시 실행 4"
+  ],
+  "lanes": ["에픽", "통합"],
+  "items": [
+    {
+      "id": "plan",
+      "lane": 0,
+      "col": 0,
+      "label": "계획·승인",
+      "sub": "완료",
+      "state": "done",
+      "startedAt": "2026-10-07T09:20:00+09:00",
+      "doneAt": "2026-10-07T10:00:00+09:00",
+      "title": "에픽 분해와 하위 작업 배정",
+      "body": "하위 작업 12건으로 나누고 작업자 네 명에게 배정했다. 단계 목록은 분석·설계·구현·검증·배포·회귀·보고 일곱 개로 고정했다.",
+      "evidence": [
+        {"icon": "ticket", "text": "SHOP-200 분해 코멘트", "href": "https://example.atlassian.net/browse/SHOP-200?focusedCommentId=51204"},
+        {"icon": "file", "text": "epic-split.md", "mono": true}
+      ]
+    },
+    {
+      "id": "run",
+      "lane": 0,
+      "col": 1,
+      "label": "하위 작업 실행",
+      "sub": "병렬 4",
+      "state": "now",
+      "startedAt": "2026-10-07T10:00:00+09:00",
+      "estimate": 120,
+      "title": "하위 작업 12건 병렬 실행",
+      "body": "완료 4건, 진행 3건, 정체 1건, 막힘 1건이다. 막힌 SHOP-209 는 쿠폰 복원 정책 결정을 기다린다.",
+      "substeps": [
+        {"label": "SHOP-201·202·203·204 완료", "state": "done"},
+        {"label": "SHOP-205·206·207 진행", "state": "now"},
+        {"label": "SHOP-209 정책 결정 대기", "state": "blocked"}
+      ],
+      "evidence": [
+        {"icon": "pr", "text": "shop-api#4302", "mono": true, "href": "https://github.com/example/shop-api/pull/4302"},
+        {"icon": "run", "text": "GitHub Actions run 9912034", "mono": true, "href": "https://github.com/example/shop-api/actions/runs/9912034"}
+      ]
+    },
+    {
+      "id": "regress",
+      "lane": 1,
+      "col": 2,
+      "label": "통합 회귀",
+      "sub": "대기",
+      "state": "left",
+      "estimate": 90,
+      "title": "dev 통합 회귀 18건",
+      "body": "부분 환불과 관리자 화면이 모두 dev 에 오르면 회귀 18건을 돌린다."
+    },
+    {
+      "id": "report",
+      "lane": 1,
+      "col": 3,
+      "label": "에픽 보고",
+      "sub": "대기",
+      "state": "left",
+      "estimate": 30,
+      "title": "에픽 종결과 티켓 전이",
+      "body": "수용 기준과 배포 증거를 대조해 SHOP-200 을 종결한다."
+    }
+  ],
+  "edges": [
+    ["plan", "run"], ["run", "regress"], ["regress", "report"]
+  ],
+  "board": {
+    "stages": ["분석", "설계", "구현", "검증", "배포", "회귀", "보고"],
+    "lanes": [
+      {
+        "id": "SHOP-207",
+        "label": "정산 리포트 컬럼 추가",
+        "state": "now",
+        "stage": "배포",
+        "worker": "leader",
+        "startedAt": "2026-10-07T13:50:00+09:00",
+        "lastSignal": "2026-10-07T14:29:00+09:00",
+        "estimate": 15,
+        "note": "/ship dev",
+        "body": "judge 판정 PASS 이후 dev 통합 레인에 배포하고 있다. 배포가 끝나면 정산 리포트 회귀를 돌린다.",
+        "evidence": [
+          {"icon": "pr", "text": "shop-api#4310", "mono": true, "href": "https://github.com/example/shop-api/pull/4310"},
+          {"icon": "check", "text": "judge PASS"}
+        ],
+        "log": [
+          {"at": "2026-10-07T14:29:00+09:00", "text": "배포 시작"},
+          {"at": "2026-10-07T14:26:00+09:00", "text": "judge 판정 PASS"},
+          {"at": "2026-10-07T13:50:00+09:00", "text": "검증 진입"}
+        ]
+      },
+      {
+        "id": "SHOP-205",
+        "label": "부분 환불 API",
+        "state": "now",
+        "stage": "검증",
+        "worker": "deepseek",
+        "dependsOn": ["SHOP-204"],
+        "startedAt": "2026-10-07T13:05:00+09:00",
+        "lastSignal": "2026-10-07T14:21:00+09:00",
+        "estimate": 40,
+        "note": "code-reviewer",
+        "body": "구현을 마치고 테스트 112건이 통과했다. code-reviewer 지적 2건을 반영한 뒤 judge 판정을 받는다.",
+        "evidence": [
+          {"icon": "pr", "text": "shop-api#4302", "mono": true, "href": "https://github.com/example/shop-api/pull/4302"},
+          {"icon": "test", "text": "테스트 112건 통과"}
+        ],
+        "log": [
+          {"at": "2026-10-07T14:21:00+09:00", "text": "검증 진입 · 테스트 112건 통과"},
+          {"at": "2026-10-07T13:05:00+09:00", "text": "구현 시작"}
+        ]
+      },
+      {
+        "id": "SHOP-206",
+        "label": "환불 알림 템플릿",
+        "state": "now",
+        "stage": "구현",
+        "worker": "subagent:sonnet",
+        "startedAt": "2026-10-07T13:44:00+09:00",
+        "lastSignal": "2026-10-07T14:26:00+09:00",
+        "estimate": 50,
+        "note": "구현 중",
+        "body": "deepseek 통로 호출이 EXITED 로 끝나 서브에이전트로 폴백했다. 알림 템플릿 3종과 발송 조건을 구현하고 있다.",
+        "evidence": [
+          {"icon": "file", "text": "templates/refund/*", "mono": true}
+        ],
+        "log": [
+          {"at": "2026-10-07T13:44:00+09:00", "text": "서브에이전트 폴백"},
+          {"at": "2026-10-07T13:30:00+09:00", "text": "deepseek 통로 EXITED"},
+          {"at": "2026-10-07T13:12:00+09:00", "text": "구현 시작"}
+        ]
+      },
+      {
+        "id": "SHOP-208",
+        "label": "관리자 환불 화면",
+        "state": "now",
+        "stage": "구현",
+        "worker": "deepseek:impl-208",
+        "startedAt": "2026-10-07T13:20:00+09:00",
+        "lastSignal": "2026-10-07T14:12:00+09:00",
+        "stallAfter": 15,
+        "estimate": 20,
+        "note": "18분 무신호",
+        "body": "결과 파일이 14:12 이후 갱신되지 않았다. 프로세스는 살아 있으므로 입력 대기나 무한 루프를 의심한다.",
+        "evidence": [
+          {"icon": "file", "text": "result.md 14:12", "mono": true}
+        ],
+        "log": [
+          {"at": "2026-10-07T14:12:00+09:00", "text": "마지막 신호"},
+          {"at": "2026-10-07T13:20:00+09:00", "text": "구현 시작"}
+        ]
+      },
+      {
+        "id": "SHOP-209",
+        "label": "쿠폰 복원 규칙",
+        "state": "blocked",
+        "stage": "설계",
+        "worker": "leader",
+        "startedAt": "2026-10-07T13:10:00+09:00",
+        "lastSignal": "2026-10-07T13:40:00+09:00",
+        "note": "정책 결정",
+        "body": "만료된 쿠폰을 부분 환불 때도 복원할지 요구사항에 정해져 있지 않다. 사용자 결정이 필요하다.",
+        "evidence": [
+          {"icon": "doc", "text": "PRD §4.2"},
+          {"icon": "check", "text": "AskUserQuestion"}
+        ],
+        "log": [
+          {"at": "2026-10-07T13:40:00+09:00", "text": "정책 질문으로 막힘"},
+          {"at": "2026-10-07T13:10:00+09:00", "text": "설계 시작"}
+        ]
+      },
+      {
+        "id": "SHOP-210",
+        "label": "환불 회귀 시나리오",
+        "state": "waiting",
+        "stage": "분석",
+        "dependsOn": ["SHOP-205", "SHOP-208"],
+        "estimate": 60,
+        "body": "부분 환불 API 와 관리자 화면이 배포되면 회귀 시나리오를 작성한다.",
+        "log": []
+      },
+      {
+        "id": "SHOP-211",
+        "label": "운영 대시보드",
+        "state": "left",
+        "dependsOn": ["SHOP-209"],
+        "estimate": 40,
+        "body": "쿠폰 복원 지표를 포함하므로 SHOP-209 결정을 기다린다.",
+        "log": []
+      },
+      {
+        "id": "SHOP-212",
+        "label": "운영 문서 갱신",
+        "state": "left",
+        "estimate": 20,
+        "body": "모든 레인이 끝난 뒤 문서를 갱신한다.",
+        "log": []
+      },
+      {
+        "id": "SHOP-204",
+        "label": "환불 금액 계산 모듈",
+        "state": "done",
+        "stage": "보고",
+        "worker": "deepseek",
+        "startedAt": "2026-10-07T12:26:00+09:00",
+        "doneAt": "2026-10-07T13:58:00+09:00",
+        "lastSignal": "2026-10-07T13:58:00+09:00",
+        "body": "dev 배포와 회귀 18건 통과 후 티켓을 전이했다.",
+        "evidence": [
+          {"icon": "pr", "text": "shop-api#4288", "mono": true, "href": "https://github.com/example/shop-api/pull/4288"},
+          {"icon": "test", "text": "회귀 18/18"}
+        ],
+        "log": [
+          {"at": "2026-10-07T13:58:00+09:00", "text": "완료 · 티켓 전이"}
+        ]
+      },
+      {
+        "id": "SHOP-203",
+        "label": "재고 차감 트랜잭션 분리",
+        "state": "done",
+        "stage": "보고",
+        "worker": "deepseek",
+        "startedAt": "2026-10-07T11:05:00+09:00",
+        "doneAt": "2026-10-07T12:47:00+09:00",
+        "lastSignal": "2026-10-07T12:47:00+09:00",
+        "body": "재고 차감을 별도 트랜잭션으로 분리하고 dev 에 배포했다.",
+        "log": [
+          {"at": "2026-10-07T12:47:00+09:00", "text": "완료"}
+        ]
+      },
+      {
+        "id": "SHOP-202",
+        "label": "결제 취소 웹훅 수신",
+        "state": "done",
+        "stage": "보고",
+        "worker": "subagent:sonnet",
+        "startedAt": "2026-10-07T10:20:00+09:00",
+        "doneAt": "2026-10-07T11:30:00+09:00",
+        "lastSignal": "2026-10-07T11:30:00+09:00",
+        "body": "결제 취소 웹훅 수신과 서명 검증을 구현했다.",
+        "log": [
+          {"at": "2026-10-07T11:30:00+09:00", "text": "완료"}
+        ]
+      },
+      {
+        "id": "SHOP-201",
+        "label": "주문 상태 API 확장",
+        "state": "done",
+        "stage": "보고",
+        "worker": "deepseek",
+        "startedAt": "2026-10-07T10:00:00+09:00",
+        "doneAt": "2026-10-07T10:52:00+09:00",
+        "lastSignal": "2026-10-07T10:52:00+09:00",
+        "body": "주문 상태 API 에 환불 상태를 더하고 dev 에 배포했다.",
+        "log": [
+          {"at": "2026-10-07T10:52:00+09:00", "text": "완료"}
+        ]
+      }
+    ]
+  }
+}

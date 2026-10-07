@@ -488,6 +488,10 @@ footer { margin-top: 48px; color: var(--ink-3); font-size: 12px; text-align: cen
 #o-land, #o-port { padding: 0 7px; }
 body[data-view] main { padding-top: 24px; }
 body[data-view]:not([data-view="full"]) main { display: none; }
+/* 레인 보드는 컴팩트 보기에서도 보여야 하므로 main 안에서 이것만 남긴다 */
+body[data-view]:not([data-view="full"])[data-board] main { display: block; padding: 0 0 16px; }
+body[data-view]:not([data-view="full"])[data-board] main > *:not(#board) { display: none; }
+body[data-view]:not([data-view="full"])[data-board] #board { margin: 16px; }
 body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
 
 #compact { position: relative; z-index: 1; margin: 0 auto; padding: 16px 16px 40px; font-size: 13.5px; }
@@ -609,6 +613,188 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
 .cc-list li span:last-child { margin-left: auto; font-family: var(--f-mono); font-size: 11px; color: var(--ink-3); white-space: nowrap; }
 @media (max-width: 600px) { .seg-ctl button { padding: 0 7px; } }
 
+/* ---------- 레인 보드 ---------- */
+.board {
+  margin: 36px 0 0; padding: 16px;
+  border-radius: 20px; background: var(--card); border: 1px solid var(--card-line);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  --bd-stall: var(--now-deep);
+}
+.bd-sum { display: grid; gap: 8px; margin-bottom: 16px; }
+.bd-big { font-size: 24px; font-weight: 800; letter-spacing: -.02em; line-height: 1.1; }
+.bd-big small { margin-left: 6px; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.bd-stack { display: flex; height: 10px; border-radius: 999px; overflow: hidden; background: var(--track); }
+.bd-stack i { display: block; height: 100%; }
+.bd-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 11.5px; color: var(--ink-3); }
+.bd-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.bd-legend i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.bd-stack i.done, .bd-legend i.done { background: var(--done); }
+.bd-stack i.now, .bd-legend i.now { background: var(--now); }
+.bd-stack i.stall, .bd-legend i.stall { background: var(--bd-stall); }
+.bd-stack i.blocked, .bd-legend i.blocked { background: var(--blocked); }
+.bd-stack i.waiting, .bd-legend i.waiting { background: var(--ink-3); opacity: .55; }
+.bd-stack i.left, .bd-legend i.left { background: var(--left); }
+
+.bd-attn { display: grid; gap: 8px; margin-bottom: 16px; }
+.bd-attn-row {
+  --bd-c: var(--left);
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border-radius: 12px;
+  font-size: 13.5px;
+  background: color-mix(in srgb, var(--bd-c) 9%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--bd-c) 35%, transparent);
+}
+.bd-attn-row.stall { --bd-c: var(--bd-stall); }
+.bd-attn-row.blocked { --bd-c: var(--blocked); }
+.bd-tag {
+  padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  font-size: 11px; font-weight: 700; color: var(--bd-c);
+  background: color-mix(in srgb, var(--bd-c) 15%, transparent);
+}
+.bd-why { flex: 1; min-width: 180px; color: var(--ink-2); }
+
+.bd-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; }
+.bd-tab {
+  height: 28px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--card-line);
+  background: transparent; color: var(--ink-3); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.bd-tab[aria-selected="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.bd-tab:focus-visible { outline: 2px solid var(--now); outline-offset: 2px; }
+.bd-panel[hidden] { display: none; }
+
+.bd-scroll { overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--scroll) transparent; }
+.bd-scroll::-webkit-scrollbar { height: 8px; }
+.bd-scroll::-webkit-scrollbar-track { background: transparent; }
+.bd-scroll::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 999px; }
+.bd-grid { min-width: 860px; }
+.bd-row {
+  display: grid; align-items: center; min-height: 52px; padding: 0 6px;
+  grid-template-columns: 250px repeat(var(--bd-stages, 1), minmax(58px, 1fr)) 132px;
+  border-top: 1px solid var(--card-line); cursor: pointer;
+}
+.bd-row:hover { background: color-mix(in srgb, var(--ink) 3%, transparent); }
+.bd-row.bd-head {
+  min-height: 32px; border-top: 0; cursor: default;
+  font-size: 11px; font-weight: 700; color: var(--ink-3);
+}
+.bd-row.bd-head:hover { background: none; }
+.bd-row.bd-head .bd-st { text-align: center; }
+.bd-row.bd-head .bd-sig { text-align: right; }
+
+.bd-task { display: grid; gap: 1px; min-width: 0; padding: 6px 8px 6px 0; }
+.bd-t1 { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.bd-k { font-family: var(--f-mono); font-size: 11.5px; font-weight: 700; color: var(--ink-3); white-space: nowrap; }
+.bd-nm { font-size: 13px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bd-t2 { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-3); }
+.bd-wk {
+  display: inline-flex; align-items: center; gap: 5px; padding: 1px 6px; border-radius: 5px;
+  font-family: var(--f-mono); font-size: 10.5px; font-weight: 600; background: var(--track); color: var(--ink-2);
+}
+.bd-wk::before { content: ""; width: 6px; height: 6px; border-radius: 2px; background: var(--left); }
+.bd-dep { font-size: 10.5px; }
+
+.bd-cell { position: relative; height: 52px; display: grid; place-items: center; }
+.bd-cell::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 2px;
+  transform: translateY(-50%); background: var(--track);
+}
+.bd-task + .bd-cell::before { left: 50%; }
+.bd-cell.done::before { background: var(--done); opacity: .55; }
+.bd-dot {
+  position: relative; z-index: 1; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--bg); border: 2px solid var(--left);
+}
+.bd-cell.pending .bd-dot { border-color: var(--track); }
+.bd-cell.done .bd-dot { width: 10px; height: 10px; background: var(--done); border-color: var(--done); }
+.bd-cell.now .bd-dot, .bd-cell.stall .bd-dot, .bd-cell.blocked .bd-dot { width: 22px; height: 22px; border-width: 0; }
+.bd-cell.now .bd-dot { background: var(--now); box-shadow: 0 0 0 5px color-mix(in srgb, var(--now) 20%, transparent); animation: bdpulse 1.6s ease-in-out infinite; }
+.bd-cell.stall .bd-dot { background: var(--bd-stall); box-shadow: 0 0 0 5px color-mix(in srgb, var(--bd-stall) 20%, transparent); }
+.bd-cell.stall .bd-dot::after { content: "!"; position: absolute; inset: 0; display: grid; place-items: center; font-size: 13px; font-weight: 900; color: #fff; }
+.bd-cell.blocked .bd-dot { background: var(--blocked); box-shadow: 0 0 0 5px color-mix(in srgb, var(--blocked) 18%, transparent); }
+.bd-cell.blocked .bd-dot::after { content: "■"; position: absolute; inset: 0; display: grid; place-items: center; font-size: 8px; color: #fff; }
+.bd-cell.waiting .bd-dot { width: 18px; height: 18px; border-style: dashed; border-color: var(--ink-3); }
+.bd-note {
+  position: absolute; bottom: 1px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 9.5px; font-weight: 700; color: var(--ink-3);
+}
+.bd-cell.now .bd-note { color: var(--now); }
+.bd-cell.stall .bd-note { color: var(--bd-stall); }
+.bd-cell.blocked .bd-note { color: var(--blocked); }
+.bd-cell-text { font-size: 11.5px; font-weight: 700; color: var(--ink-3); }
+@keyframes bdpulse { 50% { box-shadow: 0 0 0 9px color-mix(in srgb, var(--now) 0%, transparent); } }
+
+.bd-sig { display: grid; gap: 1px; padding-right: 4px; font-size: 11.5px; text-align: right; color: var(--ink-3); }
+.bd-ago { font-family: var(--f-mono); font-size: 11.5px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.bd-ago.stall { color: var(--bd-stall); }
+.bd-ago.none { font-size: 10.5px; color: var(--ink-3); }
+.bd-eta { font-size: 10.5px; white-space: nowrap; }
+
+.bd-grp {
+  display: flex; align-items: center; gap: 8px; padding: 12px 6px 6px; user-select: none; cursor: pointer;
+  font-size: 12px; font-weight: 800; color: var(--bd-c); border-top: 1px solid var(--card-line);
+}
+.bd-grp.attention { --bd-c: var(--bd-stall); }
+.bd-grp.active { --bd-c: var(--now); }
+.bd-grp.waiting { --bd-c: var(--ink-3); }
+.bd-grp.finished { --bd-c: var(--done); }
+.bd-grp .bd-car { color: var(--ink-3); transition: transform .2s; }
+.bd-grp.closed .bd-car { transform: rotate(-90deg); }
+.bd-grp .bd-n { font-family: var(--f-mono); font-size: 11px; font-weight: 700; color: var(--ink-3); }
+.bd-grp:focus-visible { outline: 2px solid var(--now); outline-offset: -2px; }
+
+.bd-detail { display: none; }
+.bd-detail.open {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+  padding: 8px 6px 16px; border-top: 1px dashed var(--card-line);
+}
+.bd-detail h4 { margin: 4px 0 6px; font-size: 11.5px; color: var(--ink-3); }
+.bd-detail p { margin: 0; font-size: 13px; color: var(--ink-2); }
+.bd-detail .ev { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.bd-detail .ev span {
+  display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 6px;
+  font-size: 11.5px; background: var(--track); color: var(--ink-2);
+}
+.bd-detail .ev a { color: inherit; text-decoration: none; }
+.bd-log { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; font-size: 12px; color: var(--ink-2); }
+.bd-log li { display: grid; grid-template-columns: 46px 1fr; gap: 8px; }
+.bd-log time { font-family: var(--f-mono); color: var(--ink-3); }
+
+.bd-tl { border-top: 1px solid var(--card-line); }
+.bd-tl-head { display: grid; grid-template-columns: 150px 1fr; align-items: center; min-height: 24px; }
+.bd-ticks { position: relative; height: 20px; font-family: var(--f-mono); font-size: 10.5px; font-weight: 600; color: var(--ink-3); }
+.bd-tick { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.bd-tl-row { display: grid; grid-template-columns: 150px 1fr; align-items: center; min-height: 44px; border-top: 1px solid var(--card-line); }
+.bd-tl-nm { display: grid; padding-right: 8px; font-size: 12px; font-weight: 700; }
+.bd-tl-nm small { font-family: var(--f-mono); font-size: 10.5px; font-weight: 600; color: var(--ink-3); }
+.bd-track { position: relative; height: 44px; }
+.bd-bar {
+  position: absolute; top: 9px; height: 26px; display: flex; align-items: center; padding: 0 8px;
+  border-radius: 7px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  font-family: var(--f-mono); font-size: 10.5px; font-weight: 700; color: #fff; background: var(--left);
+}
+.bd-bar.done { background: var(--done); }
+.bd-bar.now { background: var(--now); color: #2a1a00; }
+.bd-bar.stall { background: repeating-linear-gradient(45deg, var(--bd-stall) 0 8px, color-mix(in srgb, var(--bd-stall) 70%, #000) 8px 16px); }
+.bd-bar.blocked { background: var(--blocked); }
+.bd-bar.blank { background: transparent; border: 1px dashed var(--left); color: var(--ink-3); }
+.bd-nowline { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--now); }
+.bd-empty { font-size: 12.5px; color: var(--ink-3); padding: 10px 2px; }
+
+.bd-recent { margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--card-line); }
+.bd-recent h3 { margin: 0 0 8px; font-size: 12px; font-weight: 800; color: var(--ink-3); }
+.bd-feed { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: 12.5px; }
+.bd-feed li { display: grid; grid-template-columns: 44px 12px 1fr; gap: 6px; align-items: baseline; }
+.bd-feed time { font-family: var(--f-mono); font-size: 11px; color: var(--ink-3); }
+.bd-feed .bd-b { width: 8px; height: 8px; border-radius: 50%; align-self: center; background: var(--left); }
+.bd-feed .bd-b.done { background: var(--done); }
+.bd-feed .bd-b.now { background: var(--now); }
+.bd-feed .bd-b.stall { background: var(--bd-stall); }
+.bd-feed .bd-b.blocked { background: var(--blocked); }
+.bd-feed .bd-fk { font-family: var(--f-mono); font-size: 11.5px; font-weight: 700; }
+
+@media (max-width: 720px) {
+  .bd-detail.open { grid-template-columns: 1fr; }
+}
+
 /* ---------- ink 테마 ---------- */
 [data-theme="ink"] .fnode.done .node, [data-theme="ink"] .fnode.now .node { color: var(--bg); }
 [data-theme="ink"] .sub-s.ok i, [data-theme="ink"] .sub-s.run i { color: var(--bg); }
@@ -634,6 +820,29 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
 [data-theme="ink"] .eyebrow { background: transparent; border-color: var(--ink); }
 [data-theme="ink"] .goal { border-image: none; border-left-color: var(--ink); }
 [data-theme="ink"] .count b { font-family: var(--f-head); font-weight: var(--head-w); letter-spacing: var(--head-ls); font-size: 40px; }
+/* 레인 보드도 색 대신 채움·윤곽·빗금으로 상태를 가른다 */
+[data-theme="ink"] .board { --bd-stall: var(--ink); }
+[data-theme="ink"] .bd-stack i.stall, [data-theme="ink"] .bd-legend i.stall,
+[data-theme="ink"] .bd-stack i.blocked, [data-theme="ink"] .bd-legend i.blocked,
+[data-theme="ink"] .bd-feed .bd-b.stall, [data-theme="ink"] .bd-feed .bd-b.blocked {
+  background: repeating-linear-gradient(45deg, var(--ink) 0 2px, transparent 2px 4px);
+  border: 1px solid var(--ink);
+}
+[data-theme="ink"] .bd-cell.stall .bd-dot::after, [data-theme="ink"] .bd-cell.blocked .bd-dot::after { color: var(--bg); }
+[data-theme="ink"] .bd-cell.blocked .bd-dot {
+  background: repeating-linear-gradient(45deg, var(--ink) 0 3px, transparent 3px 7px);
+  border: 2px solid var(--ink);
+}
+[data-theme="ink"] .bd-attn-row {
+  background-image: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--ink) 7%, transparent) 0 6px, transparent 6px 12px);
+  border-color: var(--ink);
+}
+[data-theme="ink"] .bd-bar { color: var(--bg); }
+[data-theme="ink"] .bd-bar.blocked {
+  background: repeating-linear-gradient(45deg, var(--ink) 0 4px, transparent 4px 8px);
+  border: 1px solid var(--ink); color: var(--ink);
+}
+[data-theme="ink"] .bd-ago.stall { text-decoration: underline dotted; }
 
 /* ---------- 입력 대기 띠 ---------- */
 .status { margin: 22px 0 0; padding: 14px 18px; border-radius: 14px; background: var(--card); border: 1px solid var(--card-line); backdrop-filter: blur(16px); }
@@ -720,6 +929,8 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
 
   <section class="flow" id="flow" aria-label="단계 흐름"><div class="canvas" id="canvas"></div></section>
 
+  <section class="board" id="board" hidden></section>
+
   <div id="cards"></div>
 
   <footer id="footer" hidden></footer>
@@ -794,7 +1005,35 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       etaRaw: '원래 예상 ',
       calibrated: '보정 ',
       calSlow: (f, n) => '예측이 ' + f + '배 느림 · 완료 ' + n + '단계 기준',
-      calFast: (f, n) => '예측이 ' + f + '배 빠름 · 완료 ' + n + '단계 기준'
+      calFast: (f, n) => '예측이 ' + f + '배 빠름 · 완료 ' + n + '단계 기준',
+      boardTitle: '레인 보드',
+      boardLanes: n => n + '개 레인',
+      boardDone: '완료',
+      boardRunning: '진행',
+      boardStalled: '정체',
+      boardBlocked: '막힘',
+      boardWaiting: '선행 대기',
+      boardLeft: '남음',
+      boardTagStall: d => '정체 ' + d,
+      boardTagBlocked: '막힘',
+      boardTabStages: '작업 × 단계',
+      boardTabTime: '작업자 × 시간',
+      boardTask: '작업 · 작업자',
+      boardStage: '단계',
+      boardLast: '마지막 신호',
+      boardUnassigned: '미배정',
+      boardDepends: s => '↳ ' + s + ' 대기',
+      boardSignalNone: '신호 기록 없음',
+      boardEtaLeft: d => '약 ' + d + ' 남음',
+      boardGroupAttention: '주의 필요',
+      boardGroupActive: '진행 중',
+      boardGroupWaiting: '대기·남음',
+      boardGroupFinished: '완료',
+      boardDetailNow: '지금',
+      boardLogTitle: '레인 기록',
+      boardNoLog: '기록 없음',
+      boardRecent: '최근 전이',
+      boardNoTime: '시작 시각이 있는 레인이 없다'
     },
     en: {
       countDone: 'done',
@@ -851,7 +1090,35 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       etaRaw: 'Raw ETA ',
       calibrated: 'Calibrated ',
       calSlow: (f, n) => 'Estimates run ' + f + '× slow · from ' + n + ' done steps',
-      calFast: (f, n) => 'Estimates run ' + f + '× fast · from ' + n + ' done steps'
+      calFast: (f, n) => 'Estimates run ' + f + '× fast · from ' + n + ' done steps',
+      boardTitle: 'Lane board',
+      boardLanes: n => n + (n === 1 ? ' lane' : ' lanes'),
+      boardDone: 'done',
+      boardRunning: 'running',
+      boardStalled: 'stalled',
+      boardBlocked: 'blocked',
+      boardWaiting: 'waiting',
+      boardLeft: 'left',
+      boardTagStall: d => 'stalled ' + d,
+      boardTagBlocked: 'blocked',
+      boardTabStages: 'Task × stage',
+      boardTabTime: 'Worker × time',
+      boardTask: 'Task · worker',
+      boardStage: 'Stage',
+      boardLast: 'Last signal',
+      boardUnassigned: 'Unassigned',
+      boardDepends: s => '↳ waiting on ' + s,
+      boardSignalNone: 'No signal recorded',
+      boardEtaLeft: d => 'about ' + d + ' left',
+      boardGroupAttention: 'Needs attention',
+      boardGroupActive: 'In progress',
+      boardGroupWaiting: 'Waiting · left',
+      boardGroupFinished: 'Done',
+      boardDetailNow: 'Now',
+      boardLogTitle: 'Lane log',
+      boardNoLog: 'No record',
+      boardRecent: 'Recent transitions',
+      boardNoTime: 'No lane has a start time'
     }
   };
 
@@ -1265,6 +1532,327 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
   const footer = $('footer');
   if (data.footer) footer.appendChild(linkify(data.footer));
   else footer.hidden = true;
+
+  // ---- 레인 보드 ----
+  // 정체 판정은 여기서 한다. 페이지는 15초마다 다시 로드되므로 모델이 갱신을 멈춰도
+  // 마지막 신호가 stallAfter 를 넘긴 now 레인은 정체로 드러난다.
+  if (data.board && Array.isArray(data.board.lanes) && data.board.lanes.length) {
+    const board = data.board;
+    const bdLanes = board.lanes;
+    const bdStages = Array.isArray(board.stages) && board.stages.length ? board.stages : null;
+    const STALL_DEFAULT = 15;
+    // 신호의 기준은 lastSignal, 없으면 완료 시각, 그다음 시작 시각이다.
+    const laneSignalAt = lane => {
+      const raw = lane.lastSignal || lane.doneAt || lane.startedAt;
+      return raw ? toDate(raw) : null;
+    };
+    const laneStallAfter = lane => (typeof lane.stallAfter === 'number' && lane.stallAfter > 0)
+      ? lane.stallAfter : STALL_DEFAULT;
+    const laneStalled = lane => {
+      if (lane.state !== 'now') return false;
+      const sig = laneSignalAt(lane);
+      return sig != null && viewNow.getTime() - sig.getTime() > laneStallAfter(lane) * 60000;
+    };
+    const bdDone = bdLanes.filter(l => l.state === 'done');
+    const bdBlocked = bdLanes.filter(l => l.state === 'blocked');
+    const bdWaiting = bdLanes.filter(l => l.state === 'waiting');
+    const bdLeft = bdLanes.filter(l => l.state === 'left');
+    const bdStall = bdLanes.filter(laneStalled);
+    const bdActive = bdLanes.filter(l => l.state === 'now' && !laneStalled(l));
+    const bdAttention = bdLanes.filter(l => laneStalled(l) || l.state === 'blocked');
+
+    const cellClass = lane => laneStalled(lane) ? 'stall' : lane.state;
+    const barClass = lane => laneStalled(lane) ? 'stall'
+      : lane.state === 'done' ? 'done'
+      : lane.state === 'now' ? 'now'
+      : lane.state === 'blocked' ? 'blocked' : 'blank';
+
+    const sec = $('board');
+    sec.hidden = false;
+    sec.setAttribute('aria-label', L.boardTitle);
+    // 컴팩트 보기에서도 이 섹션만 남겨 보이게 하는 표시 (template 의 [data-board] 규칙)
+    body.dataset.board = '';
+
+    const sum = el('div', 'bd-sum');
+    const big = el('div', 'bd-big', bdDone.length + ' / ' + bdLanes.length);
+    big.appendChild(el('small', null, L.boardDone));
+    sum.appendChild(big);
+    const stack = el('div', 'bd-stack');
+    const legend = el('div', 'bd-legend');
+    [['done', bdDone.length, L.boardDone], ['now', bdActive.length, L.boardRunning],
+      ['stall', bdStall.length, L.boardStalled], ['blocked', bdBlocked.length, L.boardBlocked],
+      ['waiting', bdWaiting.length, L.boardWaiting], ['left', bdLeft.length, L.boardLeft]
+    ].forEach(([cls, count, label]) => {
+      if (!count) return;
+      const seg = el('i', cls);
+      seg.style.width = (count / bdLanes.length * 100).toFixed(2) + '%';
+      stack.appendChild(seg);
+      const item = el('span');
+      item.appendChild(el('i', cls));
+      item.appendChild(document.createTextNode(label + ' ' + count));
+      legend.appendChild(item);
+    });
+    sum.appendChild(stack);
+    sum.appendChild(legend);
+    sec.appendChild(sum);
+
+    if (bdAttention.length) {
+      const attn = el('div', 'bd-attn');
+      bdAttention.forEach(lane => {
+        const isStall = laneStalled(lane);
+        const row = el('div', 'bd-attn-row ' + (isStall ? 'stall' : 'blocked'));
+        const sig = laneSignalAt(lane);
+        const mins = isStall && sig ? Math.round((viewNow.getTime() - sig.getTime()) / 60000) : 0;
+        row.appendChild(el('span', 'bd-tag', isStall ? L.boardTagStall(fmtDur(mins)) : L.boardTagBlocked));
+        const key = el('span', 'bd-k');
+        key.appendChild(linkify(lane.id));
+        row.appendChild(key);
+        const why = el('span', 'bd-why');
+        why.appendChild(linkify((lane.label == null ? '' : String(lane.label))
+          + (lane.body ? ' · ' + lane.body : '')));
+        row.appendChild(why);
+        attn.appendChild(row);
+      });
+      sec.appendChild(attn);
+    }
+
+    const tabs = el('div', 'bd-tabs');
+    const tabStage = el('button', 'bd-tab', L.boardTabStages);
+    const tabTime = el('button', 'bd-tab', L.boardTabTime);
+    [tabStage, tabTime].forEach((tab, i) => {
+      tab.type = 'button';
+      tab.setAttribute('role', 'tab');
+      tab.setAttribute('aria-selected', i ? 'false' : 'true');
+    });
+    tabs.setAttribute('role', 'tablist');
+    const stagePanel = el('div', 'bd-panel');
+    const timePanel = el('div', 'bd-panel');
+    timePanel.hidden = true;
+    const selectTab = time => {
+      tabStage.setAttribute('aria-selected', time ? 'false' : 'true');
+      tabTime.setAttribute('aria-selected', time ? 'true' : 'false');
+      stagePanel.hidden = time;
+      timePanel.hidden = !time;
+    };
+    tabStage.addEventListener('click', () => selectTab(false));
+    tabTime.addEventListener('click', () => selectTab(true));
+    tabs.appendChild(tabStage);
+    tabs.appendChild(tabTime);
+    sec.appendChild(tabs);
+    sec.appendChild(stagePanel);
+    sec.appendChild(timePanel);
+
+    function laneDetail(lane) {
+      const detail = el('div', 'bd-detail');
+      const nowSec = el('div');
+      nowSec.appendChild(el('h4', null, L.boardDetailNow));
+      if (lane.body) {
+        const p = el('p');
+        p.appendChild(linkify(String(lane.body)));
+        nowSec.appendChild(p);
+      } else {
+        nowSec.appendChild(el('p', null, '—'));
+      }
+      if (Array.isArray(lane.evidence) && lane.evidence.length) nowSec.appendChild(evEl(lane.evidence));
+      detail.appendChild(nowSec);
+      const logSec = el('div');
+      logSec.appendChild(el('h4', null, L.boardLogTitle));
+      const logs = (Array.isArray(lane.log) ? lane.log.slice() : [])
+        .filter(entry => entry && entry.at)
+        .sort((a, b) => toDate(b.at) - toDate(a.at));
+      if (logs.length) {
+        const list = el('ul', 'bd-log');
+        logs.forEach(entry => {
+          const li = el('li');
+          li.appendChild(el('time', null, fmtClock(toDate(entry.at), viewNow)));
+          const text = el('span');
+          text.appendChild(linkify(entry.text == null ? '' : String(entry.text)));
+          li.appendChild(text);
+          list.appendChild(li);
+        });
+        logSec.appendChild(list);
+      } else {
+        logSec.appendChild(el('p', null, L.boardNoLog));
+      }
+      detail.appendChild(logSec);
+      return detail;
+    }
+
+    function laneRow(lane) {
+      const row = el('div', 'bd-row');
+      row.dataset.lane = lane.id;
+      const task = el('div', 'bd-task');
+      const t1 = el('div', 'bd-t1');
+      const key = el('span', 'bd-k');
+      key.appendChild(linkify(lane.id));
+      t1.appendChild(key);
+      const name = el('span', 'bd-nm');
+      name.appendChild(linkify(lane.label == null ? '' : String(lane.label)));
+      t1.appendChild(name);
+      task.appendChild(t1);
+      const t2 = el('div', 'bd-t2');
+      t2.appendChild(el('span', 'bd-wk', lane.worker ? String(lane.worker) : L.boardUnassigned));
+      if (Array.isArray(lane.dependsOn) && lane.dependsOn.length) {
+        t2.appendChild(el('span', 'bd-dep', L.boardDepends(lane.dependsOn.join(' · '))));
+      }
+      task.appendChild(t2);
+      row.appendChild(task);
+
+      const cur = bdStages ? bdStages.indexOf(lane.stage) : -1;
+      if (bdStages) {
+        bdStages.forEach((name2, i) => {
+          // done 레인은 어느 단계에 있든 모든 칸이 완료색이다.
+          const cls = (lane.state === 'done' || (cur >= 0 && i < cur)) ? 'done'
+            : (i === cur) ? cellClass(lane) : 'pending';
+          const cell = el('div', 'bd-cell ' + cls);
+          cell.appendChild(el('span', 'bd-dot'));
+          if (i === cur && lane.note) cell.appendChild(el('span', 'bd-note', String(lane.note)));
+          row.appendChild(cell);
+        });
+      } else {
+        const cell = el('div', 'bd-cell');
+        cell.appendChild(el('span', 'bd-cell-text', lane.stage ? String(lane.stage) : '—'));
+        row.appendChild(cell);
+      }
+
+      const sig = el('div', 'bd-sig');
+      const at = laneSignalAt(lane);
+      if (at) sig.appendChild(el('span', 'bd-ago' + (laneStalled(lane) ? ' stall' : ''), L.ago(relDur(at))));
+      else if (lane.state === 'now') sig.appendChild(el('span', 'bd-ago none', L.boardSignalNone));
+      if (lane.state !== 'done' && typeof lane.estimate === 'number') {
+        sig.appendChild(el('span', 'bd-eta', L.boardEtaLeft(fmtDur(lane.estimate))));
+      }
+      row.appendChild(sig);
+      return row;
+    }
+
+    const bdScroll = el('div', 'bd-scroll');
+    const grid = el('div', 'bd-grid');
+    grid.style.setProperty('--bd-stages', String(bdStages ? bdStages.length : 1));
+    const head = el('div', 'bd-row bd-head');
+    head.appendChild(el('div', null, L.boardTask));
+    (bdStages || [L.boardStage]).forEach(name => head.appendChild(el('div', 'bd-st', name)));
+    head.appendChild(el('div', 'bd-sig', L.boardLast));
+    grid.appendChild(head);
+
+    const groupHead = (label, cls, list, closed) => {
+      if (!list.length) return;
+      const headEl = el('div', 'bd-grp ' + cls + (closed ? ' closed' : ''));
+      headEl.appendChild(el('span', 'bd-car', '▾'));
+      headEl.appendChild(document.createTextNode(label));
+      headEl.appendChild(el('span', 'bd-n', String(list.length)));
+      const box = el('div');
+      box.hidden = !!closed;
+      list.forEach(lane => {
+        const row = laneRow(lane);
+        const detail = laneDetail(lane);
+        row.addEventListener('click', () => detail.classList.toggle('open'));
+        box.appendChild(row);
+        box.appendChild(detail);
+      });
+      headEl.addEventListener('click', () => {
+        box.hidden = !box.hidden;
+        headEl.classList.toggle('closed', box.hidden);
+      });
+      grid.appendChild(headEl);
+      grid.appendChild(box);
+    };
+    groupHead(L.boardGroupAttention, 'attention', bdAttention, false);
+    groupHead(L.boardGroupActive, 'active', bdActive, false);
+    groupHead(L.boardGroupWaiting, 'waiting', bdWaiting.concat(bdLeft), false);
+    groupHead(L.boardGroupFinished, 'finished', bdDone, true);
+    bdScroll.appendChild(grid);
+    stagePanel.appendChild(bdScroll);
+
+    const stamped = bdLanes.filter(l => l.startedAt);
+    if (!stamped.length) {
+      timePanel.appendChild(el('p', 'bd-empty', L.boardNoTime));
+    } else {
+      const t0 = Math.min(...stamped.map(l => toDate(l.startedAt).getTime()));
+      const t1 = viewNow.getTime();
+      const span = Math.max(1, t1 - t0);
+      const pos = t => Math.min(100, Math.max(0, (t - t0) / span * 100));
+      const timeline = el('div', 'bd-tl');
+      const axis = el('div', 'bd-tl-head');
+      axis.appendChild(el('div'));
+      const ticks = el('div', 'bd-ticks');
+      const TICKS = 4;
+      for (let i = 0; i <= TICKS; i++) {
+        const tick = el('span', 'bd-tick', fmtClock(new Date(t0 + span * i / TICKS), viewNow));
+        tick.style.left = (i / TICKS * 100).toFixed(2) + '%';
+        // 양 끝 눈금은 안쪽으로 붙여 카드 밖으로 밀리지 않게 한다.
+        if (i === 0) tick.style.transform = 'translateX(0)';
+        else if (i === TICKS) tick.style.transform = 'translateX(-100%)';
+        ticks.appendChild(tick);
+      }
+      axis.appendChild(ticks);
+      timeline.appendChild(axis);
+      const byWorker = new Map();
+      stamped.forEach(lane => {
+        const worker = (typeof lane.worker === 'string' && lane.worker) ? lane.worker : L.boardUnassigned;
+        if (!byWorker.has(worker)) byWorker.set(worker, []);
+        byWorker.get(worker).push(lane);
+      });
+      byWorker.forEach((list, worker) => {
+        const row = el('div', 'bd-tl-row');
+        const name = el('div', 'bd-tl-nm');
+        name.appendChild(el('b', null, worker));
+        name.appendChild(el('small', null, L.boardLanes(list.length)));
+        row.appendChild(name);
+        const track = el('div', 'bd-track');
+        // 한 작업자가 동시에 두 레인을 맡을 수 있다. 겹치는 구간은 아래 트랙으로 내려 그린다.
+        const laneEnds = [];
+        list.slice().sort((a, b) => toDate(a.startedAt) - toDate(b.startedAt)).forEach(lane => {
+          const start = toDate(lane.startedAt).getTime();
+          const end = lane.doneAt ? Math.min(t1, toDate(lane.doneAt).getTime()) : t1;
+          let sub = laneEnds.findIndex(prev => prev <= start);
+          if (sub < 0) { sub = laneEnds.length; laneEnds.push(0); }
+          laneEnds[sub] = end;
+          const bar = el('div', 'bd-bar ' + barClass(lane), lane.id);
+          bar.style.left = pos(start).toFixed(2) + '%';
+          bar.style.width = Math.max(0.8, pos(end) - pos(start)).toFixed(2) + '%';
+          bar.style.top = (9 + sub * 30) + 'px';
+          track.appendChild(bar);
+        });
+        track.style.height = (18 + laneEnds.length * 30) + 'px';
+        const nowLine = el('div', 'bd-nowline');
+        nowLine.style.left = '100%';
+        track.appendChild(nowLine);
+        row.appendChild(track);
+        timeline.appendChild(row);
+      });
+      timePanel.appendChild(timeline);
+    }
+
+    const transitions = [];
+    bdLanes.forEach(lane => {
+      (Array.isArray(lane.log) ? lane.log : []).forEach(entry => {
+        if (entry && entry.at) transitions.push({ at: entry.at, lane: lane, text: entry.text });
+      });
+    });
+    transitions.sort((a, b) => toDate(b.at) - toDate(a.at));
+    if (transitions.length) {
+      const recent = el('div', 'bd-recent');
+      recent.appendChild(el('h3', null, L.boardRecent));
+      const feed = el('ul', 'bd-feed');
+      transitions.slice(0, 8).forEach(entry => {
+        const li = el('li');
+        li.appendChild(el('time', null, fmtClock(toDate(entry.at), viewNow)));
+        const dot = laneStalled(entry.lane) ? 'stall' : entry.lane.state;
+        li.appendChild(el('i', 'bd-b ' + dot));
+        const text = el('span');
+        const key = el('span', 'bd-fk');
+        key.appendChild(linkify(entry.lane.id));
+        text.appendChild(key);
+        text.appendChild(document.createTextNode(' '));
+        text.appendChild(linkify(entry.text == null ? '' : String(entry.text)));
+        li.appendChild(text);
+        feed.appendChild(li);
+      });
+      recent.appendChild(feed);
+      sec.appendChild(recent);
+    }
+  }
 
   function cardEl(it, cls) {
     const card = el('div', cls ? 'card ' + cls : 'card');

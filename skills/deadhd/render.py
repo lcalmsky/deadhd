@@ -15,6 +15,9 @@ TEMPLATE = os.path.join(HERE, 'template.html')
 THEMES_CSS = os.path.join(HERE, 'themes.css')
 STATES = ('done', 'now', 'side', 'left', 'blocked')
 STATE_SET = frozenset(STATES)
+# 레인 보드의 상태. items 의 state 와 달리 side 가 없고 waiting(선행 대기)이 있으며 now 는 개수 제한이 없다.
+BOARD_STATES = ('done', 'now', 'waiting', 'left', 'blocked')
+BOARD_STATE_SET = frozenset(BOARD_STATES)
 LANGS = ('ko', 'en')
 HTML_OPEN = '<html lang="ko">'
 # 이보다 큰 estimate 는 합산 시 timedelta 가 넘친다 (525600분 = 365일).
@@ -111,6 +114,97 @@ def compute_eta(items, now):
 def is_number(value):
     return (isinstance(value, (int, float)) and not isinstance(value, bool)
             and math.isfinite(value))
+
+
+def bad_estimate(value):
+    return (not is_number(value) or value <= 0 or value > MAX_ESTIMATE_MINUTES)
+
+
+def validate_board(problems, board):
+    stages = board.get('stages')
+    if stages is not None:
+        if (not isinstance(stages, list) or not stages
+                or not all(isinstance(s, str) and s for s in stages)):
+            problems.append('board.stages 가 비어 있지 않은 문자열 배열이 아니다')
+            stages = None
+        elif len(set(stages)) != len(stages):
+            problems.append('board.stages 에 중복된 값이 있다')
+
+    lanes = board.get('lanes')
+    if not isinstance(lanes, list) or not lanes:
+        problems.append('board.lanes 가 비어 있지 않은 배열이 아니다')
+        return
+
+    ids = []
+    for i, lane in enumerate(lanes):
+        where = 'board.lanes[%d]' % i
+        if not isinstance(lane, dict):
+            problems.append(where + ' 가 객체가 아니다')
+            continue
+        lid = lane.get('id')
+        if not isinstance(lid, str) or not lid:
+            problems.append(where + '.id 가 비어 있지 않은 문자열이 아니다')
+        else:
+            ids.append(lid)
+        if not isinstance(lane.get('label'), str):
+            problems.append(where + '.label 이 문자열이 아니다')
+        state = lane.get('state')
+        if state not in BOARD_STATE_SET:
+            problems.append('%s.state 가 %s 중 하나가 아니다 (값: %r)'
+                            % (where, '/'.join(BOARD_STATES), state))
+        stage = lane.get('stage')
+        if stage is not None:
+            if not isinstance(stage, str):
+                problems.append(where + '.stage 가 문자열이 아니다')
+            elif stages is not None and stage not in stages:
+                problems.append('%s.stage 가 board.stages 에 없는 값이다 (값: %r)' % (where, stage))
+        for field in ('startedAt', 'doneAt', 'lastSignal'):
+            if lane.get(field) is not None and parse_when(lane[field]) is None:
+                problems.append('%s.%s 이 시차가 있는 ISO 8601 시각이 아니다' % (where, field))
+        started, finished = parse_when(lane.get('startedAt')), parse_when(lane.get('doneAt'))
+        if started is not None and finished is not None and finished < started:
+            problems.append('%s 의 doneAt 이 startedAt 보다 앞선다' % where)
+        stall = lane.get('stallAfter')
+        if stall is not None and (not is_number(stall) or stall <= 0):
+            problems.append('%s.stallAfter 가 0 보다 큰 수가 아니다' % where)
+        estimate = lane.get('estimate')
+        if estimate is not None and bad_estimate(estimate):
+            problems.append('%s.estimate 가 0 보다 큰 수가 아니다' % where)
+        for field in ('worker', 'note', 'body'):
+            if lane.get(field) is not None and not isinstance(lane[field], str):
+                problems.append('%s.%s 가 문자열이 아니다' % (where, field))
+        check_hrefs(problems, where + '.evidence', lane.get('evidence'))
+        log = lane.get('log')
+        if log is None:
+            continue
+        if not isinstance(log, list):
+            problems.append(where + '.log 가 배열이 아니다')
+            continue
+        for j, entry in enumerate(log):
+            log_where = '%s.log[%d]' % (where, j)
+            if not isinstance(entry, dict):
+                problems.append(log_where + ' 가 객체가 아니다')
+                continue
+            if entry.get('at') is not None and parse_when(entry['at']) is None:
+                problems.append(log_where + '.at 이 시차가 있는 ISO 8601 시각이 아니다')
+            if not isinstance(entry.get('text'), str):
+                problems.append(log_where + '.text 가 문자열이 아니다')
+
+    duplicated = sorted({x for x in ids if ids.count(x) > 1})
+    if duplicated:
+        problems.append('board.lanes 의 id 가 중복된다: ' + ', '.join(duplicated))
+    known = set(ids)
+    for i, lane in enumerate(lanes):
+        if not isinstance(lane, dict) or lane.get('dependsOn') is None:
+            continue
+        deps = lane['dependsOn']
+        where = 'board.lanes[%d].dependsOn' % i
+        if not isinstance(deps, list):
+            problems.append(where + ' 가 배열이 아니다')
+            continue
+        for x in deps:
+            if not isinstance(x, str) or x not in known:
+                problems.append(where + ' 가 없는 lane id 를 가리킨다: %r' % (x,))
 
 
 def history_path():
@@ -353,13 +447,7 @@ def validate(data):
         if started is not None and finished is not None and finished < started:
             problems.append('%s 의 doneAt 이 startedAt 보다 앞선다' % where)
         estimate = it.get('estimate')
-        if estimate is not None and (
-            isinstance(estimate, bool)
-            or not isinstance(estimate, (int, float))
-            or estimate <= 0
-            or estimate > MAX_ESTIMATE_MINUTES
-            or not math.isfinite(estimate)
-        ):
+        if estimate is not None and bad_estimate(estimate):
             problems.append('%s.estimate 가 0 보다 큰 수가 아니다' % where)
         check_hrefs(problems, where + '.evidence', it.get('evidence'))
         check_hrefs(problems, where + '.substeps', it.get('substeps'))
@@ -383,6 +471,13 @@ def validate(data):
                 for x in e:
                     if x not in known:
                         problems.append('edges[%d] 가 없는 id 를 가리킨다: %s' % (j, x))
+
+    board = data.get('board')
+    if board is not None:
+        if not isinstance(board, dict):
+            problems.append('board 가 객체가 아니다')
+        else:
+            validate_board(problems, board)
 
     changes = data.get('changes')
     if isinstance(changes, list):
