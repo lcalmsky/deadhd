@@ -1064,7 +1064,7 @@ class TemplateDomStateTest(unittest.TestCase):
 
     def test_unnamed_lane_band_has_no_label(self):
         items = [mini_item('a', 'done', lane=0), mini_item('b', 'left', lane=1)]
-        result = self.render_dom(items, {'lanes': ['L1', '']})
+        result = self.render_dom(items, {'lanes': ['L1']})
         self.assertEqual(len(self.find(result, 'lane-band')), 2)
         self.assertEqual([n['text'] for n in self.find(result, 'lane-label')], ['L1'])
 
@@ -1231,7 +1231,8 @@ class LaneShapeTest(unittest.TestCase):
     def test_lanes_shape_is_validated(self):
         cases = (
             ('not a list', 5, 'lanes 가 배열이 아니다'),
-            ('number element', [1], 'lanes[0] 가 문자열 또는 객체가 아니다'),
+            ('bool element', [True], 'lanes[0] 가 문자열·숫자·객체가 아니다'),
+            ('array element', [[1]], 'lanes[0] 가 문자열·숫자·객체가 아니다'),
             ('object without label', [{'id': 'a'}], 'lanes[0].label 이 문자열이 아니다'),
             ('object with empty id', [{'label': 'a', 'id': ''}], 'lanes[0].id 가 비어 있지 않은 문자열이 아니다'),
             ('duplicate id', [{'label': 'a', 'id': 'x'}, {'label': 'b', 'id': 'x'}],
@@ -1241,28 +1242,63 @@ class LaneShapeTest(unittest.TestCase):
             with self.subTest(case=name):
                 self.rejected(self.lane_data(lanes, [mini_item('a', 'done')]), needle)
 
+    def test_string_and_null_lanes_are_normalized(self):
+        parsed = self.payload(self.lane_data(['x', None], [mini_item('a', 'done')]))
+        self.assertEqual(parsed['lanes'], ['x', ''])
+
+    def test_number_lanes_become_names(self):
+        parsed = self.payload(self.lane_data(['x', 2, 1.0], [mini_item('a', 'done')]))
+        self.assertEqual(parsed['lanes'], ['x', '2', '1'])
+
     def test_item_lane_is_validated(self):
         cases = (
-            ('beyond the lane list', 2, '없는 레인을 가리킨다'),
             ('negative', -1, '0 이상의 정수가 아니다'),
             ('fraction', 0.5, '0 이상의 정수가 아니다'),
             ('bool', True, '0 이상의 정수가 아니다'),
             ('unknown name', '없음', '없는 레인을 가리킨다'),
             ('unknown id', 'nope', '없는 레인을 가리킨다'),
+            ('numeric string without a matching name', '1', '없는 레인을 가리킨다'),
         )
         for name, lane, needle in cases:
             with self.subTest(case=name):
                 self.rejected(self.lane_data(['본선', '병행'], [mini_item('a', 'done', lane=lane)]), needle)
+
+    def test_integer_valued_float_lane_becomes_index(self):
+        parsed = self.payload(self.lane_data(['본선', '병행'], [mini_item('a', 'done', lane=1.0)]))
+        self.assertIsInstance(parsed['items'][0]['lane'], int)
+        self.assertEqual(parsed['items'][0]['lane'], 1)
+
+    def test_string_lane_matches_id_before_name(self):
+        lanes = [{'id': 'a', 'label': 'b'}, {'id': 'b', 'label': 'a'}]
+        parsed = self.payload(self.lane_data(lanes, [mini_item('a', 'done', lane='a')]))
+        self.assertEqual(parsed['items'][0]['lane'], 0)
+
+    def test_duplicate_lane_names_take_the_first(self):
+        parsed = self.payload(self.lane_data(['x', 'x'], [mini_item('a', 'done', lane='x')]))
+        self.assertEqual(parsed['items'][0]['lane'], 0)
+
+    def test_integer_lane_beyond_lanes_still_renders(self):
+        payload = self.payload(self.lane_data(['본선'], [mini_item('a', 'done', lane=2)]))
+        self.assertEqual(payload['lanes'], ['본선'])
+        self.assertEqual(payload['items'][0]['lane'], 2)
 
     def test_string_lane_without_lanes_is_rejected(self):
         self.rejected({'title': 'T', 'items': [mini_item('a', 'done', lane='본선')]},
                       'lane 이 문자열인데 lanes 가 없다')
 
     def test_item_col_is_validated(self):
-        for name, col in (('negative', -1), ('fraction', 1.5), ('bool', True)):
+        for name, col in (('negative', -1), ('fraction', 1.5), ('bool', True),
+                          ('string', 'a'), ('empty string', '')):
             with self.subTest(case=name):
                 self.rejected(self.lane_data(['본선'], [mini_item('a', 'done', col=col)]),
                               'col 이 0 이상의 정수가 아니다')
+
+    def test_integer_valued_float_and_digit_string_col_become_int(self):
+        items = [mini_item('a', 'done', col=2.0), mini_item('b', 'left', col='2')]
+        parsed = self.payload(self.lane_data(['본선'], items))
+        for it, expected in zip(parsed['items'], (2, 2)):
+            self.assertIsInstance(it['col'], int)
+            self.assertEqual(it['col'], expected)
 
     def test_demo_data_still_renders(self):
         for directory in (DEMOS, os.path.join(DEMOS, 'en')):

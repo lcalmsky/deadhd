@@ -120,6 +120,31 @@ def is_index(value):
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
+def as_index(value):
+    """0 이상 정수와 정수값 실수를 int 로 받는다. 그 밖에는 None."""
+    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
+        value = int(value)
+    return value if is_index(value) else None
+
+
+def as_col(value):
+    """col 로 그려 온 숫자 문자열도 받는다. 템플릿이 산술에서 숫자로 바꿨다."""
+    if isinstance(value, str):
+        return int(value) if value.isdigit() and value.isascii() else None
+    return as_index(value)
+
+
+def lane_name(lane):
+    """lanes 원소를 템플릿이 레인 이름으로 쓰는 문자열로 바꾼다. 숫자는 그대로 찍혀 왔다."""
+    if isinstance(lane, dict):
+        return lane['label']
+    if isinstance(lane, str):
+        return lane
+    if isinstance(lane, float) and lane.is_integer():
+        return str(int(lane))
+    return '' if lane is None else str(lane)
+
+
 def bad_estimate(value):
     return (not is_number(value) or value <= 0 or value > MAX_ESTIMATE_MINUTES)
 
@@ -421,20 +446,21 @@ def validate(data):
                     problems.append(where + '.href 가 http(s) URL 이 아니다')
 
     raw_lanes = data.get('lanes')
-    lanes = None
     lane_names, lane_id_list = [], []
     if raw_lanes is not None:
         if not isinstance(raw_lanes, list):
             problems.append('lanes 가 배열이 아니다')
         else:
-            lanes = raw_lanes
             for i, lane in enumerate(raw_lanes):
                 where = 'lanes[%d]' % i
                 if isinstance(lane, str):
                     lane_names.append(lane)
                     continue
+                if lane is None or is_number(lane):
+                    lane_names.append(lane_name(lane))
+                    continue
                 if not isinstance(lane, dict):
-                    problems.append(where + ' 가 문자열 또는 객체가 아니다')
+                    problems.append(where + ' 가 문자열·숫자·객체가 아니다')
                     continue
                 label = lane.get('label')
                 if not isinstance(label, str):
@@ -484,12 +510,11 @@ def validate(data):
             elif lane not in lane_ids and lane not in lane_names:
                 problems.append('%s.lane 이 없는 레인을 가리킨다 (값: %r)' % (where, lane))
         elif lane is not None:
-            if not is_index(lane):
+            # lanes 보다 큰 정수 lane 은 이름 없는 줄로 그려 왔으므로 막지 않는다.
+            if as_index(lane) is None:
                 problems.append('%s.lane 이 0 이상의 정수가 아니다 (값: %r)' % (where, lane))
-            elif lanes is not None and lane >= len(lanes):
-                problems.append('%s.lane 이 없는 레인을 가리킨다 (값: %r)' % (where, lane))
         col = it.get('col')
-        if col is not None and not is_index(col):
+        if col is not None and as_col(col) is None:
             problems.append('%s.col 이 0 이상의 정수가 아니다 (값: %r)' % (where, col))
         for field in ('startedAt', 'doneAt'):
             if it.get(field) is not None and parse_when(it[field]) is None:
@@ -541,24 +566,33 @@ def validate(data):
 
 
 def normalize_lanes(payload):
-    """lanes 객체 형식과 문자열 lane 을 템플릿이 읽는 이름 배열·정수 인덱스로 바꾼다.
+    """lanes 원소와 item 의 lane·col 을 템플릿이 읽는 이름 문자열·정수로 바꾼다.
 
     validate() 를 통과한 뒤에만 부른다. 문자열 lane 은 반드시 어떤 레인을 가리킨다.
     """
     lanes = payload.get('lanes')
-    if not isinstance(lanes, list):
-        return
-    names = [lane if isinstance(lane, str) else lane['label'] for lane in lanes]
-    by_id = {lane['id']: i for i, lane in enumerate(lanes)
-             if isinstance(lane, dict) and isinstance(lane.get('id'), str) and lane['id']}
+    names, by_id = [], {}
+    if isinstance(lanes, list):
+        names = [lane_name(lane) for lane in lanes]
+        by_id = {lane['id']: i for i, lane in enumerate(lanes)
+                 if isinstance(lane, dict) and isinstance(lane.get('id'), str) and lane['id']}
+        payload['lanes'] = names
     items = []
     for it in payload['items']:
-        # 정수 lane 과 lane 이 없는 item 은 원본 dict 를 그대로 쓴다.
-        if isinstance(it.get('lane'), str):
-            it = dict(it)
-            it['lane'] = by_id[it['lane']] if it['lane'] in by_id else names.index(it['lane'])
+        lane, col = it.get('lane'), it.get('col')
+        # 이미 int 인 lane·col 과 값이 없는 item 은 원본 dict 를 그대로 쓴다.
+        if not (isinstance(lane, (str, float)) or isinstance(col, (str, float))):
+            items.append(it)
+            continue
+        it = dict(it)
+        if isinstance(lane, str):
+            # 문자열 lane 은 id 를 먼저 보고, 없으면 이름이 같은 첫 번째 레인을 쓴다.
+            it['lane'] = by_id[lane] if lane in by_id else names.index(lane)
+        elif isinstance(lane, float):
+            it['lane'] = int(lane)
+        if isinstance(col, (str, float)):
+            it['col'] = as_col(col)
         items.append(it)
-    payload['lanes'] = names
     payload['items'] = items
 
 
