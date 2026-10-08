@@ -1064,9 +1064,18 @@ class TemplateDomStateTest(unittest.TestCase):
 
     def test_unnamed_lane_band_has_no_label(self):
         items = [mini_item('a', 'done', lane=0), mini_item('b', 'left', lane=1)]
-        result = self.render_dom(items, {'lanes': ['L1']})
+        result = self.render_dom(items, {'lanes': ['L1', '']})
         self.assertEqual(len(self.find(result, 'lane-band')), 2)
         self.assertEqual([n['text'] for n in self.find(result, 'lane-label')], ['L1'])
+
+    def test_object_lanes_and_string_lane_place_items(self):
+        items = [mini_item('a', 'done', lane='msa'), mini_item('b', 'left', lane='mfe')]
+        lanes = [{'id': 'msa', 'label': 'msa 서버·콘솔'}, {'id': 'mfe', 'label': 'mfe fo-chat'}]
+        result = self.render_dom(items, {'lanes': lanes})
+        labels = [n['text'] for n in self.find(result, 'lane-label')]
+        self.assertEqual(labels, ['msa 서버·콘솔', 'mfe fo-chat'])
+        self.assertEqual([self.by_id(result, i)['style']['top'] for i in ('a', 'b')],
+                         ['76px', '240px'])
 
     def test_edge_between_waiting_steps_is_left(self):
         items = [mini_item('a', 'now'), mini_item('b', 'left'), mini_item('c', 'left')]
@@ -1151,6 +1160,119 @@ class TemplateDomStateTest(unittest.TestCase):
             [mini_item('a', 'now', estimate=30)], extra={'lang': 'en'}, view='2026-10-03T11:00:00+09:00'
         )
         self.assertEqual([n['text'] for n in self.find(result, 'eta')], ['ETA 10:30 (overdue)'])
+
+
+DEMOS = os.path.join(os.path.dirname(os.path.dirname(HERE)), 'docs', 'demos')
+LANE_OBJECTS = [{'id': 'msa', 'label': 'msa 서버·콘솔'}, {'id': 'mfe', 'label': 'mfe fo-chat'}]
+
+
+class LaneShapeTest(unittest.TestCase):
+    """lanes 의 두 형식과 item 의 lane·col 검증, 템플릿이 읽는 형식으로의 정규화를 본다."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='progress-lane-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.count = 0
+
+    def render(self, data):
+        self.count += 1
+        path = os.path.join(self.tmp, 'data%d.json' % self.count)
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+        out = os.path.join(self.tmp, 'out%d.html' % self.count)
+        return path, out, run_render(path, out)
+
+    def payload(self, data):
+        path, out, r = self.render(data)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding='utf-8') as f:
+            return parse_block(data_block(f.read()))
+
+    def rejected(self, data, needle):
+        path, out, r = self.render(data)
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn(needle, r.stderr)
+        self.assertFalse(os.path.exists(out))
+
+    def lane_data(self, lanes, items):
+        return {'title': 'T', 'lanes': lanes, 'items': items}
+
+    def test_object_lanes_and_string_lane_are_normalized(self):
+        items = [mini_item('a', 'now', lane='msa'), mini_item('b', 'left', lane='mfe')]
+        data = self.lane_data(LANE_OBJECTS, items)
+        path, out, r = self.render(data)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(path, encoding='utf-8') as f:
+            self.assertEqual(json.load(f), data, '입력 파일이 바뀌었다')
+        with open(out, encoding='utf-8') as f:
+            parsed = parse_block(data_block(f.read()))
+        self.assertEqual(parsed['lanes'], ['msa 서버·콘솔', 'mfe fo-chat'])
+        self.assertEqual([it['lane'] for it in parsed['items']], [0, 1])
+
+    def test_lane_object_without_id_matches_label(self):
+        lanes = [{'label': '서버'}, {'id': 'web', 'label': '웹'}]
+        items = [mini_item('a', 'done', lane='서버'), mini_item('b', 'left', lane='web')]
+        parsed = self.payload(self.lane_data(lanes, items))
+        self.assertEqual(parsed['lanes'], ['서버', '웹'])
+        self.assertEqual([it['lane'] for it in parsed['items']], [0, 1])
+
+    def test_string_lanes_and_integer_lane_are_kept(self):
+        items = [mini_item('a', 'done', lane='병행', col=2), mini_item('b', 'left', lane=0)]
+        parsed = self.payload(self.lane_data(['본선', '병행'], items))
+        self.assertEqual(parsed['lanes'], ['본선', '병행'])
+        self.assertEqual([it['lane'] for it in parsed['items']], [1, 0])
+        self.assertEqual(parsed['items'][0]['col'], 2)
+
+    def test_integer_lane_without_lanes_is_kept(self):
+        parsed = self.payload({'title': 'T', 'items': [mini_item('a', 'done', lane=3)]})
+        self.assertEqual(parsed['items'][0]['lane'], 3)
+        self.assertNotIn('lanes', parsed)
+
+    def test_lanes_shape_is_validated(self):
+        cases = (
+            ('not a list', 5, 'lanes 가 배열이 아니다'),
+            ('number element', [1], 'lanes[0] 가 문자열 또는 객체가 아니다'),
+            ('object without label', [{'id': 'a'}], 'lanes[0].label 이 문자열이 아니다'),
+            ('object with empty id', [{'label': 'a', 'id': ''}], 'lanes[0].id 가 비어 있지 않은 문자열이 아니다'),
+            ('duplicate id', [{'label': 'a', 'id': 'x'}, {'label': 'b', 'id': 'x'}],
+             'lanes 의 id 가 중복된다'),
+        )
+        for name, lanes, needle in cases:
+            with self.subTest(case=name):
+                self.rejected(self.lane_data(lanes, [mini_item('a', 'done')]), needle)
+
+    def test_item_lane_is_validated(self):
+        cases = (
+            ('beyond the lane list', 2, '없는 레인을 가리킨다'),
+            ('negative', -1, '0 이상의 정수가 아니다'),
+            ('fraction', 0.5, '0 이상의 정수가 아니다'),
+            ('bool', True, '0 이상의 정수가 아니다'),
+            ('unknown name', '없음', '없는 레인을 가리킨다'),
+            ('unknown id', 'nope', '없는 레인을 가리킨다'),
+        )
+        for name, lane, needle in cases:
+            with self.subTest(case=name):
+                self.rejected(self.lane_data(['본선', '병행'], [mini_item('a', 'done', lane=lane)]), needle)
+
+    def test_string_lane_without_lanes_is_rejected(self):
+        self.rejected({'title': 'T', 'items': [mini_item('a', 'done', lane='본선')]},
+                      'lane 이 문자열인데 lanes 가 없다')
+
+    def test_item_col_is_validated(self):
+        for name, col in (('negative', -1), ('fraction', 1.5), ('bool', True)):
+            with self.subTest(case=name):
+                self.rejected(self.lane_data(['본선'], [mini_item('a', 'done', col=col)]),
+                              'col 이 0 이상의 정수가 아니다')
+
+    def test_demo_data_still_renders(self):
+        for directory in (DEMOS, os.path.join(DEMOS, 'en')):
+            self.assertTrue(sorted(pathlib.Path(directory).glob('*.json')), directory)
+        paths = sorted(pathlib.Path(DEMOS).glob('*.json')) + sorted(pathlib.Path(DEMOS, 'en').glob('*.json'))
+        paths.append(pathlib.Path(EXAMPLE))
+        for i, path in enumerate(paths):
+            with self.subTest(data=str(path)):
+                r = run_render(str(path), os.path.join(self.tmp, 'demo%d.html' % i))
+                self.assertEqual(r.returncode, 0, r.stderr)
 
 
 class RenderTest(unittest.TestCase):

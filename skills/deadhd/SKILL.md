@@ -98,7 +98,7 @@ Write `/tmp/deadhd-<task-slug>.json`. `<skill-dir>/example.json` is a complete e
 | `updated` | Current time with timezone, e.g. `2026-09-30 14:30 KST` |
 | `meta` | Identifiers shown as monospace chips: program id, target environment, branch. Each entry is a string, or `{"text": ..., "href": ...}` when the chip itself opens a link |
 | `links` | Identifiers that appear in the text and have a URL: `{"SHOP-130": "https://...", "shop-api#4120": "https://..."}`. Every occurrence in the text below becomes a link, and a bare `http(s)://` URL is linked on its own |
-| `lanes` | Only when work runs on more than one track (repositories, a parallel branch). Omit for a single line |
+| `lanes` | Lane names in order, e.g. `["server", "web"]`; an entry may also be `{"id": "srv", "label": "server"}`. This is the flow picture's lanes, not `board.lanes`, which holds subtask workers. Only when work runs on more than one track (repositories, a parallel branch). Omit for a single line |
 | `items` | One per step, in flow order. Fields below |
 | `board` | Subtask lanes, when four or more work units run in parallel. Fields in the `board` section below |
 | `edges` | Only the connections the lane does not already draw: steps next to each other in one lane are joined automatically, so list a branch, a merge, or a cross-lane dependency here |
@@ -107,6 +107,7 @@ Write `/tmp/deadhd-<task-slug>.json`. `<skill-dir>/example.json` is a complete e
 Each item:
 
 - `id`, `label` (short, for the flow picture), `sub` (one to three words under the node), `state`: `done`, `now` (exactly one while work is running), `side` (running in parallel), `left`, `blocked` (failed or waiting on the user).
+- `lane`: the lane this step sits in — the index in `lanes`, or a lane's `id` or name; defaults to `0`. `col`: its column inside the lane; leave it out to take the next free column after the previous step in that lane.
 - `title` and `body`: the card. `body` is one or two sentences: what and why for `now`, what happened for `done`, what is needed for `blocked`.
 - `evidence`: file paths, PR, commit, test counts, Jira comments, each with an `icon` and an `href` when the identifier has a URL.
 - `startedAt`, `doneAt`: when the step actually started and finished, ISO 8601 with a timezone offset, e.g. `2026-10-02T22:35:00+09:00`. Use a real time only: the output of `date -Iseconds` taken when you start or finish the step, or a timestamp that appeared in this session's tool results. Never invent one; leave the field out when you do not know.

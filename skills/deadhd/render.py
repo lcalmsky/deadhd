@@ -116,6 +116,10 @@ def is_number(value):
             and math.isfinite(value))
 
 
+def is_index(value):
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
 def bad_estimate(value):
     return (not is_number(value) or value <= 0 or value > MAX_ESTIMATE_MINUTES)
 
@@ -416,6 +420,39 @@ def validate(data):
                 if href is not None and not is_http_url(href):
                     problems.append(where + '.href 가 http(s) URL 이 아니다')
 
+    raw_lanes = data.get('lanes')
+    lanes = None
+    lane_names, lane_id_list = [], []
+    if raw_lanes is not None:
+        if not isinstance(raw_lanes, list):
+            problems.append('lanes 가 배열이 아니다')
+        else:
+            lanes = raw_lanes
+            for i, lane in enumerate(raw_lanes):
+                where = 'lanes[%d]' % i
+                if isinstance(lane, str):
+                    lane_names.append(lane)
+                    continue
+                if not isinstance(lane, dict):
+                    problems.append(where + ' 가 문자열 또는 객체가 아니다')
+                    continue
+                label = lane.get('label')
+                if not isinstance(label, str):
+                    problems.append(where + '.label 이 문자열이 아니다')
+                else:
+                    lane_names.append(label)
+                lid = lane.get('id')
+                if lid is None:
+                    continue
+                if not isinstance(lid, str) or not lid:
+                    problems.append(where + '.id 가 비어 있지 않은 문자열이 아니다')
+                else:
+                    lane_id_list.append(lid)
+            duplicated = sorted({x for x in lane_id_list if lane_id_list.count(x) > 1})
+            if duplicated:
+                problems.append('lanes 의 id 가 중복된다: ' + ', '.join(duplicated))
+    lane_ids = set(lane_id_list)
+
     items = data.get('items')
     if not isinstance(items, list) or not items:
         problems.append('items 가 비어 있지 않은 배열이 아니다')
@@ -440,6 +477,20 @@ def validate(data):
             problems.append('%s.state 가 %s 중 하나가 아니다 (값: %r)' % (where, '/'.join(STATES), state))
         if state == 'now':
             now_count += 1
+        lane = it.get('lane')
+        if isinstance(lane, str):
+            if raw_lanes is None:
+                problems.append(where + '.lane 이 문자열인데 lanes 가 없다')
+            elif lane not in lane_ids and lane not in lane_names:
+                problems.append('%s.lane 이 없는 레인을 가리킨다 (값: %r)' % (where, lane))
+        elif lane is not None:
+            if not is_index(lane):
+                problems.append('%s.lane 이 0 이상의 정수가 아니다 (값: %r)' % (where, lane))
+            elif lanes is not None and lane >= len(lanes):
+                problems.append('%s.lane 이 없는 레인을 가리킨다 (값: %r)' % (where, lane))
+        col = it.get('col')
+        if col is not None and not is_index(col):
+            problems.append('%s.col 이 0 이상의 정수가 아니다 (값: %r)' % (where, col))
         for field in ('startedAt', 'doneAt'):
             if it.get(field) is not None and parse_when(it[field]) is None:
                 problems.append('%s.%s 이 시차가 있는 ISO 8601 시각이 아니다' % (where, field))
@@ -487,6 +538,28 @@ def validate(data):
 
     if problems:
         die('\n'.join(problems))
+
+
+def normalize_lanes(payload):
+    """lanes 객체 형식과 문자열 lane 을 템플릿이 읽는 이름 배열·정수 인덱스로 바꾼다.
+
+    validate() 를 통과한 뒤에만 부른다. 문자열 lane 은 반드시 어떤 레인을 가리킨다.
+    """
+    lanes = payload.get('lanes')
+    if not isinstance(lanes, list):
+        return
+    names = [lane if isinstance(lane, str) else lane['label'] for lane in lanes]
+    by_id = {lane['id']: i for i, lane in enumerate(lanes)
+             if isinstance(lane, dict) and isinstance(lane.get('id'), str) and lane['id']}
+    items = []
+    for it in payload['items']:
+        # 정수 lane 과 lane 이 없는 item 은 원본 dict 를 그대로 쓴다.
+        if isinstance(it.get('lane'), str):
+            it = dict(it)
+            it['lane'] = by_id[it['lane']] if it['lane'] in by_id else names.index(it['lane'])
+        items.append(it)
+    payload['lanes'] = names
+    payload['items'] = items
 
 
 def preserved_title(out_path):
@@ -589,6 +662,7 @@ def main(argv):
     data_at = now if os.environ.get('DEADHD_NOW') else datetime.fromtimestamp(os.path.getmtime(data_path)).astimezone()
     data_at_text = data_at.isoformat(timespec='seconds')
     payload_data = dict(data)
+    normalize_lanes(payload_data)
     payload_data['renderedAt'] = now_text
     payload_data['dataAt'] = data_at_text
     items = payload_data['items']
