@@ -1,6 +1,6 @@
 {
   "name": "deadhd",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "description": "Show a live checklist page of what the current Claude Code session has done, is doing now, and has left.",
   "author": {
     "name": "lcalmsky",
