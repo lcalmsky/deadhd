@@ -121,7 +121,6 @@ def is_index(value):
 
 
 def as_index(value):
-    """0 이상 정수와 정수값 실수를 int 로 받는다. 그 밖에는 None."""
     if isinstance(value, float) and math.isfinite(value) and value.is_integer():
         value = int(value)
     return value if is_index(value) else None
@@ -580,13 +579,11 @@ def normalize_lanes(payload):
     items = []
     for it in payload['items']:
         lane, col = it.get('lane'), it.get('col')
-        # 이미 int 인 lane·col 과 값이 없는 item 은 원본 dict 를 그대로 쓴다.
         if not (isinstance(lane, (str, float)) or isinstance(col, (str, float))):
             items.append(it)
             continue
         it = dict(it)
         if isinstance(lane, str):
-            # 문자열 lane 은 id 를 먼저 보고, 없으면 이름이 같은 첫 번째 레인을 쓴다.
             it['lane'] = by_id[lane] if lane in by_id else names.index(lane)
         elif isinstance(lane, float):
             it['lane'] = int(lane)
