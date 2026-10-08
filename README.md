@@ -54,6 +54,12 @@ Orca 안에서 실행하면 기본 설정(`auto`)으로 터미널 옆 탭에 바
 
 ![deadhd 보기 모드](docs/views.png)
 
+## 레인 보드
+
+에픽의 하위 작업처럼 작업 단위가 넷 이상 병렬로 돌면, 데이터의 `board` 에 레인을 채워 페이지 아래에 작업 × 단계 표를 붙입니다. 레인마다 진행 단계, 작업자, 마지막 신호, 남은 시간, 티켓 전이 기록이 한 줄로 나오고, 완료·진행·정체·막힘·선행 대기·남음이 몇 건인지 위에 요약합니다. 정체 판정은 마지막 신호 뒤 얼마나 조용했는지(`stallAfter`, 기본 15분)를 브라우저가 직접 재므로, 모델이 갱신을 멈춘 레인도 정체로 드러나 주의 띠에 올라옵니다. DeepSeek 통로·서브에이전트·리더 세션처럼 작업자를 나눠 돌리는 하네스 세션과, 기본 서브에이전트에 일을 넘기는 보통 세션이 같은 형식을 씁니다. `board` 가 없는 세션은 지금까지처럼 흐름도만 그립니다.
+
+![레인 보드](docs/board.png)
+
 ## 동작 방식
 
 - 완료 표시는 세션의 실행 결과로 확인된 단계에만 붙습니다. 테스트 통과, 파일 작성, PR 머지처럼 결과가 남은 단계만 `done` 으로 분류하고, 시도했지만 검증하지 못한 단계는 `now` 또는 `blocked` 로 표시합니다.
@@ -240,12 +246,13 @@ deadhd 가 만들고 읽는 파일입니다.
 python3 -m unittest skills/deadhd/test_render.py
 ```
 
-예시 그림 여덟 장은 Chrome 을 설치한 환경에서 다음 명령으로 다시 만듭니다.
+예시 그림 열 장은 Chrome 을 설치한 환경에서 다음 명령으로 다시 만듭니다.
 
 ```bash
 python3 docs/capture_themes.py && python3 docs/capture_themes.py --lang en   # themes.png, themes.en.png
 python3 docs/capture_views.py && python3 docs/capture_views.py --lang en     # views.png, views.en.png
 python3 docs/capture_hub.py && python3 docs/capture_hub.py --lang en         # hub.png, hub.en.png, live.png, live.en.png
+python3 docs/capture_board.py && python3 docs/capture_board.py --lang en     # board.png, board.en.png
 ```
 
 ## 라이선스

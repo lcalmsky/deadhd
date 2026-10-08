@@ -54,6 +54,12 @@ The browser draws a view from the data already in the page when you press its bu
 
 ![deadhd view modes](docs/views.en.png)
 
+## Lane board
+
+When four or more work units run in parallel — an epic's subtasks, for instance — filling the data's `board` adds a task × stage table below the page. Each lane shows its stage, worker, last signal, time left, and ticket transitions on one row, with a summary of how many are done, running, stalled, blocked, waiting, or left. The browser measures how long a lane has been quiet past its `stallAfter` (15 minutes by default), so a lane you stop updating still shows up as stalled in the attention band. A harness session that splits work across a DeepSeek lane, a subagent, and the leader session uses the same format as a plain session that hands work to a default subagent. A session without `board` still draws only the flow, exactly as before.
+
+![Lane board](docs/board.en.png)
+
 ## How it works
 
 - The done mark is attached only to steps confirmed by the session's own run results. Only steps with a result — a passing test, a written file, a merged PR — are classified as `done`; steps that were attempted but not verified are shown as `now` or `blocked`.
@@ -240,12 +246,13 @@ The server uses port 47320 on 127.0.0.1. These environment variables change the 
 python3 -m unittest skills/deadhd/test_render.py
 ```
 
-The eight example images are regenerated on a machine with Chrome via these commands.
+The ten example images are regenerated on a machine with Chrome via these commands.
 
 ```bash
 python3 docs/capture_themes.py && python3 docs/capture_themes.py --lang en   # themes.png, themes.en.png
 python3 docs/capture_views.py && python3 docs/capture_views.py --lang en     # views.png, views.en.png
 python3 docs/capture_hub.py && python3 docs/capture_hub.py --lang en         # hub.png, hub.en.png, live.png, live.en.png
+python3 docs/capture_board.py && python3 docs/capture_board.py --lang en     # board.png, board.en.png
 ```
 
 ## License

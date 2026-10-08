@@ -1,0 +1,292 @@
+{
+  "key": "SHOP-700",
+  "keyHref": "https://example.atlassian.net/browse/SHOP-700",
+  "title": "주문 취소·환불 자동화 에픽의 하위 작업 12건 dev 배포",
+  "goal": "주문 취소의 사유 코드, 이벤트 스키마, 접수 큐, 고객 알림을 하위 작업으로 나눠 rolling-delivery 하네스로 병렬 배포하고, dev 통합 레인에서 회귀까지 검증한다.",
+  "doneWhen": "하위 작업 12건이 dev 통합 레인에 배포되고 완료 감사를 통과한다.",
+  "updated": "2026-10-07 14:30 KST",
+  "meta": [
+    "rd-shop700-20261007",
+    "development",
+    "shop-api-dev",
+    "feat/SHOP-700"
+  ],
+  "links": {
+    "SHOP-700": "https://example.atlassian.net/browse/SHOP-700",
+    "SHOP-701": "https://example.atlassian.net/browse/SHOP-701",
+    "SHOP-702": "https://example.atlassian.net/browse/SHOP-702",
+    "SHOP-703": "https://example.atlassian.net/browse/SHOP-703",
+    "SHOP-704": "https://example.atlassian.net/browse/SHOP-704",
+    "SHOP-705": "https://example.atlassian.net/browse/SHOP-705",
+    "SHOP-706": "https://example.atlassian.net/browse/SHOP-706",
+    "SHOP-707": "https://example.atlassian.net/browse/SHOP-707",
+    "SHOP-708": "https://example.atlassian.net/browse/SHOP-708",
+    "SHOP-709": "https://example.atlassian.net/browse/SHOP-709",
+    "SHOP-710": "https://example.atlassian.net/browse/SHOP-710",
+    "SHOP-711": "https://example.atlassian.net/browse/SHOP-711",
+    "SHOP-712": "https://example.atlassian.net/browse/SHOP-712"
+  },
+  "items": [
+    {
+      "id": "plan",
+      "label": "계획·승인",
+      "sub": "완료",
+      "state": "done",
+      "title": "설계 합의와 승인",
+      "body": "judge·critic 검토 2회를 거쳐 하위 작업 12건으로 나눈 계획이 승인되었다.",
+      "startedAt": "2026-10-07T07:50:00+09:00",
+      "doneAt": "2026-10-07T08:55:00+09:00"
+    },
+    {
+      "id": "run",
+      "label": "하위 작업 병렬",
+      "sub": "4/12",
+      "state": "now",
+      "estimate": 150,
+      "title": "하위 작업 병렬 진행",
+      "body": "아래 레인 보드가 하위 작업별 단계와 작업자를 보여 준다.",
+      "startedAt": "2026-10-07T09:00:00+09:00"
+    },
+    {
+      "id": "audit",
+      "label": "완료 감사",
+      "sub": "대기",
+      "state": "left",
+      "estimate": 30,
+      "title": "완료 감사",
+      "body": "모든 하위 작업이 끝나면 completion-audit 으로 증거를 대조한다."
+    }
+  ],
+  "board": {
+    "stages": [
+      "분석",
+      "설계",
+      "구현",
+      "검증",
+      "배포",
+      "회귀",
+      "보고",
+      "체크포인트"
+    ],
+    "lanes": [
+      {
+        "id": "SHOP-701",
+        "label": "취소 사유 코드 표준화",
+        "state": "done",
+        "stage": "체크포인트",
+        "worker": "deepseek-lane",
+        "body": "dev 통합 레인 배포 후 회귀 24건 통과, 티켓 전이와 체크포인트까지 마쳤다.",
+        "evidence": [
+          {
+            "icon": "pr",
+            "text": "shop-api#912",
+            "href": "https://github.com/example/shop-api/pull/912"
+          },
+          {
+            "icon": "test",
+            "text": "회귀 24/24"
+          }
+        ],
+        "startedAt": "2026-10-07T09:00:00+09:00",
+        "doneAt": "2026-10-07T10:08:00+09:00",
+        "log": [
+          {
+            "at": "2026-10-07T10:08:00+09:00",
+            "text": "체크포인트 기록"
+          },
+          {
+            "at": "2026-10-07T10:00:00+09:00",
+            "text": "회귀 24/24 통과"
+          },
+          {
+            "at": "2026-10-07T09:30:00+09:00",
+            "text": "/ship dev 완료"
+          }
+        ]
+      },
+      {
+        "id": "SHOP-702",
+        "label": "취소 이벤트 스키마 v2",
+        "state": "done",
+        "stage": "체크포인트",
+        "worker": "deepseek-lane",
+        "startedAt": "2026-10-07T09:10:00+09:00",
+        "doneAt": "2026-10-07T10:42:00+09:00",
+        "log": [
+          {
+            "at": "2026-10-07T10:42:00+09:00",
+            "text": "체크포인트 기록"
+          }
+        ]
+      },
+      {
+        "id": "SHOP-703",
+        "label": "취소 접수 큐 우선순위",
+        "state": "done",
+        "stage": "체크포인트",
+        "worker": "subagent:sonnet",
+        "body": "deepseek-lane 이 EXITED 로 끝나 서브에이전트로 폴백했다.",
+        "startedAt": "2026-10-07T10:20:00+09:00",
+        "doneAt": "2026-10-07T12:00:00+09:00",
+        "log": [
+          {
+            "at": "2026-10-07T12:00:00+09:00",
+            "text": "체크포인트 기록"
+          },
+          {
+            "at": "2026-10-07T10:25:00+09:00",
+            "text": "deepseek-fallback: EXITED"
+          }
+        ]
+      },
+      {
+        "id": "SHOP-704",
+        "label": "취소 알림 슬랙 포맷",
+        "state": "done",
+        "stage": "체크포인트",
+        "worker": "deepseek-lane",
+        "startedAt": "2026-10-07T11:00:00+09:00",
+        "doneAt": "2026-10-07T12:54:00+09:00",
+        "log": [
+          {
+            "at": "2026-10-07T12:54:00+09:00",
+            "text": "체크포인트 기록"
+          }
+        ]
+      },
+      {
+        "id": "SHOP-705",
+        "label": "취소 사유 대시보드 쿼리",
+        "state": "now",
+        "stage": "회귀",
+        "worker": "leader",
+        "note": "dev 회귀 루프",
+        "estimate": 20,
+        "body": "/ship dev 이후 dev 회귀 루프를 돌리고 있다. 18건 중 15건 통과.",
+        "evidence": [
+          {
+            "icon": "run",
+            "text": "Actions run 11872",
+            "href": "https://github.com/example/shop-api/actions/runs/11872"
+          }
+        ],
+        "startedAt": "2026-10-07T12:10:00+09:00",
+        "lastSignal": "2026-10-07T14:28:00+09:00",
+        "log": [
+          {
+            "at": "2026-10-07T14:28:00+09:00",
+            "text": "회귀 15/18"
+          },
+          {
+            "at": "2026-10-07T14:05:00+09:00",
+            "text": "/ship dev 완료"
+          },
+          {
+            "at": "2026-10-07T13:50:00+09:00",
+            "text": "judge PASS"
+          }
+        ]
+      },
+      {
+        "id": "SHOP-706",
+        "label": "취소 사유 요약 프롬프트 개정",
+        "state": "now",
+        "stage": "검증",
+        "worker": "deepseek-lane",
+        "note": "judge 대기",
+        "estimate": 35,
+        "dependsOn": [
+          "SHOP-702"
+        ],
+        "body": "구현과 단위 테스트 86건 통과. code-reviewer 지적 2건을 반영했고 judge 판정을 받는 중이다.",
+        "startedAt": "2026-10-07T12:30:00+09:00",
+        "lastSignal": "2026-10-07T14:26:00+09:00",
+        "log": [
+          {
+            "at": "2026-10-07T14:26:00+09:00",
+            "text": "code-reviewer 지적 반영"
+          },
+          {
+            "at": "2026-10-07T14:00:00+09:00",
+            "text": "검증 진입"
+          }
+        ]
+      },
+      {
+        "id": "SHOP-707",
+        "label": "취소 재시도 정책",
+        "state": "now",
+        "stage": "구현",
+        "worker": "deepseek-lane",
+        "note": "결과 파일 정체",
+        "estimate": 40,
+        "body": "lane-wait 가 마지막으로 본 결과 파일 갱신이 23분 전이다. 래퍼는 살아 있다.",
+        "startedAt": "2026-10-07T13:15:00+09:00",
+        "lastSignal": "2026-10-07T14:07:00+09:00",
+        "stallAfter": 15,
+        "log": [
+          {
+            "at": "2026-10-07T14:07:00+09:00",
+            "text": "결과 파일 마지막 갱신"
+          },
+          {
+            "at": "2026-10-07T13:15:00+09:00",
+            "text": "구현 위임"
+          }
+        ]
+      },
+      {
+        "id": "SHOP-708",
+        "label": "운영 시간 외 취소 차단",
+        "state": "blocked",
+        "stage": "설계",
+        "worker": "leader",
+        "note": "정책 결정",
+        "body": "PRD 와 티켓 본문의 운영 시간 정의가 다르다. 어느 쪽을 따를지 사용자 결정이 필요하다.",
+        "startedAt": "2026-10-07T12:50:00+09:00",
+        "lastSignal": "2026-10-07T13:30:00+09:00",
+        "log": [
+          {
+            "at": "2026-10-07T13:30:00+09:00",
+            "text": "critic: PRD 불일치 지적"
+          },
+          {
+            "at": "2026-10-07T12:55:00+09:00",
+            "text": "설계 시작"
+          }
+        ]
+      },
+      {
+        "id": "SHOP-709",
+        "label": "취소 회귀 시나리오 묶음",
+        "state": "waiting",
+        "dependsOn": [
+          "SHOP-706",
+          "SHOP-707"
+        ],
+        "estimate": 45
+      },
+      {
+        "id": "SHOP-710",
+        "label": "운영 런북 갱신",
+        "state": "left",
+        "estimate": 20
+      },
+      {
+        "id": "SHOP-711",
+        "label": "Datadog 모니터 추가",
+        "state": "left",
+        "estimate": 25,
+        "dependsOn": [
+          "SHOP-705"
+        ]
+      },
+      {
+        "id": "SHOP-712",
+        "label": "완료 감사",
+        "state": "left",
+        "estimate": 30
+      }
+    ]
+  }
+}
