@@ -134,6 +134,11 @@ function textNode(s) {
   return n;
 }
 
+const DOC_ROOT = { docRoot: true };
+function setParent(child, parent) {
+  Object.defineProperty(child, 'parentNode', { value: parent, writable: true, configurable: true, enumerable: false });
+}
+
 function El(tag) {
   this.tag = tag;
   this.tagName = tag === '#text' ? '#text' : tag.toUpperCase();
@@ -165,6 +170,20 @@ Object.defineProperty(El.prototype, 'className', {
   set: function (v) { this._cls = String(v); }
 });
 
+// Chrome 은 문서에 붙지 않았거나 조상이 display:none 인 요소에 넣은 scrollLeft 를 무시한다.
+Object.defineProperty(El.prototype, 'scrollLeft', {
+  get: function () { return this._scrollLeft || 0; },
+  set: function (v) {
+    let n = this;
+    while (n && !n.docRoot) {
+      if (n.hidden === true) return;
+      n = n.parentNode;
+    }
+    if (!n) return;
+    Object.defineProperty(this, '_scrollLeft', { value: Number(v) || 0, writable: true, configurable: true });
+  }
+});
+
 Object.defineProperty(El.prototype, 'textContent', {
   get: function () { return textOf(this); },
   set: function (v) {
@@ -175,10 +194,11 @@ Object.defineProperty(El.prototype, 'textContent', {
 
 El.prototype.appendChild = function (c) {
   if (c.tag === '#fragment') {
-    for (const k of c.children) this.children.push(k);
+    for (const k of c.children) { this.children.push(k); setParent(k, this); }
     return c;
   }
   this.children.push(c);
+  setParent(c, this);
   return c;
 };
 El.prototype.setAttribute = function (k, v) {
@@ -201,14 +221,15 @@ function makeDocument(raw) {
     createTextNode: function (t) { return textNode(t); },
     createDocumentFragment: function () { return new El('#fragment'); },
     getElementById: function (id) {
-      if (!byId.has(id)) { const e = new El('div'); e.id = id; byId.set(id, e); }
+      if (!byId.has(id)) { const e = new El('div'); e.id = id; setParent(e, doc.body); byId.set(id, e); }
       return byId.get(id);
     },
     querySelector: function (sel) {
-      if (!queries.has(sel)) { const e = new El('div'); e.sel = sel; queries.set(sel, e); }
+      if (!queries.has(sel)) { const e = new El('div'); e.sel = sel; setParent(e, doc.body); queries.set(sel, e); }
       return queries.get(sel);
     }
   };
+  setParent(doc.body, DOC_ROOT);
   doc.getElementById('progress-data').textContent = raw;
   doc._byId = byId;
   return doc;
@@ -221,6 +242,7 @@ function serialize(n) {
   if (n.className) o.cls = n.className;
   if (n.href != null) o.href = n.href;
   if (n.sel) o.sel = n.sel;
+  if (n.scrollLeft) o.scrollLeft = n.scrollLeft;
   if (n.dataset && Object.keys(n.dataset).length) o.data = Object.assign({}, n.dataset);
   if (n.attrs && Object.keys(n.attrs).length) o.attrs = Object.assign({}, n.attrs);
   const style = {};
@@ -298,6 +320,13 @@ function clickSpec(spec) {
 }
 for (const spec of (cases && cases.clicks) || []) clickSpec(spec);
 
+// nodes 는 클릭 전 스냅숏이라, 클릭이 바꾼 상태는 여기서 한 번 더 뜬다.
+const nodesAfter = {};
+for (const entry of doc._byId) {
+  if (entry[0] === 'progress-data') continue;
+  nodesAfter[entry[0]] = serialize(entry[1]);
+}
+
 const fmt = cases ? {
   clock: (cases.clock || []).map(c => probe.fmtClock(c[0], c[1])),
   dur: (cases.dur || []).map(m => probe.fmtDur(m))
@@ -322,6 +351,7 @@ process.stdout.write(JSON.stringify({
     i18nKeys: probe.i18nKeys
   },
   nodes: nodes,
+  nodesAfter: nodesAfter,
   storage: ss._m
 }));
 '''
@@ -3708,6 +3738,30 @@ class BoardDomTest(unittest.TestCase):
         result = self.render_dom(board_data(board))
         self.assertEqual([n['text'] for n in self.find(result, 'bd-ago')], ['1시간 전'])
         self.assertIn('bd-ago stall', [n.get('cls') for n in self.find(result, 'bd-ago')])
+
+    def bd_scroll_left(self, result, after_clicks=False):
+        trees = (result['nodesAfter'] if after_clicks else result['nodes']).values()
+        for tree in trees:
+            for node in iter_nodes(tree):
+                if 'bd-scroll' in (node.get('cls') or '').split():
+                    return node.get('scrollLeft', 0)
+        self.fail('bd-scroll 을 찾지 못했다')
+
+    def test_saved_scroll_is_restored(self):
+        board = {'stages': BOARD_STAGES, 'lanes': [board_lane('l1', 'now', stage='구현')]}
+        result = self.render_dom(board_data(board), storage=self.board_storage({'scrollLeft': 120}))
+        self.assertEqual(self.bd_scroll_left(result), 120)
+
+    def test_scroll_is_restored_when_returning_to_stage_tab(self):
+        board = {'stages': BOARD_STAGES, 'lanes': [board_lane('l1', 'now', stage='구현')]}
+        result = self.render_dom(
+            board_data(board),
+            storage=self.board_storage({'scrollLeft': 120, 'tab': 'time'}),
+            clicks=[{'cls': 'bd-tab', 'nth': 0}],
+        )
+        # 저장된 탭이 「작업자 × 시간」이면 단계 패널이 숨어 있어 복원하지 않는다.
+        self.assertEqual(self.bd_scroll_left(result), 0)
+        self.assertEqual(self.bd_scroll_left(result, after_clicks=True), 120)
 
 
 if __name__ == '__main__':

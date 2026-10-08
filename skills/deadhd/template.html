@@ -1638,7 +1638,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       timePanel.hidden = !time;
       if (remember) { bdState.tab = time ? 'time' : 'stage'; bdSave(); }
     };
-    tabStage.addEventListener('click', () => selectTab(false, true));
+    tabStage.addEventListener('click', () => { selectTab(false, true); restoreBdScroll(); });
     tabTime.addEventListener('click', () => selectTab(true, true));
     selectTab(bdState.tab === 'time', false);
     tabs.appendChild(tabStage);
@@ -1731,12 +1731,16 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     }
 
     const bdScroll = el('div', 'bd-scroll');
-    if (typeof bdState.scrollLeft === 'number') bdScroll.scrollLeft = bdState.scrollLeft;
     let bdScrollTimer = null;
     bdScroll.addEventListener('scroll', () => {
       clearTimeout(bdScrollTimer);
       bdScrollTimer = setTimeout(() => { bdState.scrollLeft = bdScroll.scrollLeft; bdSave(); }, 200);
     });
+    // 문서에 붙기 전이나 숨은 패널에 넣은 값은 무시되므로 배치가 끝난 뒤에만 되돌린다.
+    const restoreBdScroll = () => {
+      if (typeof bdState.scrollLeft !== 'number' || stagePanel.hidden) return;
+      bdScroll.scrollLeft = bdState.scrollLeft;
+    };
     const grid = el('div', 'bd-grid');
     grid.style.setProperty('--bd-stages', String(bdStages ? bdStages.length : 1));
     const head = el('div', 'bd-row bd-head');
@@ -1880,6 +1884,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       recent.appendChild(feed);
       sec.appendChild(recent);
     }
+    restoreBdScroll();
   }
 
   function cardEl(it, cls) {
