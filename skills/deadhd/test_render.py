@@ -147,7 +147,17 @@ function El(tag) {
   this._cls = '';
   const self = this;
   this.style = { setProperty: function (k, v) { this[k] = v; } };
-  this.classList = { add: function (c) { self._cls = self._cls ? self._cls + ' ' + c : c; } };
+  const classes = function () { return self._cls ? self._cls.split(' ').filter(Boolean) : []; };
+  this.classList = {
+    add: function (c) { if (!classes().includes(c)) self._cls = classes().concat(c).join(' '); },
+    remove: function (c) { self._cls = classes().filter(x => x !== c).join(' '); },
+    contains: function (c) { return classes().includes(c); },
+    toggle: function (c, force) {
+      const on = force === undefined ? !classes().includes(c) : !!force;
+      if (on) this.add(c); else this.remove(c);
+      return on;
+    }
+  };
 }
 
 Object.defineProperty(El.prototype, 'className', {
@@ -175,7 +185,8 @@ El.prototype.setAttribute = function (k, v) {
   this.attrs[k] = String(v);
   if (k === 'class') this._cls = String(v);
 };
-El.prototype.addEventListener = function () {};
+El.prototype.addEventListener = function (type, fn) { (this._on || (this._on = {}))[type] = fn; };
+El.prototype.click = function () { const fn = this._on && this._on.click; if (fn) fn(); };
 El.prototype.remove = function () {};
 El.prototype.getBoundingClientRect = function () { return { left: 0, top: 0, width: 0, height: 0 }; };
 El.prototype.querySelector = function () { return null; };
@@ -249,6 +260,8 @@ const ss = {
   getItem: function (k) { return Object.prototype.hasOwnProperty.call(this._m, k) ? this._m[k] : null; },
   setItem: function (k, v) { this._m[k] = String(v); }
 };
+const seed = process.argv[7] ? JSON.parse(fs.readFileSync(process.argv[7], 'utf8')) : null;
+if (seed) Object.assign(ss._m, seed);
 const run = new Function('document', 'matchMedia', 'sessionStorage', code);
 run(doc, function () { return { matches: false, addEventListener: function () {} }; }, ss);
 
@@ -262,6 +275,29 @@ for (const entry of doc._byId) {
 }
 
 const cases = process.argv[4] ? JSON.parse(fs.readFileSync(process.argv[4], 'utf8')) : null;
+
+// 클릭 한 번으로 상태가 store 에 남는지 보려면 핸들러를 실제로 불러야 한다.
+function matchesClick(n, spec) {
+  if (spec.cls && !(n.className || '').split(' ').includes(spec.cls)) return false;
+  if (spec.text != null && textOf(n) !== spec.text) return false;
+  if (spec.lane != null && (n.dataset || {}).lane !== spec.lane) return false;
+  return true;
+}
+function clickSpec(spec) {
+  const found = [];
+  for (const entry of doc._byId) {
+    if (entry[0] === 'progress-data') continue;
+    (function walk(n) {
+      if (matchesClick(n, spec)) found.push(n);
+      for (const kid of n.children) walk(kid);
+    })(entry[1]);
+  }
+  const node = found[spec.nth || 0];
+  if (!node) throw new Error('클릭할 노드를 찾지 못했다: ' + JSON.stringify(spec));
+  node.click();
+}
+for (const spec of (cases && cases.clicks) || []) clickSpec(spec);
+
 const fmt = cases ? {
   clock: (cases.clock || []).map(c => probe.fmtClock(c[0], c[1])),
   dur: (cases.dur || []).map(m => probe.fmtDur(m))
@@ -285,7 +321,8 @@ process.stdout.write(JSON.stringify({
     link_number: info(123),
     i18nKeys: probe.i18nKeys
   },
-  nodes: nodes
+  nodes: nodes,
+  storage: ss._m
 }));
 '''
 
@@ -455,7 +492,7 @@ def run_hub_harness(html, fixed_now=None):
     return json.loads(r.stdout)
 
 
-def run_linkify_harness(html, cases=None, fixed_now=None, flow_width=None):
+def run_linkify_harness(html, cases=None, fixed_now=None, flow_width=None, storage=None):
     with tempfile.TemporaryDirectory(prefix='progress-linkify-') as d:
         files = {}
         for name, text in (
@@ -474,10 +511,15 @@ def run_linkify_harness(html, cases=None, fixed_now=None, flow_width=None):
             cases_path = os.path.join(d, 'cases.json')
             with open(cases_path, 'w', encoding='utf-8') as f:
                 json.dump(cases, f, ensure_ascii=False)
+        storage_path = ''
+        if storage is not None:
+            storage_path = os.path.join(d, 'storage.json')
+            with open(storage_path, 'w', encoding='utf-8') as f:
+                json.dump(storage, f, ensure_ascii=False)
         # fmtClock 은 로컬 날짜를 보므로 실행 시차를 고정해 기대값을 결정적으로 만든다.
         if cases is not None or fixed_now is not None:
             env['TZ'] = 'Asia/Seoul'
-        cmd += [cases_path, fixed_now or '', str(flow_width or '')]
+        cmd += [cases_path, fixed_now or '', str(flow_width or ''), storage_path]
         r = subprocess.run(cmd, capture_output=True, text=True, cwd=d, env=env)
     assert r.returncode == 0, r.stderr
     return json.loads(r.stdout)
@@ -3331,6 +3373,8 @@ class HooksJsonTest(unittest.TestCase):
 
 
 BOARD_STAGES = ['분석', '설계', '구현', '검증']
+# board_data 의 제목은 'T', key 는 없다. 템플릿의 KEY 는 'progress:' + key + ':' + title 이다.
+BOARD_STATE_KEY = 'progress::T:board'
 DEMO_EPIC = os.path.join(os.path.dirname(os.path.dirname(HERE)), 'docs', 'demos', 'epic.json')
 
 
@@ -3475,7 +3519,7 @@ class BoardDomTest(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix='progress-board-dom-test-')
         self.addCleanup(shutil.rmtree, self.tmp, True)
 
-    def render_dom(self, data, now=FIXED_NOW, view=FIXED_NOW):
+    def render_dom(self, data, now=FIXED_NOW, view=FIXED_NOW, storage=None, clicks=None):
         path = os.path.join(self.tmp, 'data.json')
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False)
@@ -3483,7 +3527,8 @@ class BoardDomTest(unittest.TestCase):
         r = run_render(path, out, env_extra={'DEADHD_NOW': now, 'DEADHD_PORT': '47410'})
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(out, encoding='utf-8') as f:
-            return run_linkify_harness(f.read(), fixed_now=view)
+            cases = {'clicks': clicks} if clicks else None
+            return run_linkify_harness(f.read(), cases=cases, fixed_now=view, storage=storage)
 
     def find(self, result, cls):
         found = []
@@ -3498,6 +3543,20 @@ class BoardDomTest(unittest.TestCase):
             if (node.get('data') or {}).get('lane') == lid:
                 return node
         self.fail('레인 행을 찾지 못했다: ' + lid)
+
+    def lane_detail(self, result, lid):
+        for node in iter_nodes(result['nodes']['board']):
+            kids = node.get('kids', [])
+            for i, kid in enumerate(kids):
+                if (kid.get('data') or {}).get('lane') == lid:
+                    return kids[i + 1]
+        self.fail('레인 상세를 찾지 못했다: ' + lid)
+
+    def board_storage(self, state):
+        return {BOARD_STATE_KEY: json.dumps(state, ensure_ascii=False)}
+
+    def saved_board_state(self, result):
+        return json.loads(result['storage'][BOARD_STATE_KEY])
 
     def test_board_absent_leaves_no_section(self):
         result = self.render_dom({'title': 'T', 'items': [mini_item('a', 'done')]})
@@ -3515,7 +3574,6 @@ class BoardDomTest(unittest.TestCase):
         result = self.render_dom(board_data(board))
         self.assertIn('board', result['nodes'])
         rows = self.find(result, 'bd-row')
-        # 머리 행 하나 + 레인 3행
         self.assertEqual(len(rows), 4)
         self.assertEqual(rows[0]['text'], '작업 · 작업자분석설계구현검증마지막 신호')
         self.assertEqual(
@@ -3611,6 +3669,45 @@ class BoardDomTest(unittest.TestCase):
         active = self.lane_node(result, 'SHOP-205')
         self.assertIn('bd-cell now', [k.get('cls') for k in active['kids']])
         self.assertEqual([n['text'] for n in self.find(result, 'bd-tag')], ['정체 18분', '막힘'])
+
+    def test_saved_board_state_is_applied(self):
+        board = {'stages': BOARD_STAGES,
+                 'lanes': [board_lane('l1', 'done', stage='검증'), board_lane('l2', 'now', stage='구현')]}
+        result = self.render_dom(
+            board_data(board),
+            storage=self.board_storage({'tab': 'time', 'open': ['l2'], 'closed': {'finished': False}}),
+        )
+        self.assertEqual([n['attrs'].get('aria-selected') for n in self.find(result, 'bd-tab')],
+                         ['false', 'true'])
+        self.assertIn('open', (self.lane_detail(result, 'l2').get('cls') or '').split())
+        self.assertNotIn('open', (self.lane_detail(result, 'l1').get('cls') or '').split())
+        self.assertEqual([n.get('cls') for n in self.find(result, 'bd-grp')],
+                         ['bd-grp active', 'bd-grp finished'])
+
+    def test_stale_saved_lane_id_is_ignored(self):
+        board = {'stages': BOARD_STAGES, 'lanes': [board_lane('l1', 'now', stage='구현')]}
+        result = self.render_dom(board_data(board), storage=self.board_storage({'open': ['gone']}))
+        self.assertNotIn('open', (self.lane_detail(result, 'l1').get('cls') or '').split())
+        self.assertEqual([n['text'] for n in self.find(result, 'bd-grp')], ['▾진행 중1'])
+
+    def test_board_interactions_are_saved(self):
+        board = {'stages': BOARD_STAGES,
+                 'lanes': [board_lane('l1', 'done', stage='검증'), board_lane('l2', 'now', stage='구현')]}
+        result = self.render_dom(board_data(board), clicks=[
+            {'cls': 'bd-tab', 'nth': 1},
+            {'cls': 'bd-row', 'lane': 'l2'},
+            {'cls': 'bd-grp', 'nth': 0},
+        ])
+        self.assertEqual(self.saved_board_state(result),
+                         {'tab': 'time', 'open': ['l2'], 'closed': {'active': True}})
+
+    def test_done_time_is_not_a_signal(self):
+        board = {'stages': BOARD_STAGES, 'lanes': [board_lane(
+            'l1', 'now', stage='구현',
+            startedAt='2026-10-03T09:00:00+09:00', doneAt='2026-10-03T09:58:00+09:00')]}
+        result = self.render_dom(board_data(board))
+        self.assertEqual([n['text'] for n in self.find(result, 'bd-ago')], ['1시간 전'])
+        self.assertIn('bd-ago stall', [n.get('cls') for n in self.find(result, 'bd-ago')])
 
 
 if __name__ == '__main__':

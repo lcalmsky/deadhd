@@ -1541,9 +1541,13 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     const bdLanes = board.lanes;
     const bdStages = Array.isArray(board.stages) && board.stages.length ? board.stages : null;
     const STALL_DEFAULT = 15;
-    // 신호의 기준은 lastSignal, 없으면 완료 시각, 그다음 시작 시각이다.
+    const bdStateKey = KEY + ':board';
+    const bdSaved = store.get(bdStateKey);
+    const bdState = (bdSaved && typeof bdSaved === 'object' && !Array.isArray(bdSaved)) ? bdSaved : {};
+    const bdSave = () => store.set(bdStateKey, bdState);
+    const bdOpen = new Set(Array.isArray(bdState.open) ? bdState.open : []);
     const laneSignalAt = lane => {
-      const raw = lane.lastSignal || lane.doneAt || lane.startedAt;
+      const raw = lane.lastSignal || lane.startedAt;
       return raw ? toDate(raw) : null;
     };
     const laneStallAfter = lane => (typeof lane.stallAfter === 'number' && lane.stallAfter > 0)
@@ -1627,15 +1631,16 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     tabs.setAttribute('role', 'tablist');
     const stagePanel = el('div', 'bd-panel');
     const timePanel = el('div', 'bd-panel');
-    timePanel.hidden = true;
-    const selectTab = time => {
+    const selectTab = (time, remember) => {
       tabStage.setAttribute('aria-selected', time ? 'false' : 'true');
       tabTime.setAttribute('aria-selected', time ? 'true' : 'false');
       stagePanel.hidden = time;
       timePanel.hidden = !time;
+      if (remember) { bdState.tab = time ? 'time' : 'stage'; bdSave(); }
     };
-    tabStage.addEventListener('click', () => selectTab(false));
-    tabTime.addEventListener('click', () => selectTab(true));
+    tabStage.addEventListener('click', () => selectTab(false, true));
+    tabTime.addEventListener('click', () => selectTab(true, true));
+    selectTab(bdState.tab === 'time', false);
     tabs.appendChild(tabStage);
     tabs.appendChild(tabTime);
     sec.appendChild(tabs);
@@ -1701,7 +1706,6 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       const cur = bdStages ? bdStages.indexOf(lane.stage) : -1;
       if (bdStages) {
         bdStages.forEach((name2, i) => {
-          // done 레인은 어느 단계에 있든 모든 칸이 완료색이다.
           const cls = (lane.state === 'done' || (cur >= 0 && i < cur)) ? 'done'
             : (i === cur) ? cellClass(lane) : 'pending';
           const cell = el('div', 'bd-cell ' + cls);
@@ -1727,6 +1731,12 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     }
 
     const bdScroll = el('div', 'bd-scroll');
+    if (typeof bdState.scrollLeft === 'number') bdScroll.scrollLeft = bdState.scrollLeft;
+    let bdScrollTimer = null;
+    bdScroll.addEventListener('scroll', () => {
+      clearTimeout(bdScrollTimer);
+      bdScrollTimer = setTimeout(() => { bdState.scrollLeft = bdScroll.scrollLeft; bdSave(); }, 200);
+    });
     const grid = el('div', 'bd-grid');
     grid.style.setProperty('--bd-stages', String(bdStages ? bdStages.length : 1));
     const head = el('div', 'bd-row bd-head');
@@ -1735,32 +1745,50 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     head.appendChild(el('div', 'bd-sig', L.boardLast));
     grid.appendChild(head);
 
-    const groupHead = (label, cls, list, closed) => {
+    const bdGroupClosed = key => {
+      const saved = bdState.closed;
+      return (saved && typeof saved === 'object' && !Array.isArray(saved) && typeof saved[key] === 'boolean')
+        ? saved[key] : key === 'finished';
+    };
+    const bdSetGroupClosed = (key, closed) => {
+      if (!bdState.closed || typeof bdState.closed !== 'object' || Array.isArray(bdState.closed)) bdState.closed = {};
+      bdState.closed[key] = closed;
+      bdSave();
+    };
+    const groupHead = (label, key, list) => {
       if (!list.length) return;
-      const headEl = el('div', 'bd-grp ' + cls + (closed ? ' closed' : ''));
+      const closed = bdGroupClosed(key);
+      const headEl = el('div', 'bd-grp ' + key + (closed ? ' closed' : ''));
       headEl.appendChild(el('span', 'bd-car', '▾'));
       headEl.appendChild(document.createTextNode(label));
       headEl.appendChild(el('span', 'bd-n', String(list.length)));
       const box = el('div');
-      box.hidden = !!closed;
+      box.hidden = closed;
       list.forEach(lane => {
         const row = laneRow(lane);
         const detail = laneDetail(lane);
-        row.addEventListener('click', () => detail.classList.toggle('open'));
+        if (bdOpen.has(lane.id)) detail.classList.add('open');
+        row.addEventListener('click', () => {
+          detail.classList.toggle('open');
+          if (bdOpen.has(lane.id)) bdOpen.delete(lane.id); else bdOpen.add(lane.id);
+          bdState.open = Array.from(bdOpen);
+          bdSave();
+        });
         box.appendChild(row);
         box.appendChild(detail);
       });
       headEl.addEventListener('click', () => {
         box.hidden = !box.hidden;
         headEl.classList.toggle('closed', box.hidden);
+        bdSetGroupClosed(key, box.hidden);
       });
       grid.appendChild(headEl);
       grid.appendChild(box);
     };
-    groupHead(L.boardGroupAttention, 'attention', bdAttention, false);
-    groupHead(L.boardGroupActive, 'active', bdActive, false);
-    groupHead(L.boardGroupWaiting, 'waiting', bdWaiting.concat(bdLeft), false);
-    groupHead(L.boardGroupFinished, 'finished', bdDone, true);
+    groupHead(L.boardGroupAttention, 'attention', bdAttention);
+    groupHead(L.boardGroupActive, 'active', bdActive);
+    groupHead(L.boardGroupWaiting, 'waiting', bdWaiting.concat(bdLeft));
+    groupHead(L.boardGroupFinished, 'finished', bdDone);
     bdScroll.appendChild(grid);
     stagePanel.appendChild(bdScroll);
 
