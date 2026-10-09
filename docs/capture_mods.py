@@ -19,9 +19,8 @@ CASE, THEME, SESSION = 'lanes-blocked', 'dark', 'demo-mods'
 NOW = CASES[CASE]
 WAIT_MINUTES, STALE_MINUTES = 4, 2
 
-FONT, LINE = 14, 22
-PAD, GAP = 24, 20
-CELL = FONT * 0.6
+FONT, LINE = 10, 14
+PAD, GAP = 14, 16
 
 
 # ── register.tsx 의 줄 만들기 ────────────────────────────────────────────────
@@ -31,6 +30,7 @@ BAR_CELLS = 6
 SEP = ' · '
 BAND_CMD = '/deadhd-band'
 STATUS_CMD = '/deadhd-statusline'
+OPEN_CMD = '/deadhd-open'
 
 WORDS = {
     'ko': {
@@ -235,6 +235,7 @@ def status_fields(state, now):
     if state['compactions'] > 0:
         fields.append(('compacted',
                        [('🗜 %s %d' % (words['compacted'], state['compactions']), 'remember', False)]))
+    fields.append(('openCmd', [('↗ %s' % OPEN_CMD, 'suggestion', False)]))
     return fields
 
 
@@ -293,6 +294,8 @@ def fit(fields, max_cols):
         shrink('current')
     if line_width(fields) > max_cols:
         drop('current')
+    if line_width(fields) > max_cols:
+        drop('openCmd')
     return [f for f in fields if f[1]]
 
 
@@ -429,7 +432,24 @@ TONES = {
     'ide': '#6ca9e8', 'remember': '#e8a0ff', 'plain': '#d8d8dc',
 }
 
+# 엔진이 그리는 부분(대화 영역·입력칸·힌트)의 색. deadhd 의 테마 키와는 무관하다.
+TEXT, DIM, EDGE, PERMISSION = '#d8d8dc', '#7a7b82', '#3a3b44', '#e06c75'
+
 SIZE_MARK = 'deadhd-mods-size:'
+
+# 가로선 자리. 터미널 폭은 그 조각의 줄들로 정해지므로 그릴 때 채운다.
+RULE = object()
+
+HINT_STRONG = '⏵⏵ bypass permissions on'
+HINT_REST = ' (shift+tab to cycle) · ← for agents'
+
+
+class Line:
+    """터미널 한 줄: 그린 HTML 과, 터미널 폭을 정할 평문."""
+
+    def __init__(self, html, text):
+        self.html = html
+        self.text = text
 
 
 def esc(value):
@@ -447,27 +467,39 @@ def spans(parts, tail=''):
 
 
 def row(parts, tail=''):
-    return '<div class="row">%s</div>' % spans(parts, tail)
+    return Line('<div class="row">%s</div>' % spans(parts, tail),
+                ''.join(part[0] for part in parts) + tail)
 
 
-def action_row(parts, buttons):
-    return '<div class="linerow"><span class="row">%s</span>%s</div>' % (spans(parts, ' '), buttons)
+def plain(content, cls=''):
+    """색 없이 그리는 한 줄: 대화 영역과 엔진 힌트."""
+    return Line('<div class="row%s">%s</div>' % ((' ' + cls) if cls else '', esc(content)), content)
 
 
-def plain(where, content):
-    return '<div class="row%s">%s</div>' % ((' ' + where) if where else '', esc(content))
-
-
-def button(label, primary=False):
-    return '<span class="btn%s">[ %s ]</span>' % (' primary' if primary else '', esc(label))
-
-
-def terminal(rows):
-    return '<div class="term">%s</div>' % ''.join(rows)
+def control_row(parts, controls):
+    """밴드·상태줄 한 줄: 조각들 끝에 터미널 버튼 `[ label ]` 을 붙인다."""
+    drawn = ''.join('<span class="btn%s">[ %s ]</span>' % (' primary' if primary else '', esc(label))
+                    for label, primary in controls)
+    text = ''.join(part[0] for part in parts) + ' ' + ' '.join('[ %s ]' % label
+                                                              for label, _ in controls)
+    return Line('<div class="row">%s%s</div>' % (spans(parts, ' '), drawn), text)
 
 
 def prompt_row():
-    return '<div class="prompt">&gt; <span class="cursor">▏</span></div>'
+    """입력칸: `❯ ` 와 흰 블록 커서 한 줄."""
+    return Line('<div class="row">❯ <span class="cursor"> </span></div>', '❯  ')
+
+
+def hint_row():
+    return Line('<div class="row"><span style="color:%s">%s</span><span class="dim">%s</span></div>'
+                % (PERMISSION, esc(HINT_STRONG), esc(HINT_REST)), HINT_STRONG + HINT_REST)
+
+
+def terminal(rows):
+    cols = max([cell_width(one.text) for one in rows if one is not RULE] or [0])
+    edge = '<div class="row rule">%s</div>' % ('─' * cols)
+    return '<div class="term">%s</div>' % ''.join(edge if one is RULE else one.html
+                                                  for one in rows)
 
 
 def page(lang, blocks):
@@ -477,28 +509,26 @@ def page(lang, blocks):
 <html lang="%s"><head><meta charset="utf-8"><style>
 * { box-sizing: border-box; }
 html, body { margin: 0; }
-body { background: #0d0d12; }
+body { background: #0d0d0d; }
 .page { display: flex; flex-direction: column; gap: %dpx; padding: %dpx; width: max-content; }
-.cap { color: #8a8f9e; font: 15px -apple-system, "Apple SD Gothic Neo", sans-serif; }
-.term { background: #15161a; border: 1px solid #000; border-radius: 10px; padding: 12px 18px;
-  width: max-content; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+.block { display: flex; flex-direction: column; gap: 7px; }
+.cap { color: #8a8f9e; font: 13px -apple-system, "Apple SD Gothic Neo", sans-serif; }
+.term { background: #101012; padding: 10px 12px; width: max-content;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: %dpx; line-height: %dpx; }
-.block { display: flex; flex-direction: column; gap: 8px; }
-.row { color: #d8d8dc; white-space: pre; }
-.linerow { display: flex; align-items: baseline; }
-.gray { color: #6b6b70; }
-.prompt { border: 1px solid #3a3b44; border-radius: 6px; padding: 5px 12px; margin-top: 6px;
-  color: #d8d8dc; min-width: 420px; width: max-content; }
-.cursor { color: #6b6b70; }
-.btn { background: #2a2c33; color: #d8d8dc; border-radius: 3px; padding: 1px 5px; margin-left: 5px; }
-.btn.primary { background: #d97757; color: #15161a; }
+.row { color: %s; white-space: pre; }
+.dim { color: %s; }
+.rule { color: %s; }
+.cursor { background: %s; }
+.btn { color: %s; }
+.btn.primary { color: %s; }
 </style>
 <script>window.addEventListener('load', function () {
   var r = document.querySelector('.page').getBoundingClientRect();
   console.log('%s' + Math.ceil(r.width) + 'x' + Math.ceil(r.height));
 });</script>
 </head><body><div class="page">%s</div></body></html>
-""" % (lang, GAP, PAD, FONT, LINE, SIZE_MARK, caps)
+""" % (lang, GAP, PAD, FONT, LINE, TEXT, DIM, EDGE, TEXT, TEXT, TONES['claude'], SIZE_MARK, caps)
 
 
 def content_size(html):
@@ -583,11 +613,12 @@ CUT_EXPECT = '/deadhd-band · ▓▓▓░░░ 3/6 · 막힘 1 · 남음 2'
 LONG_LABEL = '아주 긴 단계 이름이 여기에 들어 있다'
 LONG_ROW = ('/deadhd-statusline · ✅ 3/6 ▓▓▓░░░ · CAS-1161 CAS-1161 콘솔 dev 회귀 3회차 · '
             '▶️ 실제 화면 확인 4분째 · ⏭ 다음 정리 · ⏱ 예상 16:20 · 🔄 2분 전 · ⛔ 막힘 1: 배포 검증 · '
-            '⏳ 남음 2 · 🧵 백그라운드 2 · 🗜 압축 1')
+            '⏳ 남음 2 · 🧵 백그라운드 2 · 🗜 압축 1 · ↗ /deadhd-open')
 # LONG_ROW 는 테스트에서 두 줄로 쪼개 붙이므로 조각으로 확인한다.
 TEST_FRAGMENTS = (BAND_EXPECT, ALERT_EXPECT,
                   '✅ 3/6 ▓▓▓░░░ · CAS-1161 CAS-1161 콘솔 dev 회귀 3회차 · ',
-                  '⏳ 남음 2 · 🧵 백그라운드 2 · 🗜 압축 1')
+                  '⏳ 남음 2 · 🧵 백그라운드 2 · 🗜 압축 1',
+                  '↗ /deadhd-open')
 
 
 def check_lines():
@@ -633,19 +664,25 @@ def main(argv):
     demos_dir = os.path.join(HERE, 'demos', 'en') if lang == 'en' else os.path.join(HERE, 'demos')
     suffix = '.en.png' if lang == 'en' else '.png'
     talk = {
-        'ko': ('⏺ Bash(python3 -m unittest skills/deadhd/test_render.py)',
-               '  ⎿  Ran 398 tests in 6.21s — OK',
-               '⏺ 테스트가 통과했다. 카나리 전에 남은 검증만 돌리면 된다.',
-               '밴드 — 프롬프트 위 한 줄. 막힌 단계나 대기가 있으면 둘째 줄이 붙는다.',
-               '접힌 밴드 — /deadhd-band 로 접었을 때',
-               '상태줄 — 프롬프트 아래 한 줄, 그 아래는 엔진 힌트'),
-        'en': ('⏺ Bash(python3 -m unittest skills/deadhd/test_render.py)',
-               '  ⎿  Ran 398 tests in 6.21s — OK',
-               '⏺ Tests pass. Only the last canary checks are left.',
-               'Band — one line above the prompt. A second row appears when a step is stuck '
-               'or the session waits.',
-               'Folded band — after /deadhd-band',
-               'Status line — one line under the prompt, with the engine hint below'),
+        'ko': {
+            'call': 'Bash(python3 -m unittest skills/deadhd/test_render.py)',
+            'result': '  ⎿  Ran 398 tests in 6.21s — OK',
+            'say': '테스트가 통과했다. 카나리 전에 남은 검증만 돌리면 된다.',
+            'worked': 'Worked for 27s · done 2026-10-09 16:19',
+            'bandCap': '밴드: 입력칸 위 한 줄. 막힌 단계나 대기가 있으면 둘째 줄이 붙는다.',
+            'foldedCap': '접힌 밴드: /deadhd-band 로 접었을 때',
+            'statusCap': '상태줄: 입력칸 아래, 엔진 힌트 다음 줄',
+        },
+        'en': {
+            'call': 'Bash(python3 -m unittest skills/deadhd/test_render.py)',
+            'result': '  ⎿  Ran 398 tests in 6.21s — OK',
+            'say': 'Tests pass. Only the last canary checks are left.',
+            'worked': 'Worked for 27s · done 2026-10-09 16:19',
+            'bandCap': 'Band: one row above the input. A second row appears when a step is '
+                       'stuck or the session waits.',
+            'foldedCap': 'Folded band: after /deadhd-band',
+            'statusCap': 'Status line: under the input, on the row after the engine hint',
+        },
     }[lang]
 
     work = tempfile.mkdtemp(prefix='deadhd-mods-')
@@ -686,31 +723,27 @@ def main(argv):
         status = status_line(state, now, STATUS_COLS)
         folded = folded_segments(state)
 
-        # 밴드는 프롬프트 위, 상태줄은 프롬프트 아래에 그려진다. 밴드 그림만 두 줄이다.
+        # 실제 화면 순서 그대로다: 대화 영역, 밴드(프롬프트 위), 입력칸, 엔진 힌트,
+        # 그리고 상태줄 모드에서만 그 아래에 deadhd 상태줄.
+        talk_lines = [
+            plain('⏺ ' + talk['call']),
+            plain(talk['result'], 'dim'),
+            plain('⏺ ' + talk['say']),
+            plain('* ' + talk['worked'], 'dim'),
+        ]
+        under_input = [RULE, prompt_row(), RULE, hint_row()]
         band_blocks = [
-            (talk[4], terminal([
-                action_row(folded, button(words['open'], True) + button(words['expand'])),
-                prompt_row(),
-                plain('gray', '? for shortcuts'),
-            ])),
-            (talk[3], terminal([
-                row([('⏺', 'success', False)] + [(talk[0][1:], 'plain', False)]),
-                plain('gray', talk[1]),
-                row([('⏺', 'success', False)] + [(talk[2][1:], 'plain', False)]),
-                plain('', ' '),
-                action_row(band, button(words['open'], True) + button(words['collapse'])),
+            (talk['foldedCap'], terminal(talk_lines + [
+                control_row(folded, [(words['open'], True), (words['expand'], False)]),
+            ] + under_input)),
+            (talk['bandCap'], terminal(talk_lines + [
+                control_row(band, [(words['open'], True), (words['collapse'], False)]),
                 row(alerts),
-                prompt_row(),
-                plain('gray', '? for shortcuts'),
-            ])),
+            ] + under_input)),
         ]
         status_blocks = [
-            (talk[5], terminal([
-                row([('⏺', 'success', False)] + [(talk[2][1:], 'plain', False)]),
-                plain('', ' '),
-                prompt_row(),
-                row(status),
-                plain('gray', '? for shortcuts'),
+            (talk['statusCap'], terminal(talk_lines + under_input + [
+                control_row(status, [(words['open'], True)]),
             ])),
         ]
 

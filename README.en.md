@@ -67,7 +67,7 @@ The same progress can be shown three ways. This is a separate setting from the p
 
 Pick one in `/deadhd setup`, or change it for one run with `/deadhd --view <value>`. The value recorded in the session's state file beats the saved setting, so one run with `--view band` keeps that session on the band.
 
-The band and the status line are drawn by the deadhd plugin's mod (`skills/deadhd/hooks/register.tsx`), which reads the same state file the skill writes. They are **Claude Code only**; outside Claude Code (Codex `$deadhd`, say) the skill does not ask and works as `html`. `/deadhd-band` folds or opens the band, `/deadhd-statusline` the status line, and a command that does not match the current view answers in one line with how to switch. The page opens with `/deadhd-open` or the band's `Open` button.
+The band and the status line are drawn by the deadhd plugin's mod (`skills/deadhd/hooks/register.tsx`), which reads the same state file the skill writes. They are **Claude Code only**; outside Claude Code (Codex `$deadhd`, say) the skill does not ask and works as `html`. `/deadhd-band` folds or opens the band, `/deadhd-statusline` the status line, and a command that does not match the current view answers in one line with how to switch. The page opens with `/deadhd-open`, the band's `Open` button, or the status line's.
 
 Under `band` and `statusline` the page file is not written straight away. The state summary and the hub are rewritten on every update; the page is written when it is first opened (`/deadhd-open`, the `Open` button) and from then on with every update. A session with no page yet shows its display name (`band`/`status line`) in the hub instead of a link.
 
@@ -77,7 +77,7 @@ The band compresses the done count, the progress bar, the step in progress with 
 
 ![Status line — one line under the prompt, with the engine hint below](docs/statusline.en.png)
 
-The status line carries the same state file with more fields: the ticket key and title, the next step, the last update, blocked, left, waiting, background, and compactions. A row is drawn to 240 cells, so a longer title is cut with `…` first.
+The status line carries the same state file with more fields: the ticket key and title, the next step, the last update, blocked, left, waiting, background, and compactions. A row is drawn to 240 cells, so a longer title is cut with `…` first. The row ends with a `↗ /deadhd-open` note and an `Open` button, which open the page the same way the band's does.
 
 ## Lane board
 
