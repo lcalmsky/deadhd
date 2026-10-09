@@ -62,5 +62,6 @@
         ]
       }
     ]
-  }
+  },
+  "modules": ["../skills/deadhd/hooks/register.tsx"]
 }
