@@ -8,7 +8,7 @@ import sys
 import tempfile
 from datetime import datetime, timedelta
 
-from capture_themes import CASES, CHROME, CLOCK, chrome_args, chrome_shot, die, render_panel
+from capture_themes import CASES, CHROME, CLOCK, RENDER, chrome_args, chrome_shot, die, render_panel
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -20,6 +20,8 @@ THEME = 'dark'
 NOW = CASES['lanes-blocked']
 HUB_WINDOW, LIVE_WINDOW = (1200, 820), (1200, 760)
 LIVE_SESSION = 'demo-2'
+# 아직 페이지를 쓰지 않은 세션. 허브가 링크 대신 표시 방식 이름을 그리는지 그림에서 보이게 한다.
+BAND_SESSION, BAND_VIEW = 'demo-1', 'band'
 STATUS_OF = {'Notification': 'waiting_permission', 'PostToolUse': 'working',
              'Stop': 'idle', 'SessionEnd': 'ended'}
 # 보정 계수 1.6 이 나오는 세 줄. 세션 페이지의 완료 예상이 보정값으로 바뀐다.
@@ -55,6 +57,16 @@ def work_env(work):
 def inject(session, payload, env):
     subprocess.run([sys.executable, STATE], input=json.dumps(dict(payload, session_id=session)),
                    capture_output=True, text=True, env=env)
+
+
+def render_band_state(case, session, work, demos_dir, env):
+    # 밴드는 페이지를 쓰지 않는다. 상태 요약만 갱신하고, 허브는 그 요약을 읽어 칩을 그린다.
+    src = os.path.join(demos_dir, case + '.json')
+    result = subprocess.run([sys.executable, RENDER, '--theme', THEME, '--view', BAND_VIEW,
+                             '--session', session, src, os.path.join(work, case + '.band.html')],
+                            capture_output=True, text=True, env=env)
+    if result.returncode != 0:
+        die('%s 밴드 렌더 실패: %s' % (case, (result.stderr or result.stdout).strip()))
 
 
 def backdate(state_dir, session, minutes, tool_seconds):
@@ -115,17 +127,30 @@ def main(argv):
             for row in HISTORY_ROWS:
                 f.write(json.dumps(row) + '\n')
         env = work_env(work)
+        # 밴드 세션은 설정도 밴드여야 한다. 훅이 페이지를 다시 렌더할 때 설정값으로 view 를 덮어쓰기 때문이다.
+        band_config = os.path.join(work, 'band-config.json')
+        with open(band_config, 'w', encoding='utf-8') as f:
+            json.dump({'view': BAND_VIEW}, f)
+        band_env = dict(env, DEADHD_CONFIG=band_config)
         panels = {}
         for session, case, payload, minutes, tool_seconds in SESSIONS:
-            panels[session] = render_panel(case, THEME, work, demos_dir, session=session, now=NOW,
-                                           extra_env={'DEADHD_HISTORY': history})
-            inject(session, payload, env)
+            band = session == BAND_SESSION
+            session_env = band_env if band else env
+            if band:
+                render_band_state(case, session, work, demos_dir, session_env)
+            else:
+                panels[session] = render_panel(case, THEME, work, demos_dir, session=session, now=NOW,
+                                               extra_env={'DEADHD_HISTORY': history})
+            inject(session, payload, session_env)
             state = backdate(state_dir, session, minutes, tool_seconds)
             if state.get('status') != STATUS_OF[payload['hook_event_name']]:
                 die('%s 상태가 주입대로 바뀌지 않았다: %r' % (session, state.get('status')))
+            if state.get('view') != (BAND_VIEW if band else 'html'):
+                die('%s 표시 방식이 %r 이다' % (session, state.get('view')))
             # 띠와 타일은 상태 파일을 읽어 만든다. 되돌린 시각을 반영하려면 다시 렌더해야 한다.
-            panels[session] = render_panel(case, THEME, work, demos_dir, session=session, now=NOW,
-                                           extra_env={'DEADHD_HISTORY': history})
+            if not band:
+                panels[session] = render_panel(case, THEME, work, demos_dir, session=session, now=NOW,
+                                               extra_env={'DEADHD_HISTORY': history})
             print('session: %s (%s)' % (session, case))
 
         result = subprocess.run([sys.executable, HUB, '--theme', THEME],

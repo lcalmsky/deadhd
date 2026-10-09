@@ -71,6 +71,14 @@ Orca 안에서 실행하면 기본 설정(`auto`)으로 터미널 옆 탭에 바
 
 `band`·`statusline` 에서는 페이지 파일을 곧바로 쓰지 않습니다. 상태 요약과 허브는 매 갱신마다 다시 쓰고, 페이지는 처음 열 때(`/deadhd-open`, `열기` 버튼) 만들고 그 뒤로는 계속 씁니다. 허브에서 아직 페이지가 없는 세션은 링크 대신 표시 방식 이름(`밴드`/`상태줄`)을 보여 줍니다.
 
+![밴드 — 프롬프트 위 한 줄, 막힘·대기가 있으면 둘째 줄](docs/band.png)
+
+밴드는 완료 수와 진행 막대, 지금 하는 단계와 경과 시간, 막힘·남음만 한 줄에 압축합니다. 막힌 단계가 있거나 차례를 기다리면 둘째 줄이 붙고, `/deadhd-band` 로 접으면 완료 수와 `열기`·`펼치기` 버튼만 남습니다.
+
+![상태줄 — 프롬프트 아래 한 줄, 그 아래 엔진 힌트](docs/statusline.png)
+
+상태줄은 같은 상태 파일을 더 많은 항목으로 담습니다. 티켓 키와 제목, 다음 단계, 마지막 갱신, 막힘, 남음, 대기, 백그라운드, 압축이 한 줄로 나오고, 240칸을 넘으면 제목부터 잘려 `…` 이 붙습니다.
+
 ## 레인 보드
 
 에픽의 하위 작업처럼 작업 단위가 넷 이상 병렬로 돌면, 데이터의 `board` 에 레인을 채워 페이지 아래에 작업 × 단계 표를 붙입니다. 레인마다 진행 단계, 작업자, 마지막 신호, 남은 시간, 티켓 전이 기록이 한 줄로 나오고, 완료·진행·정체·막힘·선행 대기·남음이 몇 건인지 위에 요약합니다. 정체 판정은 마지막 신호 뒤 얼마나 조용했는지(`stallAfter`, 기본 15분)를 브라우저가 직접 재므로, 모델이 갱신을 멈춘 레인도 정체로 드러나 주의 띠에 올라옵니다. DeepSeek 통로·서브에이전트·리더 세션처럼 작업자를 나눠 돌리는 하네스 세션과, 기본 서브에이전트에 일을 넘기는 보통 세션이 같은 형식을 씁니다. `board` 가 없는 세션은 지금까지처럼 흐름도만 그립니다.
@@ -282,13 +290,14 @@ deadhd 가 만들고 읽는 파일입니다.
 python3 -m unittest skills/deadhd/test_render.py
 ```
 
-예시 그림 열 장은 Chrome 을 설치한 환경에서 다음 명령으로 다시 만듭니다.
+예시 그림 열네 장은 Chrome 을 설치한 환경에서 다음 명령으로 다시 만듭니다.
 
 ```bash
 python3 docs/capture_themes.py && python3 docs/capture_themes.py --lang en   # themes.png, themes.en.png
 python3 docs/capture_views.py && python3 docs/capture_views.py --lang en     # views.png, views.en.png
 python3 docs/capture_hub.py && python3 docs/capture_hub.py --lang en         # hub.png, hub.en.png, live.png, live.en.png
 python3 docs/capture_board.py && python3 docs/capture_board.py --lang en     # board.png, board.en.png
+python3 docs/capture_mods.py && python3 docs/capture_mods.py --lang en       # band.png, band.en.png, statusline.png, statusline.en.png
 ```
 
 ## 라이선스

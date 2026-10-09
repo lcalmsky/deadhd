@@ -71,6 +71,14 @@ The band and the status line are drawn by the deadhd plugin's mod (`skills/deadh
 
 Under `band` and `statusline` the page file is not written straight away. The state summary and the hub are rewritten on every update; the page is written when it is first opened (`/deadhd-open`, the `Open` button) and from then on with every update. A session with no page yet shows its display name (`band`/`status line`) in the hub instead of a link.
 
+![Band — one line above the prompt, with a second row when a step is stuck or the session waits](docs/band.en.png)
+
+The band compresses the done count, the progress bar, the step in progress with its elapsed time, and the blocked and left counts into one line. A second row appears when a step is stuck or the session waits, and `/deadhd-band` folds it to the count with the `Open` and `Expand` buttons.
+
+![Status line — one line under the prompt, with the engine hint below](docs/statusline.en.png)
+
+The status line carries the same state file with more fields: the ticket key and title, the next step, the last update, blocked, left, waiting, background, and compactions. A row is drawn to 240 cells, so a longer title is cut with `…` first.
+
 ## Lane board
 
 When four or more work units run in parallel — an epic's subtasks, for instance — filling the data's `board` adds a task × stage table below the page. Each lane shows its stage, worker, last signal, time left, and ticket transitions on one row, with a summary of how many are done, running, stalled, blocked, waiting, or left. The browser measures how long a lane has been quiet past its `stallAfter` (15 minutes by default), so a lane you stop updating still shows up as stalled in the attention band. A harness session that splits work across a DeepSeek lane, a subagent, and the leader session uses the same format as a plain session that hands work to a default subagent. A session without `board` still draws only the flow, exactly as before.
@@ -282,13 +290,14 @@ The server uses port 47320 on 127.0.0.1. These environment variables change the 
 python3 -m unittest skills/deadhd/test_render.py
 ```
 
-The ten example images are regenerated on a machine with Chrome via these commands.
+The fourteen example images are regenerated on a machine with Chrome via these commands.
 
 ```bash
 python3 docs/capture_themes.py && python3 docs/capture_themes.py --lang en   # themes.png, themes.en.png
 python3 docs/capture_views.py && python3 docs/capture_views.py --lang en     # views.png, views.en.png
 python3 docs/capture_hub.py && python3 docs/capture_hub.py --lang en         # hub.png, hub.en.png, live.png, live.en.png
 python3 docs/capture_board.py && python3 docs/capture_board.py --lang en     # board.png, board.en.png
+python3 docs/capture_mods.py && python3 docs/capture_mods.py --lang en       # band.png, band.en.png, statusline.png, statusline.en.png
 ```
 
 ## License
