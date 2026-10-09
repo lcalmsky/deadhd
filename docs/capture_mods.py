@@ -215,7 +215,7 @@ def heading_parts(state):
     if body is None:
         if state['title'] == '':
             return [(key, 'permission', True) + href]
-        return [(key + ' ', 'permission', True) + href, (state['title'], 'text', False)]
+        return [(key, 'permission', True) + href, (' ' + state['title'], 'text', False)]
     if body == '':
         return [(key, 'permission', True) + href]
     return [(key, 'permission', True) + href, (body, 'text', False)]
@@ -234,19 +234,25 @@ def title_after_key(title, key):
 
 def status_fields(state, now):
     words = WORDS[state['lang']]
-    fields = [('name', [(STATUS_MARK, 'claude', True)])]
+    fields = []
     if state['total'] > 0:
+        # 표지는 count 필드의 첫 조각이다. 그래서 표지와 개수 사이에 구분점이 서지 않고,
+        # 막대 조각이 버려져도 표지는 남는다.
         fields.append(('count', [
+            (STATUS_MARK + ' ', 'claude', True),
             ('✅ %d/%d' % (state['done'], state['total']), 'success', True),
             (' ', 'plain', False)] + bar_parts(state['done'], state['total'])))
+    else:
+        fields.append(('name', [(STATUS_MARK, 'claude', True)]))
     heading = heading_parts(state)
     if heading:
         fields.append(('title', heading))
     if state['current'] is not None:
         fields.append(step_field(state['current'], state['lang'], now, '▶️'))
     if state['pr'] is not None:
-        fields.append(('pr', [('🔀 %s' % state['pr']['text'], 'permission', False,
-                               state['pr']['href'])]))
+        # 아이콘은 링크 밖 조각이다. 밑줄이 아이콘과 그 뒤 공백까지 걸치지 않는다.
+        fields.append(('pr', [('🔀 ', 'permission', False),
+                              (state['pr']['text'], 'permission', False, state['pr']['href'])]))
     if state['next'] is not None:
         fields.append(('next', [('⏭ %s %s' % (words['next'], state['next']['label']), 'inactive', False)]))
     eta = clock_of(state['eta'])
@@ -742,7 +748,7 @@ BAND_EXPECT = '/deadhd-band · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확�
 ALERT_EXPECT = '⛔ 막힘: 배포 검증 (권한 대기) · 🔐 권한 승인 대기 4분째'
 CUT_EXPECT = '/deadhd-band · ▓▓▓░░░ 3/6 · 막힘 1'
 LONG_LABEL = '아주 긴 단계 이름이 여기에 들어 있다'
-LONG_ROW = ('◆ · ✅ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · '
+LONG_ROW = ('◆ ✅ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · '
             '▶️ 실제 화면 확인 4분째 · 🔀 app-api#512 · ⏭ 다음 정리 · ⏱ 예상 16:20 · 🔄 2분 전 · '
             '⛔ 막힘 1: 배포 검증 · ⏳ 남음 2 · 🧵 백그라운드 2 · 🗜 압축 1')
 # LONG_ROW 는 테스트에서 두 줄로 쪼개 붙이므로 조각으로 확인한다.

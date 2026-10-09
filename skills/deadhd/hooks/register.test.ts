@@ -307,9 +307,15 @@ const FOLDED_GUIDE = '/deadhd-statusline 펼치기'
 /** The pull request the sample's running step carries, as the row draws it. */
 const PR_PIECE = '🔀 app-api#512'
 
+/** The pull request's own words: the part the link wraps, the mark left outside it. */
+const PR_TEXT = 'app-api#512'
+
+/** The mark and the count as one piece: no separator falls between them. */
+const MARK_COUNT = `${STATUS_MARK} ✅ 3/6`
+
 /** The whole long row the sample draws, piece by piece. */
 const LONG_ROW =
-  `${STATUS_MARK} · ✅ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · ` +
+  `${STATUS_MARK} ✅ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · ` +
   '▶️ 실제 화면 확인 4분째 · 🔀 app-api#512 · ⏭ 다음 정리 · ⏱ 예상 16:20 · 🔄 2분 전 · ' +
   '⛔ 막힘 1: 배포 검증 · ⏳ 남음 2 · 🧵 백그라운드 2 · 🗜 압축 1'
 
@@ -703,12 +709,27 @@ describe('the status hint', () => {
         'https://github.com/example/app-api/pull/512',
       ])
       expect(textOf(links[0])).toBe('CAS-1161')
-      expect(textOf(links[1])).toBe(PR_PIECE)
+      expect(textOf(links[1])).toBe(PR_TEXT)
+      expect(drawn).toContain(PR_PIECE)
       expect(drawn).toContain('열기')
 
       await ui.unmount()
     })
   }
+
+  test('links the key and the pull request words alone, their neighbours left outside', async ($, on) => {
+    statusWorld(on, filesOf(statusState({}, { title: '다른 제목' })))
+
+    await $.session.start(SESSION)
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+    const links = await ui.findAll({ type: 'Link' })
+
+    expect(textOf(links[0])).toBe('CAS-1161')
+    expect(textOf(links[1])).toBe(PR_TEXT)
+
+    await ui.unmount()
+  })
 
   test('keeps the button and the way back on the folded row', async ($, on) => {
     statusWorld(on, filesOf(statusState()))
@@ -782,7 +803,8 @@ describe('the status hint', () => {
         color: 'suggestion',
         bold: true,
       })
-      expect(pieceOf(painted, PR_PIECE)).toMatchObject({ color: 'permission' })
+      expect(pieceOf(painted, '🔀')).toMatchObject({ color: 'permission' })
+      expect(pieceOf(painted, PR_TEXT)).toMatchObject({ color: 'permission' })
       expect(pieceOf(painted, '⏭ 다음 정리')?.color).toBe('inactive')
       expect(pieceOf(painted, '⏱ 예상 16:20')?.color).toBe('planMode')
       expect(pieceOf(painted, '🔄 2분 전')?.color).toBe('subtle')
@@ -1096,7 +1118,17 @@ describe('formatLine', () => {
       summary: { title: '작은 판', lang: 'ko', total: 1, counts: { done: 1 } },
     })
 
-    expect(formatLine(bare, NOW, 240)).toBe(`${STATUS_MARK} · ✅ 1/1 ▓▓▓▓▓▓ · 작은 판`)
+    expect(formatLine(bare, NOW, 240)).toBe(`${STATUS_MARK} ✅ 1/1 ▓▓▓▓▓▓ · 작은 판`)
+  })
+
+  test('draws the mark against the count, no separator between them', () => {
+    const row = formatLine(STATE, NOW, 240)
+
+    expect(row.startsWith(MARK_COUNT)).toBe(true)
+    expect(row).not.toContain(`${STATUS_MARK} ·`)
+    // The bar's own cells go without the mark going with them: the mark is the
+    // count's first piece, not a field the row can drop.
+    expect(formatLine({ ...STATE!, key: null, title: '' }, NOW, 4)).toBe(MARK_COUNT)
   })
 
   test('names the next left step after the current one, not before it', () => {
@@ -1107,7 +1139,7 @@ describe('formatLine', () => {
     const alone = normalize(stateOf({ data: '' }))
 
     expect(formatLine(alone, NOW, 240)).toBe(
-      `${STATUS_MARK} · ✅ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · ` +
+      `${STATUS_MARK} ✅ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · ` +
         '▶️ 실제 화면 확인 · 🔀 app-api#512 · ⏱ 예상 16:20 · 🔄 2분 전 · ⛔ 막힘 1 · ⏳ 남음 2 · ' +
         '🧵 백그라운드 2 · 🗜 압축 1',
     )
@@ -1142,8 +1174,8 @@ describe('formatLine', () => {
   test('gives the pieces up in the order the row can spare them, down to the count', () => {
     const bare = { ...STATE!, key: null, title: '' }
     // Everything but the mark and the count goes before the bar's own cells do.
-    const kept = `${STATUS_MARK} · ✅ 3/6 ▓▓▓░░░`
-    const bar = `${STATUS_MARK} · ✅ 3/6`
+    const kept = `${MARK_COUNT} ▓▓▓░░░`
+    const bar = MARK_COUNT
 
     expect(formatLine(bare, NOW, cellWidth(kept))).toBe(kept)
     expect(formatLine(bare, NOW, cellWidth(bar))).toBe(bar)
@@ -1154,7 +1186,7 @@ describe('formatLine', () => {
   })
 
   test('gives up the pull request before the count, the title taking the cells it leaves', () => {
-    const withPr = `${STATUS_MARK} · ✅ 3/6 ▓▓▓░░░ · CAS-1161 · ${PR_PIECE}`
+    const withPr = `${MARK_COUNT} ▓▓▓░░░ · CAS-1161 · ${PR_PIECE}`
 
     expect(formatLine(STATE, NOW, cellWidth(withPr))).toBe(withPr)
 

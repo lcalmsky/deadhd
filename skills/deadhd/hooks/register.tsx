@@ -9,9 +9,9 @@ const REFRESH_MS = 5000
 /** PromptHint hands the tree no width, so this is the budget its pieces are cut to. */
 const STATUS_COLS = 240
 /**
- * Cells the hint line is indented by, on each side, inside the surface's own
- * width: `e.viewport.columns` is the whole screen, so the line drawn in the
- * indented slot must have them taken off its budget.
+ * Cells the hint line is indented by, the indent on both sides together, inside
+ * the surface's own width: `e.viewport.columns` is the whole screen, so the line
+ * drawn in the indented slot must have them taken off its budget.
  */
 const HINT_INSET = 4
 /** Cells the progress bar draws; `done/total` is rounded onto them. */
@@ -495,17 +495,22 @@ const bandAlertFields = (state: DeadhdState, now: number): Field[] => {
 /** The status line's pieces, in the order the long row draws them. */
 const statusFields = (state: DeadhdState, now: number): Field[] => {
   const words = WORDS[state.lang]
-  const fields: Field[] = [{ tag: 'name', parts: [{ text: STATUS_MARK, tone: 'claude', bold: true }] }]
+  const fields: Field[] = []
 
   if (state.total > 0) {
+    // The mark rides in the count's own field, so no separator falls between it
+    // and the count; the bar's cells can go without taking the mark with them.
     fields.push({
       tag: 'count',
       parts: [
+        { text: `${STATUS_MARK} `, tone: 'claude', bold: true },
         { text: `✅ ${state.done}/${state.total}`, tone: 'success', bold: true },
         { text: ' ', tone: 'plain' },
         ...barParts(state.done, state.total),
       ],
     })
+  } else {
+    fields.push({ tag: 'name', parts: [{ text: STATUS_MARK, tone: 'claude', bold: true }] })
   }
 
   const heading = headingParts(state)
@@ -521,7 +526,10 @@ const statusFields = (state: DeadhdState, now: number): Field[] => {
   if (state.pr !== null) {
     fields.push({
       tag: 'pr',
-      parts: [{ text: `🔀 ${state.pr.text}`, tone: 'permission', href: state.pr.href }],
+      parts: [
+        { text: '🔀 ', tone: 'permission' },
+        { text: state.pr.text, tone: 'permission', href: state.pr.href },
+      ],
     })
   }
 
@@ -601,9 +609,7 @@ const headingParts = (state: DeadhdState): Segment[] => {
   const body = titleAfterKey(state.title, key)
 
   if (body === null) {
-    return state.title === ''
-      ? [piece]
-      : [{ ...piece, text: `${key} ` }, { text: state.title, tone: 'text' }]
+    return state.title === '' ? [piece] : [piece, { text: ` ${state.title}`, tone: 'text' }]
   }
 
   return body === '' ? [piece] : [piece, { text: body, tone: 'text' }]
