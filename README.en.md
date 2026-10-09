@@ -153,9 +153,9 @@ Installed as a plugin, the invocation name is `/deadhd:deadhd`, and this is the 
 
 ### Install from Orca
 
-If you use [Orca](https://onorca.dev), open the [share link](https://share.onorca.dev/skills/share/shr_a38de6123a1ae29e31f2092e4369fa72d126a7487c0eb746) and press `Open in Orca`. Orca lets you review the included files and choose where to install. After installing, the invocation name is `/deadhd`.
+If you use [Orca](https://onorca.dev), open the [share link](https://share.onorca.dev/skills/share/shr_65bf3905d75548542e1483a23e36a079ef752d23438c7b6d) and press `Open in Orca`. Orca lets you review the included files and choose where to install. After installing, the invocation name is `/deadhd`.
 
-> An Orca share link is a frozen bundle of the files uploaded at publish time. The current link contains v1.10.1, and releases after that are not reflected. For the latest version, install via the plugin or the skill folder.
+> An Orca share link is a frozen bundle of the files uploaded at publish time. The current link contains v1.11.0, and releases after that are not reflected. For the latest version, install via the plugin or the skill folder.
 
 ### Install as a skill folder
 
