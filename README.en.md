@@ -65,14 +65,14 @@ The same progress can be shown three ways. The band and the status line are show
 | Display | Where | Layout |
 |---|---|---|
 | `band` | One line above the prompt | Compresses the done count, a progress bar, the step in progress with its elapsed time, and only the blocked and left counts. It opens no browser tab, so it is the lightest of the three |
-| `statusline` | One line under the prompt | Carries the ticket key and title, the next step, the completion estimate, the last update, background tasks, and compactions |
+| `statusline` | One line under the prompt | Carries the ticket key and title, the pull request of the step in progress, the next step, the completion estimate, the last update, background tasks, and compactions |
 | `html` | The browser page | The progress page above |
 
 **The band** grows a second row when a step is stuck or the session waits. `/deadhd-band` folds it back to the count with the `Open` and `Expand` buttons.
 
 <p align="center"><img src="docs/band.en.png" alt="The band folded, and a second row for a stuck step and a wait" width="800"></p>
 
-**The status line** carries the same state file with more fields. When the row is wider than the terminal, the title is cut first and gets a `…`, and the `Open` button at the end of the row opens the page.
+**The status line** carries the same state file with more fields. The ticket key and the pull request of the step in progress are links you can press. When the row is wider than the terminal, the title is cut first and gets a `…`; if it still does not fit, the less important fields go first, and the wait state and the done count always stay. The `Open` button at the end of the row opens the page.
 
 <p align="center"><img src="docs/statusline.en.png" alt="The status line under the prompt" width="800"></p>
 
