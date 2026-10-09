@@ -16,7 +16,7 @@ VIEWS = {'a': ('스트립', 'Strip'), 'b': ('타임라인', 'Timeline'), 'c': ('
 SHOTS = [('a', 'port', (520, 820)), ('b', 'port', (520, 820)), ('c', 'port', (520, 820)), ('b', 'land', (1280, 540))]
 ORIENT_NAMES = {'port': ('세로', 'Portrait'), 'land': ('가로', 'Landscape')}
 
-GALLERY_W, PAD, GAP, HEADER_H = 1600, 20, 20, 46
+GALLERY_W, PAD, GAP, HEADER_H = 900, 20, 20, 34
 
 
 def seed_view(html, key, view):
@@ -48,8 +48,8 @@ body { background: #0d0d12; font-family: -apple-system, "Apple SD Gothic Neo", s
 .panel { margin: 0; background: #1c1c22; border-radius: 12px; overflow: hidden; }
 figcaption { height: %dpx; display: flex; align-items: baseline; gap: 10px; padding: 0 16px;
   border-bottom: 1px solid rgba(255,255,255,.06); }
-figcaption b { color: #fff; font-size: 18px; font-weight: 700; }
-figcaption code { color: #8a8f9e; font-size: 13px; font-family: ui-monospace, "SF Mono", monospace; }
+figcaption b { color: #fff; font-size: 12px; font-weight: 700; }
+figcaption code { color: #8a8f9e; font-size: 10px; font-family: ui-monospace, "SF Mono", monospace; }
 img { display: block; width: 100%%; }
 </style></head><body><div class="grid">%s</div></body></html>
 """ % (lang, col_w, GAP, PAD, HEADER_H, cells), col_w

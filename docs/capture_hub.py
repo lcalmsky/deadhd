@@ -2,10 +2,13 @@
 """세션 네 개를 docs/demos 의 사례로 렌더하고 상태를 주입해 허브 그림 docs/hub.png 와 세션 페이지 그림 docs/live.png 를 만든다. Chrome 헤드리스 실행 파일이 필요하다."""
 import json
 import os
+import re
+import select
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timedelta
 
 from capture_themes import CASES, CHROME, CLOCK, RENDER, chrome_args, chrome_shot, die, render_panel
@@ -18,7 +21,11 @@ STATE = os.path.join(REPO, 'skills', 'deadhd', 'state.py')
 THEME = 'dark'
 # 경과 시간을 재는 기준 시각. 세 페이지와 허브를 모두 이 시각에 맞춘다.
 NOW = CASES['lanes-blocked']
-HUB_WINDOW, LIVE_WINDOW = (1200, 820), (1200, 760)
+# 창 폭은 README 본문에 맞춘 900 CSS 다. 배율 2 로 찍으므로 결과는 1800px 이 된다.
+WINDOW_W = 900
+# 타일 수가 세션에 따라 달라지므로 허브 높이는 내용을 재서 정하고, live 는 띠·진행 막대·흐름도 윗부분이 보이는 값으로 고정한다.
+LIVE_H = 850
+SIZE_MARK = 'deadhd-hub-height:'
 LIVE_SESSION = 'demo-2'
 # 아직 페이지를 쓰지 않은 세션. 허브가 링크 대신 표시 방식 이름을 그리는지 그림에서 보이게 한다.
 BAND_SESSION, BAND_VIEW = 'demo-1', 'band'
@@ -86,12 +93,43 @@ def backdate(state_dir, session, minutes, tool_seconds):
 
 
 def clocked(path):
+    probe = ("<script>window.addEventListener('load', function () {"
+             "console.log('%s' + document.documentElement.scrollHeight);});</script>" % SIZE_MARK)
     with open(path, encoding='utf-8') as f:
         page = f.read()
-    page = page.replace('<head>', '<head>\n' + CLOCK % NOW, 1)
+    page = page.replace('<head>', '<head>\n' + CLOCK % NOW + probe, 1)
     with open(path, 'w', encoding='utf-8') as f:
         f.write(page)
     return path
+
+
+def page_height(html):
+    """페이지가 알려 준 내용 높이(CSS px). 창을 이 높이로 찍어 아래 빈 배경이 남지 않게 한다."""
+    ud_dir = tempfile.mkdtemp(prefix='deadhd-hub-measure-')
+    args = chrome_args(ud_dir, (WINDOW_W, 400),
+                       ['--enable-logging=stderr', '--v=1', 'file://' + html])
+    proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    fd = proc.stderr.fileno()
+    buf = b''
+    deadline = time.time() + 60
+    try:
+        while time.time() < deadline:
+            if select.select([fd], [], [], 0.5)[0]:
+                chunk = os.read(fd, 65536)
+                if not chunk:
+                    break
+                buf += chunk
+                found = re.search(re.escape(SIZE_MARK.encode()) + rb'(\d+)', buf)
+                if found:
+                    return int(found.group(1))
+            elif proc.poll() is not None:
+                break
+        return None
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+        shutil.rmtree(ud_dir, ignore_errors=True)
 
 
 def shoot(ud_dir, html, window, out_png, what):
@@ -99,7 +137,7 @@ def shoot(ud_dir, html, window, out_png, what):
     tmp_png = out_png + '.tmp.png'
     chrome_shot(chrome_args(ud_dir, window, ['--screenshot=' + tmp_png, 'file://' + html]), tmp_png)
     os.replace(tmp_png, out_png)
-    print('%s: %s' % (what, out_png))
+    print('%s: %s (%dx%d)' % (what, out_png, window[0], window[1]))
 
 
 def main(argv):
@@ -127,6 +165,12 @@ def main(argv):
             for row in HISTORY_ROWS:
                 f.write(json.dumps(row) + '\n')
         env = work_env(work)
+        # 이 컴퓨터의 설정이 band·statusline 이면 render.py 가 HTML 페이지를 쓰지 않아 캡처할 것이 없다.
+        # 세션마다 view 를 못박은 설정을 줘서 찍는 사람의 설정과 무관하게 같은 그림이 나오게 한다.
+        html_config = os.path.join(work, 'html-config.json')
+        with open(html_config, 'w', encoding='utf-8') as f:
+            json.dump({'view': 'html'}, f)
+        env = dict(env, DEADHD_CONFIG=html_config)
         # 밴드 세션은 설정도 밴드여야 한다. 훅이 페이지를 다시 렌더할 때 설정값으로 view 를 덮어쓰기 때문이다.
         band_config = os.path.join(work, 'band-config.json')
         with open(band_config, 'w', encoding='utf-8') as f:
@@ -140,7 +184,8 @@ def main(argv):
                 render_band_state(case, session, work, demos_dir, session_env)
             else:
                 panels[session] = render_panel(case, THEME, work, demos_dir, session=session, now=NOW,
-                                               extra_env={'DEADHD_HISTORY': history})
+                                               extra_env={'DEADHD_HISTORY': history,
+                                                          'DEADHD_CONFIG': html_config})
             inject(session, payload, session_env)
             state = backdate(state_dir, session, minutes, tool_seconds)
             if state.get('status') != STATUS_OF[payload['hook_event_name']]:
@@ -150,7 +195,8 @@ def main(argv):
             # 띠와 타일은 상태 파일을 읽어 만든다. 되돌린 시각을 반영하려면 다시 렌더해야 한다.
             if not band:
                 panels[session] = render_panel(case, THEME, work, demos_dir, session=session, now=NOW,
-                                               extra_env={'DEADHD_HISTORY': history})
+                                               extra_env={'DEADHD_HISTORY': history,
+                                                          'DEADHD_CONFIG': html_config})
             print('session: %s (%s)' % (session, case))
 
         result = subprocess.run([sys.executable, HUB, '--theme', THEME],
@@ -158,7 +204,11 @@ def main(argv):
         if result.returncode != 0:
             die('허브 렌더 실패: %s' % (result.stderr or result.stdout).strip())
 
-        shoot(os.path.join(ud_root, 'hub'), clocked(hub_html), HUB_WINDOW,
+        hub_page = clocked(hub_html)
+        height = page_height(hub_page)
+        if height is None:
+            die('허브 페이지가 자기 높이를 알려 주지 않았다: %s' % hub_page)
+        shoot(os.path.join(ud_root, 'hub'), hub_page, (WINDOW_W, height),
               os.path.join(HERE, 'hub' + suffix), 'hub')
 
         inject(LIVE_SESSION, LIVE_HOOK, env)
@@ -166,8 +216,9 @@ def main(argv):
         if state.get('status') != STATUS_OF['Notification']:
             die('%s 상태가 주입대로 바뀌지 않았다: %r' % (LIVE_SESSION, state.get('status')))
         panels[LIVE_SESSION] = render_panel(LIVE_CASE, THEME, work, demos_dir, session=LIVE_SESSION,
-                                            now=NOW, extra_env={'DEADHD_HISTORY': history})
-        shoot(os.path.join(ud_root, 'live'), panels[LIVE_SESSION], LIVE_WINDOW,
+                                            now=NOW, extra_env={'DEADHD_HISTORY': history,
+                                                                'DEADHD_CONFIG': html_config})
+        shoot(os.path.join(ud_root, 'live'), panels[LIVE_SESSION], (WINDOW_W, LIVE_H),
               os.path.join(HERE, 'live' + suffix), 'live')
     finally:
         shutil.rmtree(ud_root, ignore_errors=True)

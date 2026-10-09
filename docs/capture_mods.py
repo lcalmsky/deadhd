@@ -19,13 +19,17 @@ CASE, THEME, SESSION = 'lanes-blocked', 'dark', 'demo-mods'
 NOW = CASES[CASE]
 WAIT_MINUTES, STALE_MINUTES = 4, 2
 
-FONT, LINE = 10, 14
+FONT, LINE = 13, 19
 PAD, GAP = 14, 16
+# README 본문 폭에 맞춘 페이지 폭. 배율 2 로 찍으므로 결과는 1800px 이 된다.
+PAGE_W = 900
+# 터미널이 쓸 수 있는 폭(900 - 페이지 좌우 여백 - 터미널 좌우 여백)에 들어가는 칸 수.
+# 13px 고정폭 한 칸은 7.83px 라 104칸이 815px 다.
+TERM_COLS = 104
 
 
 # ── register.tsx 의 줄 만들기 ────────────────────────────────────────────────
 
-STATUS_COLS = 240
 BAR_CELLS = 6
 SEP = ' · '
 BAND_CMD = '/deadhd-band'
@@ -510,10 +514,10 @@ def page(lang, blocks):
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 body { background: #0d0d0d; }
-.page { display: flex; flex-direction: column; gap: %dpx; padding: %dpx; width: max-content; }
+.page { display: flex; flex-direction: column; gap: %dpx; padding: %dpx; width: %dpx; }
 .block { display: flex; flex-direction: column; gap: 7px; }
 .cap { color: #8a8f9e; font: 13px -apple-system, "Apple SD Gothic Neo", sans-serif; }
-.term { background: #101012; padding: 10px 12px; width: max-content;
+.term { background: #101012; padding: 10px 12px; width: 100%%;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: %dpx; line-height: %dpx; }
 .row { color: %s; white-space: pre; }
@@ -528,7 +532,7 @@ body { background: #0d0d0d; }
   console.log('%s' + Math.ceil(r.width) + 'x' + Math.ceil(r.height));
 });</script>
 </head><body><div class="page">%s</div></body></html>
-""" % (lang, GAP, PAD, FONT, LINE, TEXT, DIM, EDGE, TEXT, TEXT, TONES['claude'], SIZE_MARK, caps)
+""" % (lang, GAP, PAD, PAGE_W, FONT, LINE, TEXT, DIM, EDGE, TEXT, TEXT, TONES['claude'], SIZE_MARK, caps)
 
 
 def content_size(html):
@@ -718,9 +722,9 @@ def main(argv):
         words = WORDS[lang]
         print('case: %s (%s, %s)' % (CASE, lang, state['status']))
 
-        band = band_line(state, now, STATUS_COLS)
-        alerts = band_alert_line(state, now, STATUS_COLS)
-        status = status_line(state, now, STATUS_COLS)
+        band = band_line(state, now, TERM_COLS)
+        alerts = band_alert_line(state, now, TERM_COLS)
+        status = status_line(state, now, TERM_COLS)
         folded = folded_segments(state)
 
         # 실제 화면 순서 그대로다: 대화 영역, 밴드(프롬프트 위), 입력칸, 엔진 힌트,

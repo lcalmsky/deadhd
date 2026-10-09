@@ -15,27 +15,32 @@ from capture_themes import CHROME, HERE, chrome_args, chrome_shot, die, render_p
 CASE, THEME = 'rolling', 'dark'
 # 보드의 정체 판정은 브라우저 시계로 돈다. 「지금」을 고정하지 않으면 찍는 시각에 따라 정체 레인이 달라진다.
 NOW = '2026-10-07T14:30:00+09:00'
-WIDTH = 1200
-# 창 높이는 보드 섹션이 끝나는 지점이라 그때그때 다르다. 높이만 재는 창을 한 번 띄워 페이지가 알려 준 값을 쓴다.
+# 창 폭은 README 본문에 맞춘 900 CSS 다. 배율 2 로 찍으므로 결과는 1800px 이 된다.
+WIDTH = 900
+# 높이는 보드 카드가 그때그때 정한다. 낮은 창을 한 번 띄워 페이지가 알려 준 값을 쓴다.
 MEASURE_H = 200
-SIZE_MARK = 'deadhd-board-height:'
+SIZE_MARK = 'deadhd-board-rect:'
 # capture_hub 과 같은 표본이다. 이 컴퓨터의 실제 기록을 읽지 않고 보정 계수 1.6 을 그대로 재현한다.
 HISTORY_ROWS = ({'est': 10, 'actual': 16}, {'est': 20, 'actual': 32}, {'est': 30, 'actual': 48})
 
 # 별 배경이 쓰는 난수와 애니메이션을 고정해, 두 번 찍어도 같은 그림이 나오게 한다.
-# 카드 목록은 보드 아래라 그림에서 뺀다. 다 그린 뒤 페이지가 자기 높이를 stderr 로 알려 준다.
+# 보드 카드만 남기고 나머지 요소를 지운다. 카드가 문서 맨 위에 오므로 보드의 rect 가 곧 찍을 영역이다.
 FIX = ("<script>(function(){"
        "var s=20261007;Math.random=function(){s=(s*1103515245+12345)%2147483648;return s/2147483648;};"
        "var css=document.createElement('style');"
        "css.textContent='*,*::before,*::after{animation:none !important;transition:none !important}'"
-       "+'#cards,footer{display:none !important}';"
+       "+'.viewbar,#cards,footer{display:none !important}'"
+       "+'main{padding:0 !important}main > *:not(#board){display:none !important}'"
+       "+'#board{margin:0 !important}body{min-height:0 !important}';"
        "document.head.appendChild(css);"
        "window.addEventListener('load',function(){"
        "document.body.classList.add('no-entrance');"
-       "console.log('" + SIZE_MARK + "'+document.documentElement.scrollHeight);});})();</script>")
+       "var r=document.getElementById('board').getBoundingClientRect();"
+       "console.log('" + SIZE_MARK + "'+Math.ceil(r.top+window.scrollY)+','+Math.ceil(r.height));});})();</script>")
 
 
-def content_height(html):
+def board_rect(html):
+    """페이지가 알려 준 보드 카드의 (문서 기준 위, 높이) CSS px."""
     # Chrome 은 그림을 다 쓴 뒤에도 끝나지 않을 때가 있어, 값을 읽으면 바로 끝낸다.
     ud_dir = tempfile.mkdtemp(prefix='deadhd-board-measure-')
     args = chrome_args(ud_dir, (WIDTH, MEASURE_H),
@@ -51,9 +56,9 @@ def content_height(html):
                 if not chunk:
                     break
                 buf += chunk
-                found = re.search(re.escape(SIZE_MARK.encode()) + rb'(\d+)', buf)
+                found = re.search(re.escape(SIZE_MARK.encode()) + rb'(\d+),(\d+)', buf)
                 if found:
-                    return int(found.group(1))
+                    return int(found.group(1)), int(found.group(2))
             elif proc.poll() is not None:
                 break
         return None
@@ -94,9 +99,12 @@ def main(argv):
         with open(html, 'w', encoding='utf-8') as f:
             f.write(page)
 
-        height = content_height(html)
-        if height is None:
-            die('페이지가 자기 높이를 알려 주지 않았다: %s' % html)
+        rect = board_rect(html)
+        if rect is None:
+            die('페이지가 보드 카드의 위치를 알려 주지 않았다: %s' % html)
+        top, height = rect
+        if top != 0:
+            die('보드 카드가 문서 맨 위에 오지 않았다: top=%d' % top)
 
         # 캡처가 실패해도 기존 그림을 잃지 않게 임시 파일에 찍고 옮긴다.
         tmp_png = out_png + '.tmp.png'

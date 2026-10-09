@@ -38,8 +38,8 @@ PANEL_NAMES_EN = {
     'ink': 'Ink',
 }
 
-PANEL_W, PANEL_H = 1200, 1780
-GALLERY_W, PAD, GAP, HEADER_H = 2100, 20, 20, 46
+PANEL_W, PANEL_H = 900, 640
+GALLERY_W, PAD, GAP, HEADER_H = 900, 20, 20, 34
 COLS = 3
 
 # 브라우저 시계를 사례 시각으로 고정한다. 인자 없는 new Date() 와 Date.now 만 바꾸고
@@ -88,7 +88,7 @@ def chrome_shot(args, out_path, timeout=120):
 def chrome_args(ud_dir, window, extra):
     return [
         CHROME, '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
-        '--disable-crash-reporter', '--hide-scrollbars', '--force-device-scale-factor=1',
+        '--disable-crash-reporter', '--hide-scrollbars', '--force-device-scale-factor=2',
         '--virtual-time-budget=5000', '--user-data-dir=' + ud_dir, '--window-size=%d,%d' % window,
     ] + extra
 
@@ -135,8 +135,8 @@ body { background: #0d0d12; font-family: -apple-system, "Apple SD Gothic Neo", s
 .panel { margin: 0; background: #1c1c22; border-radius: 12px; overflow: hidden; }
 figcaption { height: %dpx; display: flex; align-items: baseline; gap: 10px; padding: 0 16px;
   border-bottom: 1px solid rgba(255,255,255,.06); }
-figcaption b { color: #fff; font-size: 18px; font-weight: 700; }
-figcaption code { color: #8a8f9e; font-size: 13px; font-family: ui-monospace, "SF Mono", monospace; }
+figcaption b { color: #fff; font-size: 12px; font-weight: 700; }
+figcaption code { color: #8a8f9e; font-size: 10px; font-family: ui-monospace, "SF Mono", monospace; }
 img { display: block; width: 100%%; }
 </style></head><body><div class="grid">%s</div></body></html>
 """ % (lang, COLS, card_w, GAP, PAD, HEADER_H, cells)
