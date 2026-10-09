@@ -21,8 +21,8 @@ STATE = os.path.join(REPO, 'skills', 'deadhd', 'state.py')
 THEME = 'dark'
 # 경과 시간을 재는 기준 시각. 세 페이지와 허브를 모두 이 시각에 맞춘다.
 NOW = CASES['lanes-blocked']
-# 창 폭은 README 본문에 맞춘 900 CSS 다. 배율 2 로 찍으므로 결과는 1800px 이 된다.
-WINDOW_W = 900
+# 창 폭은 README 본문에 맞춘 800 CSS 다. 배율 2 로 찍으므로 결과는 1600px 이 된다.
+WINDOW_W = 800
 # 타일 수가 세션에 따라 달라지므로 허브 높이는 내용을 재서 정하고, live 는 띠·진행 막대·흐름도 윗부분이 보이는 값으로 고정한다.
 LIVE_H = 850
 SIZE_MARK = 'deadhd-hub-height:'

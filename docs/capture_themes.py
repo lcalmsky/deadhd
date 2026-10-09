@@ -38,8 +38,8 @@ PANEL_NAMES_EN = {
     'ink': 'Ink',
 }
 
-PANEL_W, PANEL_H = 900, 640
-GALLERY_W, PAD, GAP, HEADER_H = 900, 20, 20, 34
+PANEL_W, PANEL_H = 800, 640
+GALLERY_W, PAD, GAP, HEADER_H = 800, 20, 20, 28
 COLS = 3
 
 # 브라우저 시계를 사례 시각으로 고정한다. 인자 없는 new Date() 와 Date.now 만 바꾸고
@@ -133,7 +133,7 @@ html, body { margin: 0; }
 body { background: #0d0d12; font-family: -apple-system, "Apple SD Gothic Neo", sans-serif; }
 .grid { display: grid; grid-template-columns: repeat(%d, %dpx); gap: %dpx; padding: %dpx; }
 .panel { margin: 0; background: #1c1c22; border-radius: 12px; overflow: hidden; }
-figcaption { height: %dpx; display: flex; align-items: baseline; gap: 10px; padding: 0 16px;
+figcaption { height: %dpx; display: flex; align-items: center; gap: 10px; padding: 0 16px;
   border-bottom: 1px solid rgba(255,255,255,.06); }
 figcaption b { color: #fff; font-size: 12px; font-weight: 700; }
 figcaption code { color: #8a8f9e; font-size: 10px; font-family: ui-monospace, "SF Mono", monospace; }

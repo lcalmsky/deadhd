@@ -15,8 +15,8 @@ from capture_themes import CHROME, HERE, chrome_args, chrome_shot, die, render_p
 CASE, THEME = 'rolling', 'dark'
 # 보드의 정체 판정은 브라우저 시계로 돈다. 「지금」을 고정하지 않으면 찍는 시각에 따라 정체 레인이 달라진다.
 NOW = '2026-10-07T14:30:00+09:00'
-# 창 폭은 README 본문에 맞춘 900 CSS 다. 배율 2 로 찍으므로 결과는 1800px 이 된다.
-WIDTH = 900
+# 창 폭은 README 본문에 맞춘 800 CSS 다. 배율 2 로 찍으므로 결과는 1600px 이 된다.
+WIDTH = 800
 # 높이는 보드 카드가 그때그때 정한다. 낮은 창을 한 번 띄워 페이지가 알려 준 값을 쓴다.
 MEASURE_H = 200
 SIZE_MARK = 'deadhd-board-rect:'

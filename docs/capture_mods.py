@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import unicodedata
 from datetime import datetime, timedelta
 
 from capture_themes import CASES, CHROME, HERE, REPO, chrome_args, chrome_shot, die, render_panel
@@ -21,11 +22,11 @@ WAIT_MINUTES, STALE_MINUTES = 4, 2
 
 FONT, LINE = 13, 19
 PAD, GAP = 14, 16
-# README 본문 폭에 맞춘 페이지 폭. 배율 2 로 찍으므로 결과는 1800px 이 된다.
-PAGE_W = 900
-# 터미널이 쓸 수 있는 폭(900 - 페이지 좌우 여백 - 터미널 좌우 여백)에 들어가는 칸 수.
-# 13px 고정폭 한 칸은 7.83px 라 104칸이 815px 다.
-TERM_COLS = 104
+# README 본문 폭에 맞춘 페이지 폭. 배율 2 로 찍으므로 결과는 1600px 이 된다.
+PAGE_W = 800
+# 터미널 블록 안쪽 폭에 들어가는 칸 수. 글꼴의 한 칸 폭은 짐작하지 않고 Chrome 으로
+# 재어 정한다(TERM_COLS 를 채우는 것은 measure_term).
+TERM_COLS = 0
 
 
 # ── register.tsx 의 줄 만들기 ────────────────────────────────────────────────
@@ -34,7 +35,7 @@ BAR_CELLS = 6
 SEP = ' · '
 BAND_CMD = '/deadhd-band'
 STATUS_CMD = '/deadhd-statusline'
-OPEN_CMD = '/deadhd-open'
+STATUS_MARK = '◆'
 
 WORDS = {
     'ko': {
@@ -62,6 +63,11 @@ def within(code, ranges):
 
 def cell_width(text):
     return sum(0 if within(ord(c), ZERO) else 2 if within(ord(c), WIDE) else 1 for c in text)
+
+
+def button_cols(label):
+    """터미널 버튼 한 개가 차지하는 칸: `[ label ]`."""
+    return cell_width(label) + 4
 
 
 def count(value):
@@ -199,22 +205,48 @@ def band_alert_fields(state, now):
     return fields
 
 
+def heading_parts(state):
+    """제목 조각: 앞에 오는 키를 한 번만 그린다. register.tsx 의 headingParts 와 같다."""
+    key = state['key']
+    if key is None:
+        return [] if state['title'] == '' else [(state['title'], 'text', False)]
+    href = () if state['keyHref'] is None else (state['keyHref'],)
+    body = title_after_key(state['title'], key)
+    if body is None:
+        if state['title'] == '':
+            return [(key, 'permission', True) + href]
+        return [(key + ' ', 'permission', True) + href, (state['title'], 'text', False)]
+    if body == '':
+        return [(key, 'permission', True) + href]
+    return [(key, 'permission', True) + href, (body, 'text', False)]
+
+
+def title_after_key(title, key):
+    """제목이 키로 시작할 때 키 뒤에 남는 것. 아니면 None. 단어가 끝나는 자리에서만 키로 본다."""
+    trimmed = title.lstrip()
+    if not trimmed.startswith(key):
+        return None
+    after = trimmed[len(key):]
+    if after == '' or after[0].isspace() or unicodedata.category(after[0]).startswith('P'):
+        return after
+    return None
+
+
 def status_fields(state, now):
     words = WORDS[state['lang']]
-    fields = [('name', [(STATUS_CMD, 'claude', True)])]
+    fields = [('name', [(STATUS_MARK, 'claude', True)])]
     if state['total'] > 0:
         fields.append(('count', [
             ('✅ %d/%d' % (state['done'], state['total']), 'success', True),
             (' ', 'plain', False)] + bar_parts(state['done'], state['total'])))
-    heading = []
-    if state['key'] is not None:
-        heading.append((state['key'] if state['title'] == '' else state['key'] + ' ', 'permission', True))
-    if state['title'] != '':
-        heading.append((state['title'], 'text', False))
+    heading = heading_parts(state)
     if heading:
         fields.append(('title', heading))
     if state['current'] is not None:
         fields.append(step_field(state['current'], state['lang'], now, '▶️'))
+    if state['pr'] is not None:
+        fields.append(('pr', [('🔀 %s' % state['pr']['text'], 'permission', False,
+                               state['pr']['href'])]))
     if state['next'] is not None:
         fields.append(('next', [('⏭ %s %s' % (words['next'], state['next']['label']), 'inactive', False)]))
     eta = clock_of(state['eta'])
@@ -239,7 +271,6 @@ def status_fields(state, now):
     if state['compactions'] > 0:
         fields.append(('compacted',
                        [('🗜 %s %d' % (words['compacted'], state['compactions']), 'remember', False)]))
-    fields.append(('openCmd', [('↗ %s' % OPEN_CMD, 'suggestion', False)]))
     return fields
 
 
@@ -272,7 +303,7 @@ def cut_last(field, room):
     if left <= 1:
         parts.pop()
         return
-    parts[-1] = (cut(last[0], left), last[1], last[2])
+    parts[-1] = (cut(last[0], left),) + last[1:]
 
 
 def fit(fields, max_cols):
@@ -286,20 +317,38 @@ def fit(fields, max_cols):
         if at >= 0:
             del fields[at]
 
-    if line_width(fields) > max_cols:
-        shrink('title')
-    if line_width(fields) > max_cols:
-        drop('next')
-    if line_width(fields) > max_cols:
-        shrink('blocked')
-    if line_width(fields) > max_cols:
-        drop('blocked')
-    if line_width(fields) > max_cols:
-        shrink('current')
-    if line_width(fields) > max_cols:
-        drop('current')
-    if line_width(fields) > max_cols:
-        drop('openCmd')
+    def shrink_bar(tag):
+        """진행 막대 조각만 버린다. `done/total` 은 남는다."""
+        field = next((f for f in fields if f[0] == tag), None)
+        if field is None:
+            return
+        kept = [part for part in field[1] if not re.fullmatch(r'[▓░]+', part[0])]
+        field[1][:] = [part for at, part in enumerate(kept)
+                       if at < len(kept) - 1 or part[0].strip() != '']
+
+    def key_only(tag):
+        """제목을 여는 키만 남긴다. 키가 없는 제목은 버려지도록 그대로 둔다."""
+        field = next((f for f in fields if f[0] == tag), None)
+        if field is None or len(field[1]) < 2:
+            return
+        first = field[1][0]
+        field[1][:] = [(first[0].rstrip(),) + first[1:]]
+
+    # 제목은 몸통을 먼저 내주고, 뒤의 필드들이 버려진 뒤 남은 칸에 앞부분을 다시 그린다.
+    title = next((f for f in fields if f[0] == 'title'), None)
+    whole = None if title is None else [tuple(part) for part in title[1]]
+
+    for step, tag in ((shrink, 'title'), (drop, 'next'), (shrink, 'blocked'), (drop, 'blocked'),
+                      (shrink, 'current'), (drop, 'current'), (drop, 'compacted'),
+                      (drop, 'background'), (drop, 'ago'), (drop, 'eta'), (drop, 'left'),
+                      (drop, 'leftCount'), (drop, 'pr'), (shrink_bar, 'count'),
+                      (shrink_bar, 'bar'), (drop, 'stuck'), (key_only, 'title'),
+                      (drop, 'title')):
+        if line_width(fields) > max_cols:
+            step(tag)
+    if whole is not None and len(whole) > 1 and any(f is title for f in fields):
+        title[1][:] = list(whole)
+        cut_last(title, max_cols - (line_width(fields) - field_width(title)))
     return [f for f in fields if f[1]]
 
 
@@ -388,6 +437,20 @@ def next_step(steps, current):
     return None
 
 
+def http_href(value):
+    """상태 파일이 여는 주소. http(s) 밖의 스킴은 링크가 되지 않는다."""
+    return value if isinstance(value, str) and re.match(r'(?i)^https?://', value) else None
+
+
+def pr_of(value):
+    if not isinstance(value, dict):
+        return None
+    text, href = value.get('text'), http_href(value.get('href'))
+    if not isinstance(text, str) or text == '' or href is None:
+        return None
+    return {'text': text, 'href': href}
+
+
 def normalize(raw, data=None):
     if not isinstance(raw, dict):
         return None
@@ -410,11 +473,13 @@ def normalize(raw, data=None):
         'status': text(raw.get('status'), 'working'),
         'lang': 'en' if summary.get('lang') == 'en' else 'ko',
         'key': key if isinstance(key, str) and key != '' else None,
+        'keyHref': http_href(summary.get('keyHref')),
         'title': text(summary.get('title'), ''),
         'done': done, 'now': now, 'side': side, 'left': left, 'blocked': blocked,
         'total': count(summary.get('total')),
         'allDone': summary.get('allDone') is True,
         'current': running if running is not None else (summary_step if now > 0 else None),
+        'pr': pr_of(summary.get('pr')),
         'next': next_step(steps, running),
         'stuck': (next((s for s in steps if s['state'] == 'blocked'), None)
                   or (summary_step if now == 0 and blocked > 0 else None)),
@@ -439,9 +504,12 @@ TONES = {
 # 엔진이 그리는 부분(대화 영역·입력칸·힌트)의 색. deadhd 의 테마 키와는 무관하다.
 TEXT, DIM, EDGE, PERMISSION = '#d8d8dc', '#7a7b82', '#3a3b44', '#e06c75'
 
+# 페이지가 스스로 알려 주는 그림 크기와, 터미널 블록을 넘는 줄의 최대 칸 수(CSS px).
 SIZE_MARK = 'deadhd-mods-size:'
+# 글꼴 한 칸의 폭(CSS px)과 터미널 블록의 안쪽 폭. 그릴 때 Chrome 으로 재어 채운다.
+CELL_MARK = 'deadhd-mods-cell:'
 
-# 가로선 자리. 터미널 폭은 그 조각의 줄들로 정해지므로 그릴 때 채운다.
+# 가로선 자리. 모든 가로선은 같은 길이(TERM_COLS 칸)로 그린다.
 RULE = object()
 
 HINT_STRONG = '⏵⏵ bypass permissions on'
@@ -460,14 +528,21 @@ def esc(value):
     return value.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
 
+def href_of(part):
+    """조각이 여는 주소. register.tsx 처럼 링크가 아닌 조각은 3-튜플이라 주소가 없다."""
+    return part[3] if len(part) > 3 else None
+
+
 def spans(parts, tail=''):
     parts = list(parts)
     if tail and parts:
         last = parts[-1]
-        parts[-1] = (last[0] + tail, last[1], last[2])
-    return ''.join('<span style="color:%s%s">%s</span>'
-                   % (TONES[tone], ';font-weight:700' if bold else '', esc(part))
-                   for part, tone, bold in parts)
+        parts[-1] = (last[0] + tail,) + last[1:]
+    return ''.join('<span style="%s">%s</span>'
+                   % ('color:%s%s%s' % (TONES[part[1]], ';font-weight:700' if part[2] else '',
+                                        ';text-decoration:underline' if href_of(part) else ''),
+                      esc(part[0]))
+                   for part in parts)
 
 
 def row(parts, tail=''):
@@ -500,8 +575,8 @@ def hint_row():
 
 
 def terminal(rows):
-    cols = max([cell_width(one.text) for one in rows if one is not RULE] or [0])
-    edge = '<div class="row rule">%s</div>' % ('─' * cols)
+    """터미널 한 블록. 모든 블록과 가로선이 페이지 안쪽 폭을 가득 채운다."""
+    edge = '<div class="row rule">%s</div>' % ('─' * TERM_COLS)
     return '<div class="term">%s</div>' % ''.join(edge if one is RULE else one.html
                                                   for one in rows)
 
@@ -529,26 +604,71 @@ body { background: #0d0d0d; }
 </style>
 <script>window.addEventListener('load', function () {
   var r = document.querySelector('.page').getBoundingClientRect();
-  console.log('%s' + Math.ceil(r.width) + 'x' + Math.ceil(r.height));
+  var over = 0;
+  document.querySelectorAll('.row').forEach(function (n) {
+    over = Math.max(over, n.scrollWidth - n.clientWidth);
+  });
+  console.log('%s' + Math.ceil(r.width) + 'x' + Math.ceil(r.height) + ':' + over);
 });</script>
 </head><body><div class="page">%s</div></body></html>
-""" % (lang, GAP, PAD, PAGE_W, FONT, LINE, TEXT, DIM, EDGE, TEXT, TEXT, TONES['claude'], SIZE_MARK, caps)
+""" % (lang, GAP, PAD, PAGE_W, FONT, LINE, TEXT, DIM, EDGE, TEXT, TEXT, TONES['claude'],
+       SIZE_MARK, caps)
 
 
-def content_size(html):
-    # 그림 크기를 내용에 맞춘다. 창을 크게 잡으면 빈 배경이 함께 찍힌다.
-    # Chrome 이 로그를 흘리는 때가 있어 몇 번 다시 물어본다.
+def cell_page():
+    """글꼴 한 칸의 폭과 터미널 블록의 안쪽 폭을 스스로 알려 주는 페이지."""
+    return """<!doctype html>
+<html><head><meta charset="utf-8"><style>
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #0d0d0d; }
+.page { padding: %dpx; width: %dpx; }
+.term { background: #101012; padding: 10px 12px; width: 100%%;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: %dpx; line-height: %dpx; }
+</style>
+<script>window.addEventListener('load', function () {
+  var term = document.querySelector('.term'), box = document.createElement('span');
+  box.textContent = 'M'.repeat(64);
+  term.appendChild(box);
+  var cs = getComputedStyle(term);
+  var inner = term.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  console.log('%s' + (box.getBoundingClientRect().width / 64).toFixed(4) + ',' + inner.toFixed(2));
+});</script>
+</head><body><div class="page"><div class="term"></div></div></body></html>
+""" % (PAD, PAGE_W, FONT, LINE, CELL_MARK)
+
+
+def measure_term(work_dir):
+    """터미널 블록 안쪽 폭에 들어가는 칸 수. 글꼴의 한 칸 폭을 재어 정한다."""
+    html = os.path.join(work_dir, 'cell.html')
+    with open(html, 'w', encoding='utf-8') as f:
+        f.write(cell_page())
+    found = marks_of(html, (PAGE_W, 200), CELL_MARK, rb'([\d.]+),([\d.]+)')
+    if found is None:
+        die('페이지가 글꼴의 한 칸 폭을 알려 주지 않았다: %s' % html)
+    cell, inner = float(found[0]), float(found[1])
+    if cell <= 0 or inner <= 0:
+        die('글꼴의 한 칸 폭이나 터미널 안쪽 폭이 0 이다: %s' % html)
+    print('터미널 칸: 안쪽 %.1fpx / 한 칸 %.3fpx = %d칸' % (inner, cell, int(inner // cell)))
+    return int(inner // cell)
+
+
+def content_marks(html):
+    """페이지가 알려 준 (폭, 높이, 터미널 블록을 넘는 줄의 최대 칸 수).
+
+    Chrome 이 로그를 흘리는 때가 있어 몇 번 다시 물어본다. 하나도 못 읽으면 그림을 만들지 않는다.
+    """
     for _ in range(3):
-        size = measure_once(html)
-        if size is not None:
-            return size
+        found = marks_of(html, (1600, 600), SIZE_MARK, rb'(\d+)x(\d+):(\d+)')
+        if found is not None:
+            return tuple(int(value) for value in found)
     return None
 
 
-def measure_once(html):
+def marks_of(html, window, mark, tail):
+    """Chrome 을 한 번 띄워 페이지가 남긴 표시를 읽는다."""
     ud_dir = tempfile.mkdtemp(prefix='deadhd-mods-measure-')
-    args = chrome_args(ud_dir, (1600, 600),
-                       ['--enable-logging=stderr', '--v=1', 'file://' + html])
+    args = chrome_args(ud_dir, window, ['--enable-logging=stderr', '--v=1', 'file://' + html])
     proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     fd = proc.stderr.fileno()
     buf = b''
@@ -560,9 +680,9 @@ def measure_once(html):
                 if not chunk:
                     break
                 buf += chunk
-                found = re.search(re.escape(SIZE_MARK.encode()) + rb'(\d+)x(\d+)', buf)
+                found = re.search(re.escape(mark.encode()) + tail, buf)
                 if found:
-                    return int(found.group(1)), int(found.group(2))
+                    return found.groups()
             elif proc.poll() is not None:
                 break
         return None
@@ -574,14 +694,18 @@ def measure_once(html):
 
 
 def shoot(ud_dir, html, out_png, what):
-    size = content_size(html)
-    if size is None:
+    marks = content_marks(html)
+    if marks is None:
         die('페이지가 자기 크기를 알려 주지 않았다: %s' % html)
+    width, height, over = marks
+    if over > 0:
+        die('터미널 블록을 넘는 줄이 있다(%dpx): %s' % (over, html))
     # 캡처가 실패해도 기존 그림을 잃지 않게 임시 파일에 찍고 옮긴다.
     tmp_png = out_png + '.tmp.png'
-    chrome_shot(chrome_args(ud_dir, size, ['--screenshot=' + tmp_png, 'file://' + html]), tmp_png)
+    chrome_shot(chrome_args(ud_dir, (width, height),
+                            ['--screenshot=' + tmp_png, 'file://' + html]), tmp_png)
     os.replace(tmp_png, out_png)
-    print('%s: %s (%dx%d)' % (what, out_png, size[0], size[1]))
+    print('%s: %s (%dx%d)' % (what, out_png, width, height))
 
 
 # ── mod 문자열 대조 ─────────────────────────────────────────────────────────
@@ -593,9 +717,12 @@ SAMPLE = {
     'backgroundTasks': [{'type': 'bash', 'description': 'watch'}, {'type': 'bash', 'description': 'build'}],
     'compactions': {'count': 1, 'lastAt': '2026-10-09T15:00:00+09:00'},
     'summary': {
-        'title': 'CAS-1161 콘솔 dev 회귀 3회차', 'key': 'CAS-1161', 'lang': 'ko',
+        'title': 'CAS-1161 콘솔 dev 회귀 3회차', 'key': 'CAS-1161',
+        'keyHref': 'https://example.atlassian.net/browse/CAS-1161', 'lang': 'ko',
         'counts': {'done': 3, 'now': 1, 'side': 0, 'left': 2, 'blocked': 1}, 'total': 6,
-        'nowLabel': '실제 화면 확인', 'eta': '2026-10-09T16:20:00+09:00', 'allDone': False,
+        'nowLabel': '실제 화면 확인',
+        'pr': {'text': 'app-api#512', 'href': 'https://github.com/example/app-api/pull/512'},
+        'eta': '2026-10-09T16:20:00+09:00', 'allDone': False,
     },
     'updatedAt': '2026-10-09T15:36:53+09:00',
 }
@@ -613,16 +740,17 @@ BOARD = {
 }
 BAND_EXPECT = '/deadhd-band · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · 막힘 1 · 남음 2'
 ALERT_EXPECT = '⛔ 막힘: 배포 검증 (권한 대기) · 🔐 권한 승인 대기 4분째'
-CUT_EXPECT = '/deadhd-band · ▓▓▓░░░ 3/6 · 막힘 1 · 남음 2'
+CUT_EXPECT = '/deadhd-band · ▓▓▓░░░ 3/6 · 막힘 1'
 LONG_LABEL = '아주 긴 단계 이름이 여기에 들어 있다'
-LONG_ROW = ('/deadhd-statusline · ✅ 3/6 ▓▓▓░░░ · CAS-1161 CAS-1161 콘솔 dev 회귀 3회차 · '
-            '▶️ 실제 화면 확인 4분째 · ⏭ 다음 정리 · ⏱ 예상 16:20 · 🔄 2분 전 · ⛔ 막힘 1: 배포 검증 · '
-            '⏳ 남음 2 · 🧵 백그라운드 2 · 🗜 압축 1 · ↗ /deadhd-open')
+LONG_ROW = ('◆ · ✅ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · '
+            '▶️ 실제 화면 확인 4분째 · 🔀 app-api#512 · ⏭ 다음 정리 · ⏱ 예상 16:20 · 🔄 2분 전 · '
+            '⛔ 막힘 1: 배포 검증 · ⏳ 남음 2 · 🧵 백그라운드 2 · 🗜 압축 1')
 # LONG_ROW 는 테스트에서 두 줄로 쪼개 붙이므로 조각으로 확인한다.
 TEST_FRAGMENTS = (BAND_EXPECT, ALERT_EXPECT,
-                  '✅ 3/6 ▓▓▓░░░ · CAS-1161 CAS-1161 콘솔 dev 회귀 3회차 · ',
-                  '⏳ 남음 2 · 🧵 백그라운드 2 · 🗜 압축 1',
-                  '↗ /deadhd-open')
+                  '✅ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · ',
+                  '⛔ 막힘 1: 배포 검증 · ⏳ 남음 2 · 🧵 백그라운드 2 · 🗜 압축 1',
+                  '🔀 app-api#512',
+                  '▶️ 실제 화면 확인 · 🔀 app-api#512 · ⏱ 예상 16:20')
 
 
 def check_lines():
@@ -652,6 +780,8 @@ def check_lines():
 
 
 def main(argv):
+    global TERM_COLS
+
     lang = 'ko'
     rest = argv[1:]
     if rest[:1] == ['--lang']:
@@ -692,6 +822,7 @@ def main(argv):
     work = tempfile.mkdtemp(prefix='deadhd-mods-')
     ud_root = tempfile.mkdtemp(prefix='deadhd-chrome-')
     try:
+        TERM_COLS = measure_term(work)
         history = os.path.join(work, 'history.jsonl')
         with open(history, 'w', encoding='utf-8') as f:
             f.write(json.dumps({'est': 10, 'actual': 16}) + '\n')
@@ -722,10 +853,11 @@ def main(argv):
         words = WORDS[lang]
         print('case: %s (%s, %s)' % (CASE, lang, state['status']))
 
-        band = band_line(state, now, TERM_COLS)
-        alerts = band_alert_line(state, now, TERM_COLS)
-        status = status_line(state, now, TERM_COLS)
-        folded = folded_segments(state)
+        # 상태줄은 대기 없이 그린다. 대기가 있으면 고정 조각들이 칸을 다 써 제목의 말이
+        # 한 칸도 남지 않는다(그 대기는 밴드 그림이 둘째 줄로 보여 준다).
+        raw['status'] = 'working'
+        raw['since'] = None
+        status_state = normalize(raw, board)
 
         # 실제 화면 순서 그대로다: 대화 영역, 밴드(프롬프트 위), 입력칸, 엔진 힌트,
         # 그리고 상태줄 모드에서만 그 아래에 deadhd 상태줄.
@@ -736,27 +868,55 @@ def main(argv):
             plain('* ' + talk['worked'], 'dim'),
         ]
         under_input = [RULE, prompt_row(), RULE, hint_row()]
-        band_blocks = [
-            (talk['foldedCap'], terminal(talk_lines + [
-                control_row(folded, [(words['open'], True), (words['expand'], False)]),
-            ] + under_input)),
-            (talk['bandCap'], terminal(talk_lines + [
-                control_row(band, [(words['open'], True), (words['collapse'], False)]),
-                row(alerts),
-            ] + under_input)),
-        ]
-        status_blocks = [
-            (talk['statusCap'], terminal(talk_lines + under_input + [
-                control_row(status, [(words['open'], True)]),
-            ])),
-        ]
 
-        for what, blocks, name in (('band', band_blocks, 'band' + suffix),
-                                   ('statusline', status_blocks, 'statusline' + suffix)):
-            html = os.path.join(work, what + '.' + lang + '.html')
+        def built_for(cols):
+            """칸 수를 정해 밴드·상태줄 페이지를 만든다. 버튼이 차지하는 칸은 줄의 예산에서 뺀다."""
+            global TERM_COLS
+            TERM_COLS = cols
+            # register.tsx 처럼 버튼이 차지하는 칸을 줄의 예산에서 뺀다.
+            band_room = cols - (1 + button_cols(words['open'])) - (1 + button_cols(words['collapse']))
+            status_room = cols - (1 + button_cols(words['open']))
+            band = band_line(state, now, band_room)
+            alerts = band_alert_line(state, now, cols)
+            folded = folded_segments(state)
+            status = status_line(status_state, now, status_room)
+            return {
+                'band': [
+                    (talk['foldedCap'], terminal(talk_lines + [
+                        control_row(folded, [(words['open'], True), (words['expand'], False)]),
+                    ] + under_input)),
+                    (talk['bandCap'], terminal(talk_lines + [
+                        control_row(band, [(words['open'], True), (words['collapse'], False)]),
+                        row(alerts),
+                    ] + under_input)),
+                ],
+                'statusline': [
+                    (talk['statusCap'], terminal(talk_lines + under_input + [
+                        control_row(status, [(words['open'], True)]),
+                    ])),
+                ],
+            }
+
+        def write_page(what, blocks):
+            html = os.path.join(work, '%s.%s.html' % (what, lang))
             with open(html, 'w', encoding='utf-8') as f:
                 f.write(page(lang, blocks))
-            shoot(os.path.join(ud_root, 'ud-' + what), html, os.path.join(HERE, name), what)
+            return html
+
+        # 글꼴의 실제 폭은 칸 모델과 어긋난다(예: ⏳ 은 두 칸보다 넓다). 줄이 블록을 넘으면
+        # 칸을 하나 줄여 다시 그린다.
+        for _ in range(8):
+            pages = {what: write_page(what, blocks) for what, blocks in built_for(TERM_COLS).items()}
+            over = max(content_marks(html)[2] for html in pages.values())
+            if over <= 0:
+                break
+            print('그림이 터미널 블록을 %dpx 넘어 칸을 하나 줄인다: %d칸' % (over, TERM_COLS - 1))
+            TERM_COLS -= 1
+        else:
+            die('줄이 터미널 블록 안에 들어오지 않는다')
+
+        for what, name in (('band', 'band' + suffix), ('statusline', 'statusline' + suffix)):
+            shoot(os.path.join(ud_root, 'ud-' + what), pages[what], os.path.join(HERE, name), what)
     finally:
         shutil.rmtree(ud_root, ignore_errors=True)
         shutil.rmtree(work, ignore_errors=True)
