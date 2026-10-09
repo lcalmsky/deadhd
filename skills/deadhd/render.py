@@ -352,6 +352,26 @@ def live_payload(session_state, at):
     }
 
 
+def pr_summary(items):
+    """지금 단계의 evidence 가 여는 첫 PR 링크. 없으면 None.
+
+    상태줄은 이 값을 현재 단계 옆에 건다. 지금 단계가 없으면 넣을 자리도 없다.
+    """
+    now = next((it for it in items if it.get('state') == 'now'), None)
+    if not isinstance(now, dict):
+        return None
+    evidence = now.get('evidence')
+    if not isinstance(evidence, list):
+        return None
+    for entry in evidence:
+        if not isinstance(entry, dict) or entry.get('icon') != 'pr':
+            continue
+        text, href = entry.get('text'), entry.get('href')
+        if isinstance(text, str) and text and is_http_url(href):
+            return {'text': text, 'href': href}
+    return None
+
+
 def session_summary(data, items, lang, payload, at, hooked):
     counts = dict.fromkeys(STATES, 0)
     states = []
@@ -378,6 +398,7 @@ def session_summary(data, items, lang, payload, at, hooked):
         'total': len(items),
         'states': states,
         'nowLabel': now_label if now_label is not None else blocked_label,
+        'pr': pr_summary(items),
         'eta': payload.get('eta'),
         'etaCalibrated': payload.get('etaCalibrated'),
         'renderedAt': at,

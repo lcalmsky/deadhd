@@ -8,7 +8,15 @@ import type {
 import type { MockClock } from 'claude-code/testing'
 import { describe, expect, mock, test } from 'claude-code/testing'
 
-import { bandAlertLine, bandLine, cellWidth, formatLine, normalize, resolveView } from './register'
+import {
+  bandAlertLine,
+  bandLine,
+  cellWidth,
+  formatLine,
+  normalize,
+  resolveView,
+  statusLine,
+} from './register'
 
 const PLUGIN = 'deadhd'
 const SESSION_ID = 'ed57a32e-b6cc-48e6-aca1-4d4bf18f60fc'
@@ -60,11 +68,13 @@ const SAMPLE = {
   summary: {
     title: 'CAS-1161 콘솔 dev 회귀 3회차',
     key: 'CAS-1161',
+    keyHref: 'https://example.atlassian.net/browse/CAS-1161',
     lang: 'ko',
     updated: '2026-10-09 15:35 KST',
     counts: { done: 3, now: 1, side: 0, left: 2, blocked: 1 },
     total: 6,
     nowLabel: '실제 화면 확인',
+    pr: { text: 'app-api#512', href: 'https://github.com/example/app-api/pull/512' },
     eta: '2026-10-09T16:20:00+09:00',
     allDone: false,
     // SKILL.md 가 데이터 JSON 을 마지막으로 쓴 시각. 「N분 전」 의 기준이다.
@@ -279,20 +289,29 @@ const pinsNothing = (on: On): void => {
 
 const line = (parts: readonly { text: string }[]): string => parts.map(part => part.text).join('')
 
+/** The piece of a drawn line whose words are `text`, the trailing space aside. */
+const pieceIn = (
+  parts: readonly { text: string; tone: string }[],
+  text: string,
+): { text: string; tone: string } | undefined => parts.find(part => part.text.trim() === text)
+
 const MOUNT = { plugin: PLUGIN, component: 'AbovePrompt', props: BAND } as const
 const MOUNT_HINT = { plugin: PLUGIN, component: 'PromptHint', props: HINT } as const
 
-/** One row of the sample's long status line, from the piece a test reads. */
-const STATUS_HEAD = '/deadhd-statusline'
+/** The mark the long status line leads with, from the piece a test reads. */
+const STATUS_MARK = '◆'
 
-/** The command the long row ends with, the way to the page beside its button. */
-const OPEN_CMD = '↗ /deadhd-open'
+/** The command the folded row names as the way back to the long line. */
+const FOLDED_GUIDE = '/deadhd-statusline 펼치기'
+
+/** The pull request the sample's running step carries, as the row draws it. */
+const PR_PIECE = '🔀 app-api#512'
 
 /** The whole long row the sample draws, piece by piece. */
 const LONG_ROW =
-  `${STATUS_HEAD} · ✅ 3/6 ▓▓▓░░░ · CAS-1161 CAS-1161 콘솔 dev 회귀 3회차 · ` +
-  '▶️ 실제 화면 확인 4분째 · ⏭ 다음 정리 · ⏱ 예상 16:20 · 🔄 2분 전 · ⛔ 막힘 1: 배포 검증 · ' +
-  `⏳ 남음 2 · 🧵 백그라운드 2 · 🗜 압축 1 · ${OPEN_CMD}`
+  `${STATUS_MARK} · ✅ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · ` +
+  '▶️ 실제 화면 확인 4분째 · 🔀 app-api#512 · ⏭ 다음 정리 · ⏱ 예상 16:20 · 🔄 2분 전 · ' +
+  '⛔ 막힘 1: 배포 검증 · ⏳ 남음 2 · 🧵 백그라운드 2 · 🗜 압축 1'
 
 /** What the engine draws when the plugin leaves the component to it. */
 const ENGINE_OWN: RenderElement = { type: 'Text', children: ['(the engine drew its own)'] }
@@ -619,7 +638,19 @@ describe('the band line', () => {
       current: { ...STATE!.current!, label: '아주 긴 단계 이름이 여기에 들어 있다' },
     }
 
-    expect(line(bandLine(long, NOW, 40))).toBe('/deadhd-band · ▓▓▓░░░ 3/6 · 막힘 1 · 남음 2')
+    // Past the step, the left count is the next piece the band's row spares.
+    expect(line(bandLine(long, NOW, 40))).toBe('/deadhd-band · ▓▓▓░░░ 3/6 · 막힘 1')
+  })
+
+  test('fits the row in 60 and 40 cells, as the status line does', () => {
+    const long = {
+      ...STATE!,
+      current: { ...STATE!.current!, label: '아주 긴 단계 이름이 여기에 들어 있다' },
+    }
+
+    for (const maxCols of [60, 40]) {
+      expect(cellWidth(line(bandLine(long, NOW, maxCols)))).toBeLessThanOrEqual(maxCols)
+    }
   })
 })
 
@@ -658,24 +689,28 @@ describe('the status hint', () => {
       await ui.unmount()
     })
 
-    test(`names the open command and draws its button at the row's end, on the ${surface}`, async ($, on) => {
+    test(`links the key and the pull request, on the ${surface}`, async ($, on) => {
       statusWorld(on, filesOf(statusState()))
 
       await $.session.start(SESSION)
 
       const ui = await $.ui.mount({ ...MOUNT_HINT, surface })
-      const painted = await paintedOf(ui)
+      const links = await ui.findAll({ type: 'Link' })
       const drawn = textOf(await ui.drawn())
 
-      expect(pieceOf(painted, OPEN_CMD)?.color).toBe('suggestion')
-      expect(drawn).toContain(OPEN_CMD)
+      expect(links.map(one => one.props.href)).toEqual([
+        'https://example.atlassian.net/browse/CAS-1161',
+        'https://github.com/example/app-api/pull/512',
+      ])
+      expect(textOf(links[0])).toBe('CAS-1161')
+      expect(textOf(links[1])).toBe(PR_PIECE)
       expect(drawn).toContain('열기')
 
       await ui.unmount()
     })
   }
 
-  test('keeps the open command and its button on the folded row', async ($, on) => {
+  test('keeps the button and the way back on the folded row', async ($, on) => {
     statusWorld(on, filesOf(statusState()))
 
     await $.session.start(SESSION)
@@ -684,8 +719,8 @@ describe('the status hint', () => {
     const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
     const drawn = textOf(await ui.drawn())
 
-    expect(drawn).toContain(`${STATUS_HEAD} ✅ 3/6`)
-    expect(drawn).toContain(OPEN_CMD)
+    expect(drawn).toContain(`${STATUS_MARK} ✅ 3/6`)
+    expect(drawn).toContain(FOLDED_GUIDE)
     expect(drawn).toContain('열기')
     expect(drawn).not.toContain('⏳ 남음 2')
 
@@ -737,16 +772,17 @@ describe('the status hint', () => {
       const painted = await paintedOf(ui)
       const separators = painted.filter(one => one.text.includes('·'))
 
-      expect(pieceOf(painted, STATUS_HEAD)).toMatchObject({ color: 'claude', bold: true })
+      expect(pieceOf(painted, STATUS_MARK)).toMatchObject({ color: 'claude', bold: true })
       expect(pieceOf(painted, '✅ 3/6')).toMatchObject({ color: 'success', bold: true })
       expect(pieceOf(painted, '▓▓▓')?.color).toBe('success')
       expect(pieceOf(painted, '░░░')?.color).toBe('subtle')
       expect(pieceOf(painted, 'CAS-1161')).toMatchObject({ color: 'permission', bold: true })
-      expect(pieceOf(painted, 'CAS-1161 콘솔 dev 회귀 3회차')?.color).toBe('text')
+      expect(pieceOf(painted, '콘솔 dev 회귀 3회차')?.color).toBe('text')
       expect(pieceOf(painted, '▶️ 실제 화면 확인 4분째')).toMatchObject({
         color: 'suggestion',
         bold: true,
       })
+      expect(pieceOf(painted, PR_PIECE)).toMatchObject({ color: 'permission' })
       expect(pieceOf(painted, '⏭ 다음 정리')?.color).toBe('inactive')
       expect(pieceOf(painted, '⏱ 예상 16:20')?.color).toBe('planMode')
       expect(pieceOf(painted, '🔄 2분 전')?.color).toBe('subtle')
@@ -837,11 +873,18 @@ describe('the status hint', () => {
 
     // PromptHint hands the tree no width of its own, so the viewport's cells are
     // the budget: the narrow surface gives way where a 240-cell one keeps the pieces.
-    expect(whole).toContain(OPEN_CMD)
     expect(whole).toContain('▶️ 실제 화면 확인')
+    expect(whole).toContain(PR_PIECE)
     expect(cut).not.toContain('▶️ 실제 화면 확인')
-    expect(cut).not.toContain(OPEN_CMD)
+    expect(cut).not.toContain('🗜 압축 1')
+    expect(cut).toContain(PR_PIECE)
+    expect(cut).toContain('⏳ 남음 2')
     expect(cut).toContain('✅ 3/6')
+    expect(cellWidth(cut)).toBeLessThan(cellWidth(whole))
+    // The hint line is drawn indented, so of the screen's 120 cells the four of
+    // indent and the button's own seven are not the line's to draw in. What the
+    // drawing adds beside the line (a space and the button) is not its either.
+    expect(cellWidth(formatLine(normalize(long, BOARD), NOW, 109))).toBeLessThanOrEqual(109)
     expect(cellWidth(cut)).toBeLessThan(cellWidth(whole))
   })
 
@@ -888,7 +931,7 @@ describe('the status line command', () => {
     const folded = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
     const drawn = textOf(await folded.drawn())
 
-    expect(drawn).toContain(`${STATUS_HEAD} ✅ 3/6`)
+    expect(drawn).toContain(`${STATUS_MARK} ✅ 3/6`)
     expect(drawn).not.toContain('⏳ 남음 2')
     // The engine's own hint stays under the line whether or not it is folded.
     expect(drawn).toContain('? for shortcuts')
@@ -908,7 +951,7 @@ describe('the status line command', () => {
 
     const folded = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
 
-    expect(textOf(await folded.drawn())).toContain(`${STATUS_HEAD} ✅ 3/6`)
+    expect(textOf(await folded.drawn())).toContain(`${STATUS_MARK} ✅ 3/6`)
 
     await folded.unmount()
 
@@ -992,7 +1035,7 @@ describe('the view', () => {
 
     const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
 
-    expect(textOf(await ui.drawn())).toContain(STATUS_HEAD)
+    expect(textOf(await ui.drawn())).toContain(STATUS_MARK)
 
     await ui.unmount()
   })
@@ -1036,7 +1079,7 @@ describe('the view', () => {
 
     const hint = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
 
-    expect(textOf(await hint.drawn())).toContain(STATUS_HEAD)
+    expect(textOf(await hint.drawn())).toContain(STATUS_MARK)
 
     await hint.unmount()
   })
@@ -1053,9 +1096,7 @@ describe('formatLine', () => {
       summary: { title: '작은 판', lang: 'ko', total: 1, counts: { done: 1 } },
     })
 
-    expect(formatLine(bare, NOW, 240)).toBe(
-      `/deadhd-statusline · ✅ 1/1 ▓▓▓▓▓▓ · 작은 판 · ${OPEN_CMD}`,
-    )
+    expect(formatLine(bare, NOW, 240)).toBe(`${STATUS_MARK} · ✅ 1/1 ▓▓▓▓▓▓ · 작은 판`)
   })
 
   test('names the next left step after the current one, not before it', () => {
@@ -1066,9 +1107,9 @@ describe('formatLine', () => {
     const alone = normalize(stateOf({ data: '' }))
 
     expect(formatLine(alone, NOW, 240)).toBe(
-      '/deadhd-statusline · ✅ 3/6 ▓▓▓░░░ · CAS-1161 CAS-1161 콘솔 dev 회귀 3회차 · ' +
-        '▶️ 실제 화면 확인 · ⏱ 예상 16:20 · 🔄 2분 전 · ⛔ 막힘 1 · ⏳ 남음 2 · ' +
-        `🧵 백그라운드 2 · 🗜 압축 1 · ${OPEN_CMD}`,
+      `${STATUS_MARK} · ✅ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · ` +
+        '▶️ 실제 화면 확인 · 🔀 app-api#512 · ⏱ 예상 16:20 · 🔄 2분 전 · ⛔ 막힘 1 · ⏳ 남음 2 · ' +
+        '🧵 백그라운드 2 · 🗜 압축 1',
     )
   })
 
@@ -1093,29 +1134,39 @@ describe('formatLine', () => {
 
     // Narrower still: the blocked label is cut, and the next step is already gone.
     const tight = formatLine(long, NOW, keyed - 15)
-
     expect(cellWidth(tight)).toBeLessThanOrEqual(keyed - 15)
     expect(tight).not.toContain('⏭')
     expect(tight).toContain('배포')
   })
 
-  test('drops the open command last, after every piece before it', () => {
-    // A cell short, the title gives way and the command stays.
-    const full = cellWidth(formatLine(STATE, NOW, 240))
+  test('gives the pieces up in the order the row can spare them, down to the count', () => {
+    const bare = { ...STATE!, key: null, title: '' }
+    // Everything but the mark and the count goes before the bar's own cells do.
+    const kept = `${STATUS_MARK} · ✅ 3/6 ▓▓▓░░░`
+    const bar = `${STATUS_MARK} · ✅ 3/6`
 
-    expect(formatLine(STATE, NOW, full - 1)).toContain(OPEN_CMD)
+    expect(formatLine(bare, NOW, cellWidth(kept))).toBe(kept)
+    expect(formatLine(bare, NOW, cellWidth(bar))).toBe(bar)
+    // Under the count's own cells the row stops giving way: the mark, the count
+    // and a wait the session is in are not the fit's to drop.
+    expect(formatLine(bare, NOW, 4)).toBe(bar)
+    expect(formatLine({ ...bare, status: 'waiting_permission' }, NOW, 4)).toContain(bar)
+  })
 
-    // With nothing else left to give, the command is what goes.
-    const bare = normalize({
-      status: 'working',
-      summary: { title: '', lang: 'ko', total: 1, counts: { done: 1 } },
-    })
-    const row = formatLine(bare, NOW, 240)
-    const tight = formatLine(bare, NOW, cellWidth(row) - 1)
+  test('gives up the pull request before the count, the title taking the cells it leaves', () => {
+    const withPr = `${STATUS_MARK} · ✅ 3/6 ▓▓▓░░░ · CAS-1161 · ${PR_PIECE}`
 
-    expect(row).toContain(OPEN_CMD)
-    expect(tight).not.toContain(OPEN_CMD)
-    expect(tight).toContain('✅ 1/1')
+    expect(formatLine(STATE, NOW, cellWidth(withPr))).toBe(withPr)
+
+    // A cell short of that row the pull request is the piece that goes, and the
+    // title, which gave its body away first, takes the cells it leaves: the
+    // count stays and the title's own words are back beside it.
+    const freed = formatLine(STATE, NOW, cellWidth(withPr) - 1)
+
+    expect(freed).not.toContain(PR_PIECE)
+    expect(freed).toContain('✅ 3/6')
+    expect(freed).toContain('CAS-1161 콘솔 dev 회귀…')
+    expect(cellWidth(freed)).toBeLessThanOrEqual(cellWidth(withPr) - 1)
   })
 
   test('draws the words in English for a state file that says en', () => {
@@ -1158,6 +1209,49 @@ describe('formatLine', () => {
 
   test('draws nothing without a state', () => {
     expect(formatLine(null, NOW, 240)).toBe('')
+  })
+
+  test('draws the key a title opens with once, not beside a copy of it', () => {
+    const row = formatLine(STATE, NOW, 240)
+
+    expect(row).toContain('CAS-1161 콘솔 dev 회귀 3회차')
+    expect(row).not.toContain('CAS-1161 CAS-1161')
+    // The key an opening title repeats is still the run's own piece, cut and
+    // colored as the key; the title's words after it are the title.
+    expect(pieceIn(statusLine(STATE, NOW, 240), 'CAS-1161')?.tone).toBe('permission')
+    expect(pieceIn(statusLine(STATE, NOW, 240), '콘솔 dev 회귀 3회차')?.tone).toBe('text')
+  })
+
+  test('keeps the key beside a title that does not open with it', () => {
+    const other = normalize(stateOf({}, { title: '다른 제목' }), BOARD)
+    const row = formatLine(other, NOW, 240)
+
+    expect(row).toContain('CAS-1161 다른 제목')
+    expect(row).not.toContain('CAS-1161 CAS-1161')
+  })
+
+  test('reads a key only where a word ends, not inside a longer one', () => {
+    const longer = normalize(stateOf({}, { title: 'CAS-11610 회귀' }), BOARD)
+
+    expect(formatLine(longer, NOW, 240)).toContain('CAS-1161 CAS-11610 회귀')
+  })
+
+  test('draws the whole line in 60 and 40 cells', () => {
+    for (const maxCols of [60, 40]) {
+      expect(cellWidth(formatLine(STATE, NOW, maxCols))).toBeLessThanOrEqual(maxCols)
+    }
+  })
+
+  test('draws the title again in the cells the fields before it left', () => {
+    // A row far too long for its cells: the title gives its body away at once,
+    // and takes back the cells the fields dropped after it leave behind.
+    const long = normalize(stateOf({}, { title: '아주 긴 제목이 여기에 들어 있다 '.repeat(12) }), BOARD)
+    const row = formatLine(long, NOW, 109)
+
+    expect(row).toContain('아주')
+    expect(row).toContain('…')
+    expect(row).toContain('⏳ 남음 2')
+    expect(cellWidth(row)).toBeLessThanOrEqual(109)
   })
 })
 
@@ -1416,7 +1510,9 @@ describe('normalize', () => {
       status: 'working',
       lang: 'ko',
       key: null,
+      keyHref: null,
       title: '',
+      pr: null,
       done: 0,
       now: 0,
       side: 0,

@@ -1,13 +1,19 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ThemeKey } from 'claude-code'
 
-import type { DeadhdLang, DeadhdState, DeadhdStep, DeadhdView } from '../types'
+import type { DeadhdLang, DeadhdPr, DeadhdState, DeadhdStep, DeadhdView } from '../types'
 
 const DEFAULT_STATE_DIR = '/tmp/deadhd-state'
 const REFRESH_MS = 5000
 
 /** PromptHint hands the tree no width, so this is the budget its pieces are cut to. */
 const STATUS_COLS = 240
+/**
+ * Cells the hint line is indented by, on each side, inside the surface's own
+ * width: `e.viewport.columns` is the whole screen, so the line drawn in the
+ * indented slot must have them taken off its budget.
+ */
+const HINT_INSET = 4
 /** Cells the progress bar draws; `done/total` is rounded onto them. */
 const BAR_CELLS = 6
 const SEP = ' · '
@@ -17,8 +23,8 @@ const OPEN_TIMEOUT_MS = 15000
 const BAND_CMD = '/deadhd-band'
 const STATUS_CMD = '/deadhd-statusline'
 
-/** The command a status line names at its end, so the page has a keyboard way open too. */
-const OPEN_CMD = '/deadhd-open'
+/** What a status line opens with: the mark, the command that folds it staying in the folded guide. */
+const STATUS_MARK = '◆'
 
 /** With no state file and no config the session draws in this view, as render.py decides too. */
 export const DEFAULT_VIEW: DeadhdView = 'html'
@@ -46,8 +52,11 @@ export type Tone =
       | 'remember'
     >
 
-/** One drawn piece of a line: `text` is what shows, `tone` what colors it. */
-export type Segment = { text: string; tone: Tone; bold?: boolean }
+/**
+ * One drawn piece of a line: `text` is what shows, `tone` what colors it, and
+ * `href` the address the piece links to when it has one.
+ */
+export type Segment = { text: string; tone: Tone; bold?: boolean; href?: string }
 
 /** One field of a line: its pieces drawn side by side, a separator before the next field. */
 type Field = { tag: string; parts: Segment[] }
@@ -486,7 +495,7 @@ const bandAlertFields = (state: DeadhdState, now: number): Field[] => {
 /** The status line's pieces, in the order the long row draws them. */
 const statusFields = (state: DeadhdState, now: number): Field[] => {
   const words = WORDS[state.lang]
-  const fields: Field[] = [{ tag: 'name', parts: [{ text: STATUS_CMD, tone: 'claude', bold: true }] }]
+  const fields: Field[] = [{ tag: 'name', parts: [{ text: STATUS_MARK, tone: 'claude', bold: true }] }]
 
   if (state.total > 0) {
     fields.push({
@@ -499,19 +508,7 @@ const statusFields = (state: DeadhdState, now: number): Field[] => {
     })
   }
 
-  const heading: Segment[] = []
-
-  if (state.key !== null) {
-    heading.push({
-      text: state.title === '' ? state.key : `${state.key} `,
-      tone: 'permission',
-      bold: true,
-    })
-  }
-
-  if (state.title !== '') {
-    heading.push({ text: state.title, tone: 'text' })
-  }
+  const heading = headingParts(state)
 
   if (heading.length > 0) {
     fields.push({ tag: 'title', parts: heading })
@@ -519,6 +516,13 @@ const statusFields = (state: DeadhdState, now: number): Field[] => {
 
   if (state.current !== null) {
     fields.push(stepField(state.current, state.lang, now, '▶️'))
+  }
+
+  if (state.pr !== null) {
+    fields.push({
+      tag: 'pr',
+      parts: [{ text: `🔀 ${state.pr.text}`, tone: 'permission', href: state.pr.href }],
+    })
   }
 
   if (state.next !== null) {
@@ -576,9 +580,50 @@ const statusFields = (state: DeadhdState, now: number): Field[] => {
     })
   }
 
-  fields.push({ tag: 'openCmd', parts: [{ text: `↗ ${OPEN_CMD}`, tone: 'suggestion' }] })
-
   return fields
+}
+
+/**
+ * The title's pieces: the key it opens with, colored and, when the state names
+ * one, linked, then the rest of the title. A title that opens with the key
+ * itself draws the key once, out of the title's own cells, rather than beside
+ * it as a copy.
+ */
+const headingParts = (state: DeadhdState): Segment[] => {
+  const key = state.key
+
+  if (key === null) {
+    return state.title === '' ? [] : [{ text: state.title, tone: 'text' }]
+  }
+
+  const link = state.keyHref === null ? {} : { href: state.keyHref }
+  const piece: Segment = { text: key, tone: 'permission', bold: true, ...link }
+  const body = titleAfterKey(state.title, key)
+
+  if (body === null) {
+    return state.title === ''
+      ? [piece]
+      : [{ ...piece, text: `${key} ` }, { text: state.title, tone: 'text' }]
+  }
+
+  return body === '' ? [piece] : [piece, { text: body, tone: 'text' }]
+}
+
+/**
+ * What is left of `title` past the `key` it opens with, or null when it opens
+ * with something else. The key must end where a word does: the string, a space
+ * or a punctuation mark, so `CAS-11` is not read as the key of `CAS-1159`.
+ */
+const titleAfterKey = (title: string, key: string): string | null => {
+  const trimmed = title.trimStart()
+
+  if (!trimmed.startsWith(key)) {
+    return null
+  }
+
+  const after = trimmed.slice(key.length)
+
+  return after === '' || /^[\s\p{P}]/u.test(after) ? after : null
 }
 
 /** The last-update piece: quiet while the skill keeps up, louder as it falls behind. */
@@ -630,8 +675,19 @@ const cutLast = (field: Field, room: number): void => {
 
 /**
  * Brings a line inside `maxCols` cells, giving way in the order the fields can
- * spare it: the title first, then the next step, then the blocked step's label,
- * the step a line marks, and the command a status line ends with last of all.
+ * spare it: the title's body first, then the next step, the blocked step's
+ * label and the field itself, the step a line marks and the field itself, the
+ * compaction and background counts, the last-write age, the estimate, the left
+ * count, the pull request, and the progress bar's own cells. The band's row
+ * carries the same pieces under its own names (`leftCount` for the left count,
+ * `bar` for the count's bar, `stuck` for the blocked label) and gives them up
+ * in the same places. Still too wide, the title falls back to its key alone and
+ * then goes. A title that stayed draws the beginning of what it gave away into
+ * the cells the dropped fields left, so a line too long to hold it whole shows
+ * the title's own words rather than the key alone. What a line must not lose
+ * stays: the wait a session is in, the mark or command it opens with, and the
+ * `done/total` the bar's cells are rounded onto — so a row narrower than those
+ * keeps drawing them.
  */
 const fit = (fields: Field[], maxCols: number): Field[] => {
   const shrink = (tag: string): void => {
@@ -652,13 +708,65 @@ const fit = (fields: Field[], maxCols: number): Field[] => {
     }
   }
 
+  /** The bar's cells go while the `done/total` drawn beside them stays. */
+  const shrinkBar = (tag: string): void => {
+    const field = fields.find(one => one.tag === tag)
+
+    if (field === undefined) {
+      return
+    }
+
+    const kept = field.parts.filter(part => !/^[▓░]+$/.test(part.text))
+
+    // The space the bar was drawn behind goes with it.
+    field.parts = kept.filter((part, at) => at < kept.length - 1 || part.text.trim() !== '')
+  }
+
+  /** The title keeps only the key it opens with; a title without one is left to go. */
+  const keyOnly = (tag: string): void => {
+    const field = fields.find(one => one.tag === tag)
+
+    if (field === undefined || field.parts.length < 2) {
+      return
+    }
+
+    const first = field.parts[0]
+
+    if (first !== undefined) {
+      field.parts = [{ ...first, text: first.text.trimEnd() }]
+    }
+  }
+
+  // The title's own pieces as they came in: it gives its body away first, and
+  // takes the room the fields after it left back at the end.
+  const title = fields.find(one => one.tag === 'title')
+  const whole = title?.parts.map(part => ({ ...part }))
+
   if (lineWidth(fields) > maxCols) shrink('title')
   if (lineWidth(fields) > maxCols) drop('next')
   if (lineWidth(fields) > maxCols) shrink('blocked')
   if (lineWidth(fields) > maxCols) drop('blocked')
   if (lineWidth(fields) > maxCols) shrink('current')
   if (lineWidth(fields) > maxCols) drop('current')
-  if (lineWidth(fields) > maxCols) drop('openCmd')
+  if (lineWidth(fields) > maxCols) drop('compacted')
+  if (lineWidth(fields) > maxCols) drop('background')
+  if (lineWidth(fields) > maxCols) drop('ago')
+  if (lineWidth(fields) > maxCols) drop('eta')
+  if (lineWidth(fields) > maxCols) drop('left')
+  if (lineWidth(fields) > maxCols) drop('leftCount')
+  if (lineWidth(fields) > maxCols) drop('pr')
+  if (lineWidth(fields) > maxCols) shrinkBar('count')
+  if (lineWidth(fields) > maxCols) shrinkBar('bar')
+  if (lineWidth(fields) > maxCols) drop('stuck')
+  if (lineWidth(fields) > maxCols) keyOnly('title')
+  if (lineWidth(fields) > maxCols) drop('title')
+
+  // The line fits again, so the title draws the beginning of the body it gave
+  // away into the cells the dropped fields left. A title that went stays gone.
+  if (title !== undefined && whole !== undefined && whole.length > 1 && fields.includes(title)) {
+    title.parts = whole.map(part => ({ ...part }))
+    cutLast(title, maxCols - (lineWidth(fields) - fieldWidth(title)))
+  }
 
   return fields.filter(field => field.parts.length > 0)
 }
@@ -728,9 +836,14 @@ function foldedSegments(state: DeadhdState): Segment[] {
   return parts
 }
 
-/** The folded status line's one piece: the command, the count, and the way to the page. */
+/**
+ * The folded status line's one row: the mark, the count, and the command that
+ * unfolds it. The page's own way open is the button drawn at the row's end, so
+ * the folded row names the way back to the long line instead.
+ */
 function statusFoldedSegments(state: DeadhdState): Segment[] {
-  const parts: Segment[] = [{ text: STATUS_CMD, tone: 'claude', bold: true }]
+  const words = WORDS[state.lang]
+  const parts: Segment[] = [{ text: STATUS_MARK, tone: 'claude', bold: true }]
 
   if (state.total > 0) {
     parts.push(
@@ -739,7 +852,10 @@ function statusFoldedSegments(state: DeadhdState): Segment[] {
     )
   }
 
-  parts.push({ text: SEP, tone: 'subtle' }, { text: `↗ ${OPEN_CMD}`, tone: 'suggestion' })
+  parts.push(
+    { text: SEP, tone: 'subtle' },
+    { text: `${STATUS_CMD} ${words.expand}`, tone: 'suggestion' },
+  )
 
   return parts
 }
@@ -826,6 +942,19 @@ const nextStep = (steps: readonly DeadhdStep[], current: DeadhdStep | null): Dea
 const path = (value: unknown): string | null =>
   typeof value === 'string' && value !== '' ? value : null
 
+/** The http(s) address a summary field holds, or null; another scheme links nowhere. */
+const httpHref = (value: unknown): string | null =>
+  typeof value === 'string' && /^https?:\/\//i.test(value) ? value : null
+
+/** The summary's `pr` entry, or null when it names no http(s) address with words to show. */
+const prOf = (value: unknown): DeadhdPr | null => {
+  const entry = record(value)
+  const text = path(entry.text)
+  const href = httpHref(entry.href)
+
+  return text === null || href === null ? null : { text, href }
+}
+
 /**
  * One session's state file and data file together, as the two lines read them.
  * A shape this build does not know, or a data file that is missing or broken,
@@ -870,7 +999,9 @@ export function normalize(raw: unknown, data?: unknown): DeadhdState | null {
     status: text(source.status, 'working'),
     lang: summary.lang === 'en' ? 'en' : 'ko',
     key: typeof summary.key === 'string' && summary.key !== '' ? summary.key : null,
+    keyHref: httpHref(summary.keyHref),
     title: text(summary.title, ''),
+    pr: prOf(summary.pr),
     done,
     now,
     side,
@@ -1209,7 +1340,7 @@ export const register: Register = on => {
     // cells come off the budget the line's own pieces are cut to. The width is
     // the surface's own, which PromptHint's props do not carry.
     const cols = e.viewport?.columns ?? STATUS_COLS
-    const room = Math.max(0, cols - (1 + buttonCols(words.open)))
+    const room = Math.max(0, cols - HINT_INSET - (1 + buttonCols(words.open)))
 
     if (room > 0) {
       widths.status = room
@@ -1218,7 +1349,7 @@ export const register: Register = on => {
     const parts = folded ? statusFoldedSegments(state) : statusLine(state, now, room)
     // The engine's hint keeps its own tree, drawn under the deadhd line.
     const hint = await next(e)
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const { Box, Text, Button, Link } = $.ui.resolve(e)
     const open = (): void => {
       void openText($, state).then(message => $.ui.toast(message))
     }
@@ -1226,11 +1357,21 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column">
         <Box>
-          {parts.map((part, index) => (
-            <Text key={`part-${index}`} bold={part.bold === true} {...paint(part.tone)}>
-              {index === parts.length - 1 ? `${part.text} ` : part.text}
-            </Text>
-          ))}
+          {parts.map((part, index) => {
+            const piece = (
+              <Text key={`part-${index}`} bold={part.bold === true} {...paint(part.tone)}>
+                {index === parts.length - 1 ? `${part.text} ` : part.text}
+              </Text>
+            )
+
+            return part.href === undefined ? (
+              piece
+            ) : (
+              <Link key={`part-${index}`} href={part.href}>
+                {piece}
+              </Link>
+            )
+          })}
           <Button key="open" label={words.open} variant="primary" onPress={open} />
         </Box>
         {hint}

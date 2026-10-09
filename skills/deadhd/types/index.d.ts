@@ -28,6 +28,16 @@ export type DeadhdStep = {
 }
 
 /**
+ * The pull request the status line links to: the words an evidence entry shows
+ * and the http(s) address it opens.
+ */
+export type DeadhdPr = {
+  /** The evidence entry's own text, as the page draws it too. */
+  text: string
+  href: string
+}
+
+/**
  * The session's state file and data file together, normalized: what the band
  * and the status line read.
  *
@@ -42,6 +52,8 @@ export type DeadhdState = {
   lang: DeadhdLang
   /** The ticket or program key of the run, or null when the summary has none. */
   key: string | null
+  /** The http(s) address the key links to, or null when the summary names none. */
+  keyHref: string | null
   title: string
   done: number
   now: number
@@ -52,6 +64,11 @@ export type DeadhdState = {
   allDone: boolean
   /** The step the lines mark as running: the first `now`, else the first `side`. */
   current: DeadhdStep | null
+  /**
+   * The pull request of that running step, as the summary carries it, or null
+   * when the step names none.
+   */
+  pr: DeadhdPr | null
   /** The first `left` step after `current`, in lane·column order. */
   next: DeadhdStep | null
   /** The first `blocked` step the data names. */

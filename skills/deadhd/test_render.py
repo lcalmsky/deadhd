@@ -3177,6 +3177,11 @@ class RenderSessionTest(unittest.TestCase):
             json.dump(load_example(), f, ensure_ascii=False)
         self.out = os.path.join(self.tmp, 'out.html')
 
+    def write_data(self, data):
+        """이 클래스가 렌더하는 데이터 파일을 다른 사례로 바꿔 쓴다."""
+        with open(self.data, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+
     def render(self, session=None, env_extra=None):
         extra = {'DEADHD_STATE_DIR': self.state_dir}
         if env_extra:
@@ -3260,6 +3265,44 @@ class RenderSessionTest(unittest.TestCase):
         self.assertIn('eta', summary)
         self.assertFalse(summary['hooked'])
         self.assertFalse(summary['allDone'])
+
+    def test_summary_carries_the_running_steps_pull_request(self):
+        data = load_example()
+        now = next(it for it in data['items'] if it['state'] == 'now')
+        now['evidence'] = [
+            {'icon': 'commit', 'text': '31c0661191'},
+            {'icon': 'pr', 'text': 'shop-api#4120', 'mono': True,
+             'href': 'https://github.com/example/shop-api/pull/4120'},
+        ]
+        self.write_data(data)
+
+        self.assertEqual(self.render(session='abc').returncode, 0)
+        self.assertEqual(self.read_state()['summary']['pr'], {
+            'text': 'shop-api#4120', 'href': 'https://github.com/example/shop-api/pull/4120'})
+
+    def test_summary_leaves_the_pull_request_out_without_a_running_step(self):
+        data = load_example()
+        for item in data['items']:
+            if item['state'] == 'now':
+                item['state'] = 'left'
+                item['evidence'] = [{'icon': 'pr', 'text': 'shop-api#4120',
+                                     'href': 'https://github.com/example/shop-api/pull/4120'}]
+        self.write_data(data)
+
+        self.assertEqual(self.render(session='abc').returncode, 0)
+        self.assertIsNone(self.read_state()['summary']['pr'])
+
+    def test_summary_leaves_the_pull_request_out_when_its_entry_has_no_address(self):
+        data = load_example()
+        now = next(it for it in data['items'] if it['state'] == 'now')
+        now['evidence'] = [
+            {'icon': 'pr', 'text': 'shop-api#4120'},
+            {'icon': 'file', 'text': 'design.md', 'href': 'https://github.com/example/shop-api/pull/4120'},
+        ]
+        self.write_data(data)
+
+        self.assertEqual(self.render(session='abc').returncode, 0)
+        self.assertIsNone(self.read_state()['summary']['pr'])
 
     def test_payload_has_hub_href(self):
         hub = os.path.join(self.tmp, 'hub.html')
