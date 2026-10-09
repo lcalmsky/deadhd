@@ -656,7 +656,7 @@ describe('the status hint', () => {
     expect(runs[1]?.[0]).toBe('bash')
     expect(runs[1]?.[1]?.endsWith('/open.sh')).toBe(true)
     expect(runs[1]?.[2]).toBe(OUT_PATH)
-    expect(toasts).toEqual(['HTML 을 열었다'])
+    expect(toasts).toEqual(['HTML 페이지를 열었어요'])
   })
 
   test('leaves the engine hint its own tree and color', async ($, on) => {
@@ -799,7 +799,7 @@ describe('the status line command', () => {
 
     await $.session.start(SESSION)
 
-    expect((await $.command.run(statusRun)).text).toBe('상태줄을 접었다')
+    expect((await $.command.run(statusRun)).text).toBe('상태줄을 접었어요')
 
     const folded = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
     const drawn = textOf(await folded.drawn())
@@ -811,7 +811,7 @@ describe('the status line command', () => {
 
     await folded.unmount()
 
-    expect((await $.command.run(statusRun)).text).toBe('상태줄을 펼쳤다')
+    expect((await $.command.run(statusRun)).text).toBe('상태줄을 펼쳤어요')
   })
 
   test('opens again when a step gets stuck while it is folded', async ($, on) => {
@@ -855,7 +855,7 @@ describe('the status line command', () => {
     await $.session.start(SESSION)
 
     expect((await $.command.run(statusRun)).text).toBe(
-      '지금 표시 방식에서는 상태줄을 그리지 않는다. /deadhd setup 에서 상태줄로 바꾼다.',
+      '지금은 상태줄 모드가 아니에요. /deadhd setup 에서 상태줄을 고르면 보여요.',
     )
   })
 })
@@ -1100,7 +1100,7 @@ describe('the open button and command', () => {
     expect(runs[1]?.[0]).toBe('bash')
     expect(runs[1]?.[1]?.endsWith('/open.sh')).toBe(true)
     expect(runs[1]?.[2]).toBe(OUT_PATH)
-    expect(toasts).toEqual(['HTML 을 열었다'])
+    expect(toasts).toEqual(['HTML 페이지를 열었어요'])
   })
 
   test('answers the same sentence as a command', async ($, on) => {
@@ -1114,7 +1114,7 @@ describe('the open button and command', () => {
     await ui.press({ key: 'open' })
     await ui.unmount()
 
-    expect(answered.text).toBe('HTML 을 열었다')
+    expect(answered.text).toBe('HTML 페이지를 열었어요')
     expect(toasts).toEqual([answered.text])
     expect(runs).toHaveLength(4)
   })
@@ -1125,7 +1125,7 @@ describe('the open button and command', () => {
 
     await $.session.start(SESSION)
 
-    expect((await $.command.run(open)).text).toBe('HTML 페이지가 아직 없다')
+    expect((await $.command.run(open)).text).toBe('아직 HTML 페이지가 없어요')
     expect(runs).toEqual([])
   })
 
@@ -1135,7 +1135,7 @@ describe('the open button and command', () => {
 
     await $.session.start(SESSION)
 
-    expect((await $.command.run(open)).text).toBe('HTML 페이지가 아직 없다')
+    expect((await $.command.run(open)).text).toBe('아직 HTML 페이지가 없어요')
     expect(runs).toEqual([])
   })
 
@@ -1149,7 +1149,7 @@ describe('the open button and command', () => {
     await $.session.start(SESSION)
 
     expect((await $.command.run(open)).text).toBe(
-      'HTML 을 열지 못했다: exit 1: render.py: 데이터를 읽지 못했다',
+      'HTML 페이지를 열지 못했어요: exit 1: render.py: 데이터를 읽지 못했다',
     )
     expect(world.runs).toHaveLength(1)
   })
@@ -1164,7 +1164,7 @@ describe('the open button and command', () => {
     await $.session.start(SESSION)
 
     expect((await $.command.run(open)).text).toBe(
-      'HTML 을 열지 못했다: exit 2: no such file: /tmp/x.html',
+      'HTML 페이지를 열지 못했어요: exit 2: no such file: /tmp/x.html',
     )
     expect(world.runs).toHaveLength(2)
   })
@@ -1175,7 +1175,7 @@ describe('the open button and command', () => {
 
     await $.session.start(SESSION)
 
-    expect((await $.command.run(open)).text).toBe('HTML 을 열었다')
+    expect((await $.command.run(open)).text).toBe('HTML 페이지를 열었어요')
     expect(runs).toHaveLength(2)
   })
 
@@ -1213,7 +1213,7 @@ describe('the command', () => {
 
     const folded = await $.command.run(run)
 
-    expect(folded.text).toBe('밴드를 접었다')
+    expect(folded.text).toBe('밴드를 접었어요')
 
     const band = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
 
@@ -1223,7 +1223,7 @@ describe('the command', () => {
 
     const opened = await $.command.run(run)
 
-    expect(opened.text).toBe('밴드를 펼쳤다')
+    expect(opened.text).toBe('밴드를 펼쳤어요')
   })
 
   test('is declared while the band draws', async ($, on) => {
@@ -1240,7 +1240,7 @@ describe('the command', () => {
     await $.session.start(SESSION)
 
     expect((await $.command.run(run)).text).toBe(
-      '지금 표시 방식에서는 밴드를 그리지 않는다. /deadhd setup 에서 밴드로 바꾼다.',
+      '지금은 밴드 모드가 아니에요. /deadhd setup 에서 밴드를 고르면 보여요.',
     )
   })
 })
