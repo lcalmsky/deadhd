@@ -17,6 +17,9 @@ const OPEN_TIMEOUT_MS = 15000
 const BAND_CMD = '/deadhd-band'
 const STATUS_CMD = '/deadhd-statusline'
 
+/** The command a status line names at its end, so the page has a keyboard way open too. */
+const OPEN_CMD = '/deadhd-open'
+
 /** With no state file and no config the session draws in this view. */
 export const DEFAULT_VIEW: DeadhdView = 'band'
 
@@ -504,6 +507,8 @@ const statusFields = (state: DeadhdState, now: number): Field[] => {
     })
   }
 
+  fields.push({ tag: 'openCmd', parts: [{ text: `↗ ${OPEN_CMD}`, tone: 'suggestion' }] })
+
   return fields
 }
 
@@ -557,7 +562,7 @@ const cutLast = (field: Field, room: number): void => {
 /**
  * Brings a line inside `maxCols` cells, giving way in the order the fields can
  * spare it: the title first, then the next step, then the blocked step's label,
- * and the step a line marks last.
+ * the step a line marks, and the command a status line ends with last of all.
  */
 const fit = (fields: Field[], maxCols: number): Field[] => {
   const shrink = (tag: string): void => {
@@ -584,6 +589,7 @@ const fit = (fields: Field[], maxCols: number): Field[] => {
   if (lineWidth(fields) > maxCols) drop('blocked')
   if (lineWidth(fields) > maxCols) shrink('current')
   if (lineWidth(fields) > maxCols) drop('current')
+  if (lineWidth(fields) > maxCols) drop('openCmd')
 
   return fields.filter(field => field.parts.length > 0)
 }
@@ -653,7 +659,7 @@ function foldedSegments(state: DeadhdState): Segment[] {
   return parts
 }
 
-/** The folded status line's one piece: the command and the count, nothing else. */
+/** The folded status line's one piece: the command, the count, and the way to the page. */
 function statusFoldedSegments(state: DeadhdState): Segment[] {
   const parts: Segment[] = [{ text: STATUS_CMD, tone: 'claude', bold: true }]
 
@@ -663,6 +669,8 @@ function statusFoldedSegments(state: DeadhdState): Segment[] {
       { text: `✅ ${state.done}/${state.total}`, tone: 'success', bold: true },
     )
   }
+
+  parts.push({ text: SEP, tone: 'subtle' }, { text: `↗ ${OPEN_CMD}`, tone: 'suggestion' })
 
   return parts
 }
@@ -1096,19 +1104,27 @@ export const register: Register = on => {
 
     const folded = await read($, collapsed)
     const now = await $.clock.now()
-    const parts = folded ? statusFoldedSegments(state) : statusLine(state, now, STATUS_COLS)
+    const words = WORDS[state.lang]
+    // The button and the space before it are drawn beside the text, so their
+    // cells come off the budget the line's own pieces are cut to.
+    const room = Math.max(0, STATUS_COLS - (1 + buttonCols(words.open)))
+    const parts = folded ? statusFoldedSegments(state) : statusLine(state, now, room)
     // The engine's hint keeps its own tree, drawn under the deadhd line.
     const hint = await next(e)
-    const { Box, Text } = $.ui.resolve(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const open = (): void => {
+      void openText($, state).then(message => $.ui.toast(message))
+    }
 
     return (
       <Box flexDirection="column">
         <Box>
           {parts.map((part, index) => (
             <Text key={`part-${index}`} bold={part.bold === true} {...paint(part.tone)}>
-              {part.text}
+              {index === parts.length - 1 ? `${part.text} ` : part.text}
             </Text>
           ))}
+          <Button key="open" label={words.open} variant="primary" onPress={open} />
         </Box>
         {hint}
       </Box>

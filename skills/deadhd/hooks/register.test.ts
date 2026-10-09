@@ -283,11 +283,14 @@ const MOUNT_HINT = { plugin: PLUGIN, component: 'PromptHint', props: HINT } as c
 /** One row of the sample's long status line, from the piece a test reads. */
 const STATUS_HEAD = '/deadhd-statusline'
 
+/** The command the long row ends with, the way to the page beside its button. */
+const OPEN_CMD = '↗ /deadhd-open'
+
 /** The whole long row the sample draws, piece by piece. */
 const LONG_ROW =
   `${STATUS_HEAD} · ✅ 3/6 ▓▓▓░░░ · CAS-1161 CAS-1161 콘솔 dev 회귀 3회차 · ` +
   '▶️ 실제 화면 확인 4분째 · ⏭ 다음 정리 · ⏱ 예상 16:20 · 🔄 2분 전 · ⛔ 막힘 1: 배포 검증 · ' +
-  '⏳ 남음 2 · 🧵 백그라운드 2 · 🗜 압축 1'
+  `⏳ 남음 2 · 🧵 백그라운드 2 · 🗜 압축 1 · ${OPEN_CMD}`
 
 /** What the engine draws when the plugin leaves the component to it. */
 const ENGINE_OWN: RenderElement = { type: 'Text', children: ['(the engine drew its own)'] }
@@ -596,12 +599,65 @@ describe('the status hint', () => {
 
       expect(elementOf(drawn).props?.flexDirection).toBe('column')
       expect(rows).toHaveLength(2)
-      expect(textOf(rows[0])).toBe(LONG_ROW)
+      expect(textOf(rows[0])).toBe(`${LONG_ROW} 열기`)
       expect(rows[1]).toEqual(ENGINE_HINT)
 
       await ui.unmount()
     })
+
+    test(`names the open command and draws its button at the row's end, on the ${surface}`, async ($, on) => {
+      statusWorld(on, filesOf(statusState()))
+
+      await $.session.start(SESSION)
+
+      const ui = await $.ui.mount({ ...MOUNT_HINT, surface })
+      const painted = await paintedOf(ui)
+      const drawn = textOf(await ui.drawn())
+
+      expect(pieceOf(painted, OPEN_CMD)?.color).toBe('suggestion')
+      expect(drawn).toContain(OPEN_CMD)
+      expect(drawn).toContain('열기')
+
+      await ui.unmount()
+    })
   }
+
+  test('keeps the open command and its button on the folded row', async ($, on) => {
+    statusWorld(on, filesOf(statusState()))
+
+    await $.session.start(SESSION)
+    await $.command.run(statusRun)
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+    const drawn = textOf(await ui.drawn())
+
+    expect(drawn).toContain(`${STATUS_HEAD} ✅ 3/6`)
+    expect(drawn).toContain(OPEN_CMD)
+    expect(drawn).toContain('열기')
+    expect(drawn).not.toContain('⏳ 남음 2')
+
+    await ui.unmount()
+  })
+
+  test('opens the page from the hint button, in the same two steps as the band', async ($, on) => {
+    const { toasts, runs } = statusWorld(on, filesOf(statusState()))
+
+    await $.session.start(SESSION)
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+
+    await ui.press({ key: 'open' })
+    await ui.unmount()
+
+    expect(runs).toHaveLength(2)
+    expect(runs[0]?.slice(0, 1)).toEqual(['python3'])
+    expect(runs[0]?.[1]?.endsWith('/render.py')).toBe(true)
+    expect(runs[0]?.slice(2)).toEqual(['--page', '--session', SESSION_ID, DATA_PATH, OUT_PATH])
+    expect(runs[1]?.[0]).toBe('bash')
+    expect(runs[1]?.[1]?.endsWith('/open.sh')).toBe(true)
+    expect(runs[1]?.[2]).toBe(OUT_PATH)
+    expect(toasts).toEqual(['HTML 을 열었다'])
+  })
 
   test('leaves the engine hint its own tree and color', async ($, on) => {
     const hint: RenderElement = { type: 'Text', props: { color: 'warning' }, children: ['esc to interrupt'] }
@@ -678,7 +734,7 @@ describe('the status hint', () => {
     const rows = rowsOf(await ui.drawn())
     const painted = await paintedOf(ui)
 
-    expect(textOf(rows[0])).toBe(LONG_ROW)
+    expect(textOf(rows[0])).toBe(`${LONG_ROW} 열기`)
     expect(textOf(rows[1])).toBe('x'.repeat(200))
     expect(pieceOf(painted, '⏳ 남음 2')).toBeDefined()
 
@@ -699,6 +755,8 @@ describe('the status hint', () => {
     expect(cellWidth(textOf(rows[0]))).toBeLessThanOrEqual(240)
     expect(textOf(rows[0])).toContain('…')
     expect(pieceOf(painted, '⏳ 남음 2')).toBeDefined()
+    // The button is drawn outside the budget, so the row keeps it however tight it gets.
+    expect(textOf(rows[0])).toContain('열기')
 
     await ui.unmount()
   })
@@ -897,7 +955,9 @@ describe('formatLine', () => {
       summary: { title: '작은 판', lang: 'ko', total: 1, counts: { done: 1 } },
     })
 
-    expect(formatLine(bare, NOW, 240)).toBe('/deadhd-statusline · ✅ 1/1 ▓▓▓▓▓▓ · 작은 판')
+    expect(formatLine(bare, NOW, 240)).toBe(
+      `/deadhd-statusline · ✅ 1/1 ▓▓▓▓▓▓ · 작은 판 · ${OPEN_CMD}`,
+    )
   })
 
   test('names the next left step after the current one, not before it', () => {
@@ -910,7 +970,7 @@ describe('formatLine', () => {
     expect(formatLine(alone, NOW, 240)).toBe(
       '/deadhd-statusline · ✅ 3/6 ▓▓▓░░░ · CAS-1161 CAS-1161 콘솔 dev 회귀 3회차 · ' +
         '▶️ 실제 화면 확인 · ⏱ 예상 16:20 · 🔄 2분 전 · ⛔ 막힘 1 · ⏳ 남음 2 · ' +
-        '🧵 백그라운드 2 · 🗜 압축 1',
+        `🧵 백그라운드 2 · 🗜 압축 1 · ${OPEN_CMD}`,
     )
   })
 
@@ -939,6 +999,25 @@ describe('formatLine', () => {
     expect(cellWidth(tight)).toBeLessThanOrEqual(keyed - 15)
     expect(tight).not.toContain('⏭')
     expect(tight).toContain('배포')
+  })
+
+  test('drops the open command last, after every piece before it', () => {
+    // A cell short, the title gives way and the command stays.
+    const full = cellWidth(formatLine(STATE, NOW, 240))
+
+    expect(formatLine(STATE, NOW, full - 1)).toContain(OPEN_CMD)
+
+    // With nothing else left to give, the command is what goes.
+    const bare = normalize({
+      status: 'working',
+      summary: { title: '', lang: 'ko', total: 1, counts: { done: 1 } },
+    })
+    const row = formatLine(bare, NOW, 240)
+    const tight = formatLine(bare, NOW, cellWidth(row) - 1)
+
+    expect(row).toContain(OPEN_CMD)
+    expect(tight).not.toContain(OPEN_CMD)
+    expect(tight).toContain('✅ 1/1')
   })
 
   test('draws the words in English for a state file that says en', () => {
