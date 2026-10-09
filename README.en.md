@@ -26,6 +26,7 @@ When work runs long, a status band appears at the top of the page telling you wh
 - **Hub** — this machine's sessions gathered on one page and sorted by state.
 - **Ten themes and twelve font presets** — pick the theme and the heading font you want.
 - **Four view modes** — switch the same progress between Original, Strip, Timeline, and Tiles.
+- **Three display views** — in Claude Code you can also watch the same progress as a band above the prompt or a line under it, without opening a page.
 
 ![A session page with a status band](docs/live.en.png)
 
@@ -53,6 +54,22 @@ Picking a compact view shows the `Auto`, `Landscape`, and `Portrait` buttons. `A
 The browser draws a view from the data already in the page when you press its button. The model still writes the same data, so the views add no token cost.
 
 ![deadhd view modes](docs/views.en.png)
+
+## Display views
+
+The same progress can be shown three ways. This is a separate setting from the page's view modes, and in Claude Code it is drawn in the terminal without opening a page.
+
+| Display | Where | Layout |
+|---|---|---|
+| `band` | One line above the prompt | Steps done, a progress bar, the step in progress with its elapsed time, and the blocked and left counts. A second row appears when a step is stuck or the session waits, and no browser tab is opened — the lightest of the three (default) |
+| `statusline` | One line under the prompt | More fields than the band: the ticket key and title, the next step, the estimate, the last update, background tasks, and compactions, all on one line |
+| `html` | The browser page | The progress page as before |
+
+Pick one in `/deadhd setup`, or change it for one run with `/deadhd --view <value>`. The value recorded in the session's state file beats the saved setting, so one run with `--view band` keeps that session on the band.
+
+The band and the status line are drawn by the deadhd plugin's mod (`skills/deadhd/hooks/register.tsx`), which reads the same state file the skill writes. They are **Claude Code only**; outside Claude Code (Codex `$deadhd`, say) the skill does not ask and works as `html`. `/deadhd-band` folds or opens the band, `/deadhd-statusline` the status line, and a command that does not match the current view answers in one line with how to switch. The page opens with `/deadhd-open` or the band's `Open` button.
+
+Under `band` and `statusline` the page file is not written straight away. The state summary and the hub are rewritten on every update; the page is written when it is first opened (`/deadhd-open`, the `Open` button) and from then on with every update. A session with no page yet shows its display name (`band`/`status line`) in the hub instead of a link.
 
 ## Lane board
 
@@ -109,6 +126,8 @@ One page that gathers the sessions running on this machine. Open it with `/deadh
 - `python3` (standard library only)
 - Chrome (needed only to regenerate the example images)
 
+The `band` and `statusline` displays are drawn only on Claude Code's plugin mod; elsewhere only `html` is available.
+
 ## Install
 
 ### Install as a plugin
@@ -137,7 +156,7 @@ git clone https://github.com/lcalmsky/deadhd.git
 cp -r deadhd/skills/deadhd ~/.claude/skills/
 ```
 
-Installed this way, the invocation name is `/deadhd`.
+Installed this way, the invocation name is `/deadhd`. Because `skills/deadhd/.claude-plugin/` is copied along, the folder is auto-loaded as the `deadhd@skills-dir` plugin from the next session on, which is what draws the band and the status line. The mod comes without a plugin install; the command hooks that maintain the status band do not. A plugin install uses the same mod through the marketplace entry point.
 
 ## Update
 
@@ -154,18 +173,27 @@ Installed this way, the invocation name is `/deadhd`.
 | `/deadhd` | Opens the progress page in a browser tab (same as `-h`) |
 | `/deadhd -o` | Publishes as an Orca artifact (a web page with a shareable link). Requires an orca CLI login; falls back to a browser tab on failure |
 | `/deadhd -c` | Publishes as a Claude artifact |
-| `/deadhd setup` | Chooses the default open location, theme, and font again |
+| `/deadhd setup` | Chooses the default open location, display, theme, and font again |
 | `/deadhd hub` | Opens the hub page that gathers this machine's sessions |
 | `/deadhd --open <mode>` | Opens in a different location for this run only |
+| `/deadhd --view <display>` | Draws in a different display for this run only |
 | `/deadhd --theme <theme>` | Renders with a different theme for this run only |
 | `/deadhd --font <preset>` | Renders this run with a different heading font |
 | `/deadhd off` | Stops updating the page |
+
+While the band or the status line is showing in Claude Code:
+
+| Input | Behavior |
+|---|---|
+| `/deadhd-band` | Folds or opens the band above the prompt |
+| `/deadhd-statusline` | Folds or opens the status line under the prompt |
+| `/deadhd-open` | Renders the progress page and opens it in a browser |
 
 Instead of a command, you can ask in plain words, e.g. "show progress" or "show me a checklist".
 
 ## Settings
 
-On the first run, it asks once for the open location, the theme, and the font. The chosen values are reused from the next run on.
+On the first run, it asks once for the open location, the display, the theme, and the font. The chosen values are reused from the next run on.
 
 | Value | Behavior |
 |---|---|
@@ -173,6 +201,14 @@ On the first run, it asks once for the open location, the theme, and the font. T
 | `orca` | Opens an Orca tab when the `orca` command is available |
 | `browser` | Skips Orca and opens the system browser |
 | `desktop` | Does not open the page; prints only the path. Press that path in the Claude desktop app to open it in the in-app browser panel. You can press the printed http address instead |
+
+The display uses these values. Outside Claude Code the question is not asked and the display stays `html`.
+
+| Value | Behavior |
+|---|---|
+| `band` | One line above the prompt (recommended) |
+| `statusline` | One line under the prompt |
+| `html` | The browser page |
 
 The theme uses these values.
 

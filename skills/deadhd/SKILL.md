@@ -1,7 +1,7 @@
 ---
 name: deadhd
 description: Show a live checklist page of what this session has done, is doing now, and has left, opened beside the terminal and kept updated while the task runs. Use when the user types /deadhd or $deadhd, or asks "지금 뭐 하고 있어", "진행 상황 띄워줘", "체크리스트로 보여줘", or asks "what are you doing now", "show progress", "show me a checklist".
-argument-hint: "[setup] [hub] [-h|-o|-c] [--open auto|orca|browser|desktop] [--theme system|light|dark|neon|synthwave|matrix|nord|paper|sakura|ink] [--font default|pretendard|noto-sans|plex-sans|gothic-a1|nanum-gothic|noto-serif|nanum-myeongjo|hahmlet|gowun-batang|do-hyeon|black-han-sans] [off]"
+argument-hint: "[setup] [hub] [-h|-o|-c] [--open auto|orca|browser|desktop] [--view html|band|statusline] [--theme system|light|dark|neon|synthwave|matrix|nord|paper|sakura|ink] [--font default|pretendard|noto-sans|plex-sans|gothic-a1|nanum-gothic|noto-serif|nanum-myeongjo|hahmlet|gowun-batang|do-hyeon|black-han-sans] [off]"
 ---
 
 # deadhd
@@ -16,17 +16,38 @@ A status page for the task running in this session. The reader glanced away for 
 
 - `off`: stop updating the page (see Keep it updated). Reply in one line and stop.
 - `hub`: write the hub page with `python3 <skill-dir>/hub.py` and open it with `bash <skill-dir>/open.sh [--mode <mode>] <hub path printed by hub.py>`. Reply with where it opened and stop. Pass `--theme` and `--font` to hub.py as well when this run has them. The hub opens through `open.sh` like a session page, so it uses the same localhost server.
-- `-h` (default): open the page in a browser tab beside the terminal.
+- `-h` (default): open the page in a browser tab beside the terminal. Naming it also opens the page and keeps it updated under a `band` or `statusline` default (see Where it shows).
 - `-o`: publish as an Orca artifact (a shareable web page) with the `orca` CLI. Without it, or when publishing fails, fall back to `-h` and say so.
 - `-c`: publish as a Claude artifact with the `Artifact` tool. Without that tool, fall back to `-h` and say so.
-- `setup`: ask for the default open location and save it (see Setup). After saving, reply in one line and stop.
+- `setup`: ask for the default open location, the display, the theme, and the heading font, and save them (see Setup). After saving, reply in one line and stop.
 - `--open <mode>`: use this mode for this run only, instead of the saved default. Pass it to open.sh as `--mode <mode>`.
+- `--view <value>`: draw in this view for this run only, instead of the saved one. One of `html`, `band`, `statusline`. Pass it to render.py as `--view <value>`.
 - `--theme <theme>`: render with this theme for this run only, instead of the saved one. One of `system`, `light`, `dark`, `neon`, `synthwave`, `matrix`, `nord`, `paper`, `sakura`, `ink`. Pass it to render.py as `--theme <theme>`.
 - `--font <preset>`: render with this heading font preset for this run only, instead of the saved one. One of `default`, `pretendard`, `noto-sans`, `plex-sans`, `gothic-a1`, `nanum-gothic`, `noto-serif`, `nanum-myeongjo`, `hahmlet`, `gowun-batang`, `do-hyeon`, `black-han-sans`. Pass it to render.py as `--font <preset>`.
 
+## Where it shows
+
+`view` decides where the progress is drawn. The saved default comes from Setup; a state file already written for this session wins over it, and with neither the default is `band`.
+
+- `html`: the page, opened in a browser tab. This is the only view outside Claude Code.
+- `band`: a one-line band above the prompt, in Claude Code. Nothing is opened; the page is rendered only when someone asks for it (`/deadhd-open`, the band's `열기` button).
+- `statusline`: a hint line under the prompt, in Claude Code. Same as `band`, with more fields on the line.
+
+`band` and `statusline` are drawn by the deadhd mod, a Claude Code plugin: `skills/deadhd/hooks/register.tsx`, loaded through the plugin's `hooks/hooks.json`. The mod reads the same state file the skill writes and needs no separate step. Where the mod cannot run — Codex (`$deadhd`) or any host that does not load Claude Code plugins — the view is `html`, and Setup does not ask. The test is whether the session names `CLAUDE_CODE_SESSION_ID`; without it, work as the `html` view.
+
+On a `band` or `statusline` view the skill does not call `open.sh`. Reply with one line saying the band (or the status line) is showing and that the page is opened with `/deadhd-open` or the band's `열기` button. A run that names `-h`, `-o`, `-c`, or `--view html` still opens the page and keeps it updated.
+
 ## Setup
 
-Ask once, then save the answers as the defaults. There are three questions: the default open location, the default theme, and the default heading font. Ask with the `AskUserQuestion` tool when it is available, otherwise ask in plain text; when the tool is available, put all three questions in a single call.
+Ask once, then save the answers as the defaults. There are four questions: the default open location, the default display, the default theme, and the default heading font. Ask with the `AskUserQuestion` tool when it is available, otherwise ask in plain text; when the tool is available, put all four questions in a single call (the tool allows at most four).
+
+Display, three choices:
+
+- `band` (recommended): a one-line band above the prompt. Lightest of the three, and no browser tab.
+- `statusline`: a hint line under the prompt, with more fields on the line.
+- `html`: the browser page, as before.
+
+Save it with `python3 <skill-dir>/config.py set view <value>`. Outside Claude Code (no `CLAUDE_CODE_SESSION_ID`) skip this question and leave the view at `html`.
 
 Open location, four choices:
 
@@ -71,9 +92,9 @@ When the user picks `more fonts`, list these in plain text, one line each with i
 - `gowun-batang` — Gowun Batang 700 serif
 - `black-han-sans` — Black Han Sans poster
 
-Save the answers with `python3 <skill-dir>/config.py set open <value>`, `python3 <skill-dir>/config.py set theme <value>`, and `python3 <skill-dir>/config.py set font <value>`. Calling the skill with `setup` asks all three questions again.
+Save the answers with `python3 <skill-dir>/config.py set open <value>`, `python3 <skill-dir>/config.py set view <value>`, `python3 <skill-dir>/config.py set theme <value>`, and `python3 <skill-dir>/config.py set font <value>`. Calling the skill with `setup` asks all four questions again.
 
-- First run: on an ordinary run that is not `-c`, `-o`, `--open`, `off`, or `setup`, run `python3 <skill-dir>/config.py get open`, `python3 <skill-dir>/config.py get theme`, and `python3 <skill-dir>/config.py get font` first. Ask only for the ones that print `unset`, save them, then continue the original work.
+- First run: on an ordinary run that is not `-c`, `-o`, `--open`, `off`, or `setup`, run `python3 <skill-dir>/config.py get open`, `python3 <skill-dir>/config.py get view`, `python3 <skill-dir>/config.py get theme`, and `python3 <skill-dir>/config.py get font` first. Ask only for the ones that print `unset`, save them, then continue the original work. The display question is skipped outside Claude Code, as above.
 
 ## Gather the facts
 
@@ -167,14 +188,18 @@ Writing rules for all text in the data:
 ## Render
 
 ```bash
-python3 <skill-dir>/render.py [--theme system|light|dark|neon|synthwave|matrix|nord|paper|sakura|ink] [--font <preset>] /tmp/deadhd-<slug>.json /tmp/deadhd-<slug>.html
+python3 <skill-dir>/render.py [--view html|band|statusline] [--page] [--theme system|light|dark|neon|synthwave|matrix|nord|paper|sakura|ink] [--font <preset>] /tmp/deadhd-<slug>.json /tmp/deadhd-<slug>.html
 ```
 
-It applies the saved theme and the saved font preset, and the `--theme` and `--font` values instead when this run has one. It validates the data and exits 1 with the reason when a field is wrong; fix the JSON and rerun. Reuse the same two paths for the rest of this conversation. Never edit the HTML by hand.
+It applies the saved view, theme, and font preset, and the `--view`, `--theme`, and `--font` values instead when this run has one. It validates the data and exits 1 with the reason when a field is wrong; fix the JSON and rerun. Reuse the same two paths for the rest of this conversation. Never edit the HTML by hand.
+
+The `view` is written into the session's state file, and the mod draws whichever view it reads there. Under a `band` or `statusline` view render.py still refreshes the state summary and the hub, but leaves the HTML file alone until the page is opened once: `--page` writes it and records that, and every render after that writes it too. So run it after every change to the JSON exactly as before; only the HTML file is deferred.
 
 ## Deliver
 
 On the first render only:
+
+- Under a `band` or `statusline` view with none of `-h`, `-o`, `-c`, or `--view html`, skip this section entirely and reply as Where it shows says.
 
 - For `-o`, run `bash <skill-dir>/share.sh /tmp/deadhd-<slug>.html`. On `shared: <url>`, give the user the URL. On `fallback: browser`, run the `-h` step instead and say that publishing failed, with the `skip:` reason.
 
@@ -187,6 +212,8 @@ After the first render, update the JSON and rerun `render.py` whenever an item c
 
 The plugin's hooks (`hooks/hooks.json`) keep a status band on the page fresh on their own: waiting for permission, waiting for input, last tool, background tasks, compactions. `render.py` links the page to this session through `CLAUDE_CODE_SESSION_ID`; nothing to do for that. After a context compaction the session-start hook tells you the data file path; keep using it. Without the plugin's hooks (skill-folder or Orca installs) no status band is shown and the hub lists the session as `untracked` or `done`; the README shows how to add the hooks to `~/.claude/settings.json`.
 
+Under a `band` or `statusline` view the mod draws from the same state file, so the renders above are what keeps the band fresh. Nothing else to do for it.
+
 Every render also rewrites the hub page (`/tmp/deadhd-hub.html`), which lists this machine's sessions; the page's `허브 ↗` button opens it.
 
 - The open tab reloads itself every 15 seconds and plays the completion effect on items that became `done`.
@@ -198,4 +225,4 @@ Every render also rewrites the hub page (`/tmp/deadhd-hub.html`), which lists th
 
 ## Reply
 
-First render: where the page is, plus any fallback line. Do not paste the HTML or the JSON.
+First render: where the page is, plus any fallback line — or, under a `band` or `statusline` view, the one line Where it shows describes. Do not paste the HTML or the JSON.
