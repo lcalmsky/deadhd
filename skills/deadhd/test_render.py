@@ -43,7 +43,8 @@ THEME_TOKENS = (
 )
 
 
-def run_render(data_path, out_path, theme=None, config_path=None, env_extra=None, session=None):
+def run_render(data_path, out_path, theme=None, config_path=None, env_extra=None, session=None,
+               view=None, page=False):
     env = dict(os.environ)
     env['DEADHD_CONFIG'] = config_path if config_path is not None else MISSING_CONFIG
     # 세션·이력·상태가 이 테스트를 실행한 세션에서 새어 들어오지 않게 한다.
@@ -55,6 +56,10 @@ def run_render(data_path, out_path, theme=None, config_path=None, env_extra=None
     cmd = [sys.executable, RENDER]
     if theme is not None:
         cmd += ['--theme', theme]
+    if view is not None:
+        cmd += ['--view', view]
+    if page:
+        cmd += ['--page']
     if session is not None:
         cmd += ['--session', session]
     cmd += [data_path, out_path]
@@ -2456,6 +2461,23 @@ class ConfigScriptTest(unittest.TestCase):
         self.assertIn('nope', r.stderr)
         self.assertFalse(os.path.exists(self.path))
 
+    def test_view_get_reports_unset_when_file_missing(self):
+        r = self.run_config('get', 'view')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), 'unset')
+
+    def test_view_set_then_get_returns_value(self):
+        self.assertEqual(self.run_config('set', 'view', 'statusline').returncode, 0)
+        self.assertEqual(self.run_config('get', 'view').stdout.strip(), 'statusline')
+
+    def test_view_set_invalid_value_exits_2(self):
+        self.assertEqual(self.run_config('set', 'view', 'paper').returncode, 2)
+
+    def test_view_set_preserves_open_value(self):
+        self.assertEqual(self.run_config('set', 'open', 'desktop').returncode, 0)
+        self.assertEqual(self.run_config('set', 'view', 'band').returncode, 0)
+        self.assertEqual(self.run_config('get', 'open').stdout.strip(), 'desktop')
+
     def test_unknown_key_exits_2(self):
         self.assertEqual(self.run_config('get', 'nope').returncode, 2)
         self.assertEqual(self.run_config('set', 'nope', 'dark').returncode, 2)
@@ -2585,10 +2607,10 @@ class StateScriptTest(unittest.TestCase):
                        env_extra={'DEADHD_STATE_DIR': self.state_dir})
         self.assertEqual(r.returncode, 0, r.stderr)
 
-    def event(self, payload, raw=None, session='s1'):
+    def event(self, payload, raw=None, session='s1', env_extra=None):
         if raw is None:
             payload = dict(payload, session_id=session)
-        return run_state(payload, self.state_dir, raw=raw)
+        return run_state(payload, self.state_dir, raw=raw, env_extra=env_extra)
 
     def read_state(self, session='s1'):
         with open(os.path.join(self.state_dir, session + '.json'), encoding='utf-8') as f:
@@ -2597,6 +2619,39 @@ class StateScriptTest(unittest.TestCase):
     def out_payload(self):
         with open(self.out, encoding='utf-8') as f:
             return parse_block(data_block(f.read()))
+
+    def seed_session(self, **extra):
+        state = {
+            'hooked': True, 'status': 'idle', 'data': self.data, 'out': self.out,
+            'summary': {'title': '옛 제목', 'lang': 'ko', 'counts': {'done': 0}, 'total': 0},
+        }
+        state.update(extra)
+        with open(os.path.join(self.state_dir, 's1.json'), 'w', encoding='utf-8') as f:
+            json.dump(state, f, ensure_ascii=False)
+
+    def band_config(self):
+        path = os.path.join(self.tmp, 'config.json')
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump({'view': 'band'}, f)
+        return path
+
+    def test_refresh_follows_the_lazy_page_rule(self):
+        """기본 view 가 band 면 훅의 재렌더도 페이지를 새로 쓰지 않고 요약만 갱신한다."""
+        self.seed_session()
+        r = self.event({'hook_event_name': 'UserPromptSubmit', 'prompt': 'hi'},
+                       env_extra={'DEADHD_CONFIG': self.band_config()})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(os.path.exists(self.out))
+        state = self.read_state()
+        self.assertEqual(state['summary']['title'], load_example()['title'])
+        self.assertEqual(state['view'], 'band')
+
+    def test_refresh_writes_the_page_once_it_was_opened(self):
+        self.seed_session(pageOpened=True)
+        r = self.event({'hook_event_name': 'UserPromptSubmit', 'prompt': 'hi'},
+                       env_extra={'DEADHD_CONFIG': self.band_config()})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(os.path.exists(self.out))
 
     def test_missing_state_file_writes_nothing(self):
         r = self.event({'hook_event_name': 'Notification', 'notification_type': 'permission_prompt',
@@ -2724,10 +2779,18 @@ class HubTest(unittest.TestCase):
         self.hub = os.path.join(self.tmp, 'hub.html')
 
     def write_state(self, session, status, since, updated, lang='ko', out=None,
-                    hooked=True, all_done=False):
+                    hooked=True, all_done=False, view=None, page=None):
+        path = out or os.path.join(self.tmp, session + '.html')
+        # 페이지 링크는 파일이 실제로 있을 때만 걸린다. page=False 는 아직 쓰지 않은 세션이다.
+        if page is None:
+            page = True
+        if page:
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write('<html></html>')
         state = {
             'sessionId': session,
-            'out': out or os.path.join(self.tmp, session + '.html'),
+            'out': path,
+            'view': view,
             'status': status,
             'since': since,
             'updatedAt': updated,
@@ -2794,6 +2857,22 @@ class HubTest(unittest.TestCase):
         self.write_state('a', 'idle', '2026-10-03T09:50:00+09:00', FIXED_NOW, out=out)
         self.assertEqual(self.sessions(env_extra={'DEADHD_PORT': str(free_port())})[0]['href'],
                          'file://' + out)
+
+    def test_session_without_a_page_has_no_link_and_names_its_view(self):
+        self.write_state('a', 'working', '2026-10-03T09:30:00+09:00', FIXED_NOW, view='band', page=False)
+        sessions = self.sessions()
+        self.assertIsNone(sessions[0]['href'])
+        self.assertEqual(sessions[0]['view'], 'band')
+
+    def test_session_with_a_page_keeps_its_link_and_names_no_view(self):
+        self.write_state('a', 'working', '2026-10-03T09:30:00+09:00', FIXED_NOW, view='band')
+        sessions = self.sessions()
+        self.assertEqual(sessions[0]['href'], 'file://' + os.path.join(self.tmp, 'a.html'))
+        self.assertIsNone(sessions[0]['view'])
+
+    def test_a_view_outside_the_lines_names_nothing(self):
+        self.write_state('a', 'working', '2026-10-03T09:30:00+09:00', FIXED_NOW, view='html', page=False)
+        self.assertIsNone(self.sessions()[0]['view'])
 
     def test_recently_moved_tool_is_stalled(self):
         self.write_state('a', 'working', '2026-10-03T09:00:00+09:00', FIXED_NOW)
@@ -2881,10 +2960,16 @@ class HubPageTest(unittest.TestCase):
         self.hub = os.path.join(self.tmp, 'hub.html')
 
     def write_state(self, session, status, since, title, lang='ko', tool_at=None,
-                    key_href='https://x.test/SHOP-1', hooked=True, all_done=False):
+                    key_href='https://x.test/SHOP-1', hooked=True, all_done=False,
+                    view=None, page=True):
+        path = os.path.join(self.tmp, session + '.html')
+        if page:
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write('<html></html>')
         state = {
             'sessionId': session,
-            'out': os.path.join(self.tmp, session + '.html'),
+            'out': path,
+            'view': view,
             'status': status,
             'since': since,
             'updatedAt': FIXED_NOW,
@@ -2916,6 +3001,20 @@ class HubPageTest(unittest.TestCase):
 
     def texts(self, node, cls):
         return [n['text'] for n in iter_nodes(node) if cls in (n.get('cls') or '').split()]
+
+    def test_tile_without_a_page_names_the_view_and_has_no_link(self):
+        self.write_state('w', 'waiting_permission', '2026-10-03T09:48:00+09:00', '밴드 세션',
+                         view='band', page=False)
+        tile = self.tiles(self.dom(), 'waitGrid')[0]
+        self.assertIsNone(tile.get('href'))
+        self.assertEqual(self.texts(tile, 'tile-view'), ['밴드'])
+
+    def test_tile_with_a_page_names_no_view(self):
+        self.write_state('w', 'waiting_permission', '2026-10-03T09:48:00+09:00', '페이지 세션',
+                         view='band')
+        tile = self.tiles(self.dom(), 'waitGrid')[0]
+        self.assertEqual(tile['href'], 'file://' + os.path.join(self.tmp, 'w.html'))
+        self.assertEqual(self.texts(tile, 'tile-view'), [])
 
     def test_wait_tile_shows_badge_and_eta(self):
         self.write_state('w', 'waiting_permission', '2026-10-03T09:48:00+09:00', '상담 봇 검색 근거 등급 도입')
@@ -3188,6 +3287,99 @@ class RenderSessionTest(unittest.TestCase):
                 self.assertIn('세션 id', r.stderr)
                 self.assertFalse(os.path.exists(os.path.join(self.tmp, 'esc.json')))
                 self.assertFalse(os.path.exists(self.out))
+
+
+class RenderViewTest(unittest.TestCase):
+    """render.py 가 view 를 상태 파일에 남기고 페이지 쓰기를 미루는지 확인한다."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='progress-view-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.state_dir = os.path.join(self.tmp, 'state')
+        self.data = os.path.join(self.tmp, 'data.json')
+        with open(self.data, 'w', encoding='utf-8') as f:
+            json.dump(load_example(), f, ensure_ascii=False)
+        self.out = os.path.join(self.tmp, 'out.html')
+
+    def render(self, view=None, page=False, config=None, session='abc'):
+        config_path = MISSING_CONFIG
+        if config is not None:
+            config_path = os.path.join(self.tmp, 'config.json')
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f)
+        return run_render(self.data, self.out, config_path=config_path, session=session,
+                          env_extra={'DEADHD_STATE_DIR': self.state_dir}, view=view, page=page)
+
+    def read_state(self, session='abc'):
+        with open(os.path.join(self.state_dir, session + '.json'), encoding='utf-8') as f:
+            return json.load(f)
+
+    def test_view_flag_is_recorded_in_the_state(self):
+        self.assertEqual(self.render(view='statusline').returncode, 0)
+        self.assertEqual(self.read_state()['view'], 'statusline')
+
+    def test_view_flag_beats_the_saved_view(self):
+        r = self.render(view='band', config={'view': 'statusline'})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.read_state()['view'], 'band')
+
+    def test_saved_view_applies_without_a_flag(self):
+        r = self.render(config={'view': 'statusline'})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.read_state()['view'], 'statusline')
+
+    def test_html_view_without_a_flag_still_writes_the_page(self):
+        r = self.render()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.read_state()['view'], 'html')
+        self.assertTrue(os.path.exists(self.out))
+        self.assertEqual(r.stdout.strip(), 'rendered: ' + self.out)
+
+    def test_band_view_writes_no_page_and_refreshes_the_summary(self):
+        r = self.render(view='band')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(os.path.exists(self.out))
+        self.assertTrue(r.stdout.strip().startswith('skipped: view band'))
+        state = self.read_state()
+        self.assertEqual(state['view'], 'band')
+        self.assertEqual(state['summary']['title'], load_example()['title'])
+        self.assertEqual(state['data'], os.path.abspath(self.data))
+        self.assertEqual(state['out'], os.path.abspath(self.out))
+
+    def test_page_flag_writes_the_page_and_records_it(self):
+        r = self.render(view='band', page=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), 'rendered: ' + self.out)
+        self.assertTrue(os.path.exists(self.out))
+        self.assertTrue(self.read_state()['pageOpened'])
+
+    def test_a_page_keeps_being_written_after_it_was_opened(self):
+        self.assertEqual(self.render(view='band', page=True).returncode, 0)
+        os.unlink(self.out)
+        self.assertEqual(self.render(view='band').returncode, 0)
+        self.assertTrue(os.path.exists(self.out))
+
+    def test_invalid_view_exits_1(self):
+        r = self.render(view='paper')
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('view', r.stderr)
+
+    def test_empty_view_value_exits_1(self):
+        r = run_render(self.data, self.out, view='')
+        self.assertEqual(r.returncode, 1)
+        self.assertFalse(os.path.exists(self.out))
+
+    def test_without_a_session_the_page_is_always_written(self):
+        r = run_render(self.data, self.out, config_path=MISSING_CONFIG, view='band')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(os.path.exists(self.out))
+
+    def test_band_view_deferred_page_does_not_touch_an_existing_page(self):
+        with open(self.out, 'w', encoding='utf-8') as f:
+            f.write('<html>hand kept</html>')
+        self.assertEqual(self.render(view='band').returncode, 0)
+        with open(self.out, encoding='utf-8') as f:
+            self.assertEqual(f.read(), '<html>hand kept</html>')
 
 
 class CalibrationTest(unittest.TestCase):
@@ -3558,6 +3750,32 @@ class HooksJsonTest(unittest.TestCase):
                         self.assertIn('${CLAUDE_PLUGIN_ROOT}/', hook['command'])
                         rel = hook['command'].split('${CLAUDE_PLUGIN_ROOT}/')[1].rstrip('"')
                         self.assertTrue(os.path.exists(os.path.join(root, rel)), rel)
+
+    def test_root_manifest_names_the_hooks_module_and_its_types(self):
+        root = os.path.dirname(os.path.dirname(HERE))
+        with open(os.path.join(root, 'hooks', 'hooks.json'), encoding='utf-8') as f:
+            modules = json.load(f)['modules']
+        self.assertEqual(modules, ['../skills/deadhd/hooks/register.tsx'])
+        self.assertTrue(os.path.exists(os.path.join(root, 'hooks', modules[0])))
+        with open(os.path.join(root, '.claude-plugin', 'plugin.json'), encoding='utf-8') as f:
+            manifest = json.load(f)
+        self.assertEqual(manifest['types'], './skills/deadhd/types/index.d.ts')
+        self.assertTrue(os.path.exists(os.path.join(root, manifest['types'])))
+
+    def test_skill_folder_manifest_and_hooks_match(self):
+        """스킬 폴더만 설치한 사람에게도 mod 가 붙는다. 두 진입점은 같은 버전을 쓴다."""
+        root = os.path.dirname(os.path.dirname(HERE))
+        with open(os.path.join(root, '.claude-plugin', 'plugin.json'), encoding='utf-8') as f:
+            parent = json.load(f)
+        with open(os.path.join(HERE, '.claude-plugin', 'plugin.json'), encoding='utf-8') as f:
+            nested = json.load(f)
+        self.assertEqual(nested['name'], parent['name'])
+        self.assertEqual(nested['version'], parent['version'])
+        self.assertEqual(nested['types'], './types/index.d.ts')
+        with open(os.path.join(HERE, 'hooks', 'hooks.json'), encoding='utf-8') as f:
+            hooks = json.load(f)
+        self.assertEqual(hooks, {'modules': ['./register.tsx']})
+        self.assertTrue(os.path.exists(os.path.join(HERE, 'hooks', 'register.tsx')))
 
 
 BOARD_STAGES = ['분석', '설계', '구현', '검증']

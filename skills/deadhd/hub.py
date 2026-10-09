@@ -96,13 +96,18 @@ def collect(state_dir):
             continue
         out = data.get('out')
         out = out if isinstance(out, str) and os.path.isabs(out) else None
+        # 아직 페이지를 쓰지 않은 세션에는 링크를 걸지 않는다. 깨진 링크가 되기 때문이다.
+        href = page_href(out) if out and os.path.exists(out) else None
+        view = data.get('view')
+        view = view if href is None and view in ('band', 'statusline') else None
         tasks = data.get('backgroundTasks')
         compactions = data.get('compactions')
         tool = data.get('lastTool')
         sessions.append({
             'sessionId': data.get('sessionId') if isinstance(data.get('sessionId'), str) else name[:-5],
             'out': out,
-            'href': page_href(out),
+            'href': href,
+            'view': view,
             'status': data.get('status') if isinstance(data.get('status'), str) else None,
             'since': data.get('since') if isinstance(data.get('since'), str) else None,
             'message': data.get('message') if isinstance(data.get('message'), str) else None,

@@ -7,6 +7,7 @@ import tempfile
 
 ALLOWED = {
     'open': ('auto', 'orca', 'browser', 'desktop'),
+    'view': ('html', 'band', 'statusline'),
     'theme': ('system', 'light', 'dark', 'neon', 'synthwave', 'matrix', 'nord', 'paper', 'sakura', 'ink'),
     'font': ('default', 'pretendard', 'noto-sans', 'plex-sans', 'gothic-a1', 'nanum-gothic', 'noto-serif', 'nanum-myeongjo', 'hahmlet', 'gowun-batang', 'do-hyeon', 'black-han-sans'),
 }

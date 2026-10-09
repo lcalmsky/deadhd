@@ -76,6 +76,10 @@ h1 {
 }
 .tile-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; }
 .tile-upd { margin-left: auto; color: var(--ink-3); white-space: nowrap; }
+.tile-view {
+  padding: 1px 6px; border-radius: 6px; border: 1px solid var(--card-line);
+  color: var(--ink-3); white-space: nowrap;
+}
 .badge {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 2px 10px 2px 8px; border-radius: 999px; font-weight: 600;
@@ -233,7 +237,9 @@ details summary {
       dayHour: (d, r) => d + '일 ' + r + '시간',
       forDur: d => d + '째',
       ago: d => d + ' 전',
-      sec: s => s + '초'
+      sec: s => s + '초',
+      viewBand: '밴드',
+      viewStatusline: '상태줄'
     },
     en: {
       eyebrow: 'deadhd hub',
@@ -274,7 +280,9 @@ details summary {
       dayHour: (d, r) => d + 'd ' + r + 'h',
       forDur: d => 'for ' + d,
       ago: d => d + ' ago',
-      sec: s => s + 's'
+      sec: s => s + 's',
+      viewBand: 'band',
+      viewStatusline: 'status line'
     }
   };
 
@@ -363,6 +371,11 @@ details summary {
 
     const top = el('div', 'tile-top');
     top.appendChild(badgeEl(session));
+    // 페이지를 아직 쓰지 않은 세션은 링크가 없으므로 표시 방식 이름으로 어디에 있는지 알린다.
+    if (session.view) {
+      top.appendChild(el('span', 'tile-view mono',
+        session.view === 'band' ? L.viewBand : L.viewStatusline));
+    }
     if (session.updatedAt) {
       top.appendChild(el('span', 'tile-upd mono', L.updated(fmtClock(toDate(session.updatedAt), viewNow))));
     }

@@ -32,8 +32,10 @@ import state
 
 THEMES = config.ALLOWED['theme']
 FONTS = config.ALLOWED['font']
-USAGE = '사용법: render.py [--theme %s] [--font %s] [--session <id>] <data.json> <out.html>' % (
-    '|'.join(THEMES), '|'.join(FONTS))
+VIEWS = config.ALLOWED['view']
+DEFAULT_VIEW = 'html'
+USAGE = ('사용법: render.py [--theme %s] [--font %s] [--view %s] [--page] [--session <id>] '
+         '<data.json> <out.html>') % ('|'.join(THEMES), '|'.join(FONTS), '|'.join(VIEWS))
 
 
 def die(msg):
@@ -608,10 +610,18 @@ def preserved_title(out_path):
 def main(argv):
     theme = None
     font = None
+    view = None
+    page = False
     session = None
     rest = argv[1:]
-    while rest[:1] in (['--theme'], ['--font'], ['--session']):
+    while rest[:1] in (['--theme'], ['--font'], ['--view'], ['--page'], ['--session']):
         flag = rest[0]
+        if flag == '--page':
+            if page:
+                die(USAGE)
+            page = True
+            rest = rest[1:]
+            continue
         if len(rest) < 2:
             die(USAGE)
         if flag == '--theme':
@@ -622,6 +632,10 @@ def main(argv):
             if font is not None:
                 die(USAGE)
             font = rest[1]
+        elif flag == '--view':
+            if view is not None:
+                die(USAGE)
+            view = rest[1]
         else:
             if session is not None:
                 die(USAGE)
@@ -631,12 +645,16 @@ def main(argv):
         die('알 수 없는 테마: %s (%s 중 하나)' % (theme, '/'.join(THEMES)))
     if font is not None and font not in FONTS:
         die('알 수 없는 글꼴: %s (%s 중 하나)' % (font, '/'.join(FONTS)))
+    if view is not None and view not in VIEWS:
+        die('알 수 없는 view: %s (%s 중 하나)' % (view, '/'.join(VIEWS)))
     if len(rest) != 2:
         die(USAGE)
     if theme is None:
         theme = config.get_value('theme') or 'system'
     if font is None:
         font = config.get_value('font') or 'default'
+    if view is None:
+        view = config.get_value('view') or DEFAULT_VIEW
     if session is None:
         session = os.environ.get('CLAUDE_CODE_SESSION_ID') or None
     if session is not None and not state.valid_session_id(session):
@@ -651,41 +669,7 @@ def main(argv):
 
     validate(data)
 
-    try:
-        with open(TEMPLATE, encoding='utf-8') as f:
-            tpl = f.read()
-    except OSError as e:
-        die('템플릿을 읽지 못했다: %s' % e)
-
     lang = data.get('lang') if data.get('lang') in LANGS else 'ko'
-    if tpl.count(HTML_OPEN) != 1:
-        die('템플릿에 %s 가 정확히 하나 있지 않다' % HTML_OPEN)
-    html_open = '<html lang="%s"' % lang
-    if theme != 'system':
-        html_open += ' data-theme="%s"' % theme
-    if font != 'default':
-        html_open += ' data-font="%s"' % font
-    html_open += '>'
-    tpl = tpl.replace(HTML_OPEN, html_open)
-
-    if tpl.count('__THEME_CSS__') != 1:
-        die('템플릿에 __THEME_CSS__ 가 정확히 하나 있지 않다')
-    try:
-        css = theme_css()
-    except OSError as e:
-        die('테마 CSS 를 읽지 못했다: %s' % e)
-    tpl = tpl.replace('__THEME_CSS__', css)
-
-    key = data.get('key')
-    has_key = isinstance(key, str) and bool(key)
-    if lang == 'en':
-        title = escape((key + ' Progress') if has_key else 'Progress')
-    else:
-        title = escape((key + ' 진행 상황') if has_key else '진행 상황')
-    prev_title = preserved_title(out_path)
-    if prev_title is not None:
-        title = prev_title
-
     now = current_time()
     now_text = now.isoformat(timespec='seconds')
     # 예상 시각의 기준은 렌더 시각이 아니라 데이터가 마지막으로 쓰인 시각이다.
@@ -715,7 +699,15 @@ def main(argv):
         session_state.setdefault('lastTool', None)
         session_state.setdefault('backgroundTasks', [])
         session_state.setdefault('compactions', {'count': 0, 'lastAt': None})
+        session_state['view'] = view
         calibrate(session_state, items, session, now_text)
+
+    # view 가 html 이 아니면 상태 요약만 갱신하고 HTML 은 쓰지 않는다. --page 로 한 번
+    # 열거나 view 가 html 인 세션은 이후에도 계속 쓴다. 세션 id 가 없으면 어느 세션인지
+    # 알 수 없어 예전처럼 항상 쓴다.
+    write_page = page or view == 'html' or session_state is None or bool(session_state.get('pageOpened'))
+    if page and session_state is not None:
+        session_state['pageOpened'] = True
 
     factor = calibration(read_history(history_path()))
     if factor is not None and total_minutes is not None:
@@ -740,21 +732,57 @@ def main(argv):
     except Exception:
         pass
 
-    out = tpl.replace('__PROGRESS_TITLE__', title).replace('__PROGRESS_DATA__', script_json(payload_data))
-
-    out_dir = os.path.dirname(os.path.abspath(out_path))
-    os.makedirs(out_dir, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=out_dir, prefix='.progress-', suffix='.html')
-    try:
-        with os.fdopen(fd, 'w', encoding='utf-8') as f:
-            f.write(out)
-        os.replace(tmp, out_path)
-    except BaseException:
+    if write_page:
         try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+            with open(TEMPLATE, encoding='utf-8') as f:
+                tpl = f.read()
+        except OSError as e:
+            die('템플릿을 읽지 못했다: %s' % e)
+
+        if tpl.count(HTML_OPEN) != 1:
+            die('템플릿에 %s 가 정확히 하나 있지 않다' % HTML_OPEN)
+        html_open = '<html lang="%s"' % lang
+        if theme != 'system':
+            html_open += ' data-theme="%s"' % theme
+        if font != 'default':
+            html_open += ' data-font="%s"' % font
+        html_open += '>'
+        tpl = tpl.replace(HTML_OPEN, html_open)
+
+        if tpl.count('__THEME_CSS__') != 1:
+            die('템플릿에 __THEME_CSS__ 가 정확히 하나 있지 않다')
+        try:
+            css = theme_css()
+        except OSError as e:
+            die('테마 CSS 를 읽지 못했다: %s' % e)
+        tpl = tpl.replace('__THEME_CSS__', css)
+
+        key = data.get('key')
+        has_key = isinstance(key, str) and bool(key)
+        if lang == 'en':
+            title = escape((key + ' Progress') if has_key else 'Progress')
+        else:
+            title = escape((key + ' 진행 상황') if has_key else '진행 상황')
+        prev_title = preserved_title(out_path)
+        if prev_title is not None:
+            title = prev_title
+
+        out = tpl.replace('__PROGRESS_TITLE__', title).replace(
+            '__PROGRESS_DATA__', script_json(payload_data))
+
+        out_dir = os.path.dirname(os.path.abspath(out_path))
+        os.makedirs(out_dir, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=out_dir, prefix='.progress-', suffix='.html')
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                f.write(out)
+            os.replace(tmp, out_path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
 
     if session_state is not None:
         # 상태 파일을 못 써도 페이지는 이미 나왔다.
@@ -771,7 +799,10 @@ def main(argv):
         except Exception:
             pass
 
-    print('rendered: ' + out_path)
+    if write_page:
+        print('rendered: ' + out_path)
+    else:
+        print('skipped: view %s, HTML 페이지를 아직 열지 않았다' % view)
 
 
 if __name__ == '__main__':
