@@ -21,21 +21,21 @@ A status page for the task running in this session. The reader glanced away for 
 - `-c`: publish as a Claude artifact with the `Artifact` tool. Without that tool, fall back to `-h` and say so.
 - `setup`: ask for the default open location, the display, the theme, and the heading font, and save them (see Setup). After saving, reply in one line and stop.
 - `--open <mode>`: use this mode for this run only, instead of the saved default. Pass it to open.sh as `--mode <mode>`.
-- `--view <value>`: draw in this view for this run only, instead of the saved one. One of `html`, `band`, `statusline`. Pass it to render.py as `--view <value>`.
+- `--view <value>`: draw in this view and record it as this session's view, instead of the one the state file or the saved default has. One of `html`, `band`, `statusline`. Pass it to render.py as `--view <value>`. The session keeps it until another `--view` changes it.
 - `--theme <theme>`: render with this theme for this run only, instead of the saved one. One of `system`, `light`, `dark`, `neon`, `synthwave`, `matrix`, `nord`, `paper`, `sakura`, `ink`. Pass it to render.py as `--theme <theme>`.
 - `--font <preset>`: render with this heading font preset for this run only, instead of the saved one. One of `default`, `pretendard`, `noto-sans`, `plex-sans`, `gothic-a1`, `nanum-gothic`, `noto-serif`, `nanum-myeongjo`, `hahmlet`, `gowun-batang`, `do-hyeon`, `black-han-sans`. Pass it to render.py as `--font <preset>`.
 
 ## Where it shows
 
-`view` decides where the progress is drawn. The saved default comes from Setup; a state file already written for this session wins over it, and with neither the default is `band`.
+`view` decides where the progress is drawn. It is the first of these that exists: the `--view` value on this run, the view the state file already records for this session, the Setup default, and `html` when there is none. `render.py` writes the choice into the state file, and the mod draws the view it reads there (the state file's, else the Setup default, else `html`), so a render without `--view` — the hooks' own re-render, the mod's `--page` — keeps this session's view instead of falling back to the default.
 
 - `html`: the page, opened in a browser tab. This is the only view outside Claude Code.
 - `band`: a one-line band above the prompt, in Claude Code. Nothing is opened; the page is rendered only when someone asks for it (`/deadhd-open`, the band's `열기` button).
 - `statusline`: a hint line under the prompt, in Claude Code. Same as `band`, with more fields on the line.
 
-`band` and `statusline` are drawn by the deadhd mod, a Claude Code plugin: `skills/deadhd/hooks/register.tsx`, loaded through the plugin's `hooks/hooks.json`. The mod reads the same state file the skill writes and needs no separate step. Where the mod cannot run — Codex (`$deadhd`) or any host that does not load Claude Code plugins — the view is `html`, and Setup does not ask. The test is whether the session names `CLAUDE_CODE_SESSION_ID`; without it, work as the `html` view.
+`band` and `statusline` are drawn by the deadhd mod, a Claude Code plugin: `skills/deadhd/hooks/register.tsx`, loaded through the plugin's `hooks/hooks.json`. The mod reads the same state file the skill writes and needs no separate step. The view is `html` where the mod cannot run: Codex (`$deadhd`), any host that does not load Claude Code plugins, and surfaces that draw no band or hint line even inside Claude Code — the VS Code extension and `claude -p` name `CLAUDE_CODE_SESSION_ID` and still show nothing. Work as the `html` view there, and do not ask the display question outside Claude Code.
 
-On a `band` or `statusline` view the skill does not call `open.sh`. Reply with one line saying the band (or the status line) is showing and that the page is opened with `/deadhd-open` or the band's `열기` button. A run that names `-h`, `-o`, `-c`, or `--view html` still opens the page and keeps it updated.
+On a `band` or `statusline` view the skill does not call `open.sh`. Reply with one line saying the band (or the status line) is showing and that the page is opened with `/deadhd-open` or the band's `열기` button. A run that names `-h`, `-o`, `-c`, or `--view html` still opens the page and keeps it updated: on the first render pass `--page` to `render.py` so the HTML file exists (the view itself stays), then open or publish it as Deliver says. `--view html` also changes this session's view to `html` from then on.
 
 ## Setup
 
@@ -47,7 +47,7 @@ Display, three choices:
 - `statusline`: a hint line under the prompt, with more fields on the line.
 - `html`: the browser page, as before.
 
-Save it with `python3 <skill-dir>/config.py set view <value>`. Outside Claude Code (no `CLAUDE_CODE_SESSION_ID`) skip this question and leave the view at `html`.
+Save it with `python3 <skill-dir>/config.py set view <value>`. Outside Claude Code (no `CLAUDE_CODE_SESSION_ID`) skip this question and leave the view at `html`, which is also what a session with no saved view and no state file draws.
 
 Open location, four choices:
 
@@ -191,15 +191,17 @@ Writing rules for all text in the data:
 python3 <skill-dir>/render.py [--view html|band|statusline] [--page] [--theme system|light|dark|neon|synthwave|matrix|nord|paper|sakura|ink] [--font <preset>] /tmp/deadhd-<slug>.json /tmp/deadhd-<slug>.html
 ```
 
-It applies the saved view, theme, and font preset, and the `--view`, `--theme`, and `--font` values instead when this run has one. It validates the data and exits 1 with the reason when a field is wrong; fix the JSON and rerun. Reuse the same two paths for the rest of this conversation. Never edit the HTML by hand.
+It applies the saved theme and font preset, and the `--theme` and `--font` values instead when this run has one. The view is the first of these that exists: `--view`, the view the state file records for this session, the saved one, and `html`. It validates the data and exits 1 with the reason when a field is wrong; fix the JSON and rerun. Reuse the same two paths for the rest of this conversation. Never edit the HTML by hand.
 
-The `view` is written into the session's state file, and the mod draws whichever view it reads there. Under a `band` or `statusline` view render.py still refreshes the state summary and the hub, but leaves the HTML file alone until the page is opened once: `--page` writes it and records that, and every render after that writes it too. So run it after every change to the JSON exactly as before; only the HTML file is deferred.
+The `view` is written into the session's state file, and the mod draws whichever view it reads there. Under a `band` or `statusline` view render.py still refreshes the state summary and the hub, but leaves the HTML file alone until the page is opened once: `--page` writes it and records that, and every render after that writes it too. So run it after every change to the JSON exactly as before; only the HTML file is deferred. A render without `--view` keeps this session's view, so the flags the hooks and the mod pass never move a `band` or `statusline` session back to the default.
 
 ## Deliver
 
 On the first render only:
 
 - Under a `band` or `statusline` view with none of `-h`, `-o`, `-c`, or `--view html`, skip this section entirely and reply as Where it shows says.
+
+- Under a `band` or `statusline` view with any of `-h`, `-o`, or `-c`, the first render must have carried `--page` so the HTML file exists; `open.sh` exits 2 on a file that is not there, and `share.sh` and the `Artifact` tool need one too. The flag only writes the file — the view stays `band` or `statusline` and the band keeps updating from the same renders.
 
 - For `-o`, run `bash <skill-dir>/share.sh /tmp/deadhd-<slug>.html`. On `shared: <url>`, give the user the URL. On `fallback: browser`, run the `-h` step instead and say that publishing failed, with the `skip:` reason.
 
@@ -225,4 +227,4 @@ Every render also rewrites the hub page (`/tmp/deadhd-hub.html`), which lists th
 
 ## Reply
 
-First render: where the page is, plus any fallback line — or, under a `band` or `statusline` view, the one line Where it shows describes. Do not paste the HTML or the JSON.
+First render: where the page is, plus any fallback line — or, under a `band` or `statusline` view, the one line Where it shows describes. That one line must also carry the way to the page when the band does not show: say that the band (or the status line) is not drawn in some places and that `/deadhd -h` opens the page there. Write it in the session's language and tone — for Korean, the meaning of 「밴드(상태줄)가 보이지 않으면 `/deadhd -h` 로 페이지를 열 수 있어요」 — never leave it out. Do not paste the HTML or the JSON.

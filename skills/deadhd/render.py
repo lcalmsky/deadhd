@@ -381,6 +381,9 @@ def session_summary(data, items, lang, payload, at, hooked):
         'eta': payload.get('eta'),
         'etaCalibrated': payload.get('etaCalibrated'),
         'renderedAt': at,
+        # mod 의 「N분 전」 은 훅이 도구 호출마다 다시 쓰는 상태 파일 시각이 아니라
+        # 스킬이 데이터 JSON 을 마지막으로 쓴 시각을 기준으로 한다.
+        'dataAt': payload.get('dataAt') if isinstance(payload.get('dataAt'), str) else None,
         'hooked': bool(hooked),
         'allDone': bool(items) and counts['done'] == len(items),
     }
@@ -653,13 +656,23 @@ def main(argv):
         theme = config.get_value('theme') or 'system'
     if font is None:
         font = config.get_value('font') or 'default'
-    if view is None:
-        view = config.get_value('view') or DEFAULT_VIEW
     if session is None:
         session = os.environ.get('CLAUDE_CODE_SESSION_ID') or None
     if session is not None and not state.valid_session_id(session):
         die('세션 id 가 올바르지 않다: %r' % session)
     data_path, out_path = rest
+
+    # view 는 이번 실행의 인자, 이 세션에 이미 기록된 값, 설정, 기본값 순으로 정한다.
+    # 훅의 재렌더와 mod 의 --page 는 --view 없이 돌므로 여기서 세션의 값이 유지되고,
+    # 한 번 --view 로 바꾼 세션은 다음 렌더에서도 그 view 로 그린다.
+    session_state = None
+    stored_view = None
+    if session:
+        session_state = state.load_state(session)
+        if session_state.get('view') in VIEWS:
+            stored_view = session_state['view']
+    if view is None:
+        view = stored_view or config.get_value('view') or DEFAULT_VIEW
 
     try:
         with open(data_path, encoding='utf-8') as f:
@@ -688,9 +701,7 @@ def main(argv):
         payload_data['eta'] = eta.isoformat(timespec='seconds')
     total_minutes = pending_minutes(items)
 
-    session_state = None
-    if session:
-        session_state = state.load_state(session)
+    if session_state is not None:
         session_state['sessionId'] = session
         session_state['data'] = os.path.abspath(data_path)
         session_state['out'] = os.path.abspath(out_path)

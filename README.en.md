@@ -61,11 +61,11 @@ The same progress can be shown three ways. This is a separate setting from the p
 
 | Display | Where | Layout |
 |---|---|---|
-| `band` | One line above the prompt | Steps done, a progress bar, the step in progress with its elapsed time, and the blocked and left counts. A second row appears when a step is stuck or the session waits, and no browser tab is opened — the lightest of the three (default) |
+| `band` | One line above the prompt | Steps done, a progress bar, the step in progress with its elapsed time, and the blocked and left counts. A second row appears when a step is stuck or the session waits, and no browser tab is opened — the lightest of the three |
 | `statusline` | One line under the prompt | More fields than the band: the ticket key and title, the next step, the estimate, the last update, background tasks, and compactions, all on one line |
 | `html` | The browser page | The progress page as before |
 
-Pick one in `/deadhd setup`, or change it for one run with `/deadhd --view <value>`. The value recorded in the session's state file beats the saved setting, so one run with `--view band` keeps that session on the band.
+Pick one in `/deadhd setup`, or change it with `/deadhd --view <value>`. The order is the `--view` value, the value already recorded in the session's state file, the saved setting, and `html` when there is none, so one run with `--view band` keeps that session on the band.
 
 The band and the status line are drawn by the deadhd plugin's mod (`skills/deadhd/hooks/register.tsx`), which reads the same state file the skill writes. They are **Claude Code only**; outside Claude Code (Codex `$deadhd`, say) the skill does not ask and works as `html`. `/deadhd-band` folds or opens the band, `/deadhd-statusline` the status line, and a command that does not match the current view answers in one line with how to switch. The page opens with `/deadhd-open`, the band's `Open` button, or the status line's.
 
@@ -77,7 +77,7 @@ The band compresses the done count, the progress bar, the step in progress with 
 
 ![Status line — one line under the prompt, with the engine hint below](docs/statusline.en.png)
 
-The status line carries the same state file with more fields: the ticket key and title, the next step, the last update, blocked, left, waiting, background, and compactions. A row is drawn to 240 cells, so a longer title is cut with `…` first. The row ends with a `↗ /deadhd-open` note and an `Open` button, which open the page the same way the band's does.
+The status line carries the same state file with more fields: the ticket key and title, the next step, the last update, blocked, left, waiting, background, and compactions. A row is cut to the terminal's width, so a longer title is cut with `…` first. The row ends with a `↗ /deadhd-open` note and an `Open` button, which open the page the same way the band's does.
 
 ## Lane board
 
@@ -165,6 +165,8 @@ cp -r deadhd/skills/deadhd ~/.claude/skills/
 ```
 
 Installed this way, the invocation name is `/deadhd`. Because `skills/deadhd/.claude-plugin/` is copied along, the folder is auto-loaded as the `deadhd@skills-dir` plugin from the next session on, which is what draws the band and the status line. The mod comes without a plugin install; the command hooks that maintain the status band do not. A plugin install uses the same mod through the marketplace entry point.
+
+Use one of the two installs, not both. With both in place the engine loads two `deadhd` plugins: the same commands, the same state key, and two timers over one state file.
 
 ## Update
 

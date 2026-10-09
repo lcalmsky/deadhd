@@ -67,6 +67,8 @@ const SAMPLE = {
     nowLabel: '실제 화면 확인',
     eta: '2026-10-09T16:20:00+09:00',
     allDone: false,
+    // SKILL.md 가 데이터 JSON 을 마지막으로 쓴 시각. 「N분 전」 의 기준이다.
+    dataAt: '2026-10-09T15:36:53+09:00',
   },
   updatedAt: '2026-10-09T15:36:53+09:00',
 }
@@ -153,8 +155,8 @@ function worldOf(
   runs: string[][]
   invalidates: string[]
   stats: string[]
-  renderer: { exitCode: number; stderr: string }
-  opener: { exitCode: number; stderr: string }
+  renderer: { exitCode: number; stdout: string; stderr: string }
+  opener: { exitCode: number; stdout: string; stderr: string }
 } {
   const clock = mock.clock(on, { now })
   const registered: string[] = []
@@ -162,8 +164,8 @@ function worldOf(
   const runs: string[][] = []
   const invalidates: string[] = []
   const stats: string[] = []
-  const renderer = { exitCode: 0, stderr: '' }
-  const opener = { exitCode: 0, stderr: '' }
+  const renderer = { exitCode: 0, stdout: '', stderr: '' }
+  const opener = { exitCode: 0, stdout: `opened: browser ${OUT_PATH}`, stderr: '' }
 
   mock.env(on, { HOME })
 
@@ -204,7 +206,7 @@ function worldOf(
     return {
       value: {
         exitCode: which.exitCode,
-        stdout: '',
+        stdout: which.stdout,
         stderr: which.stderr,
         isStdoutTruncated: false,
         isStderrTruncated: false,
@@ -401,6 +403,30 @@ describe('the band', () => {
     await ui.unmount()
   })
 
+  test('gives the alert row the whole region, since it carries no button', async ($, on) => {
+    const waiting = stateOf({ status: 'waiting_permission' })
+
+    worldOf(on, filesOf(waiting))
+
+    await $.session.start(SESSION)
+
+    const ui = await $.ui.mount({
+      ...MOUNT,
+      surface: 'terminal',
+      props: { ...BAND, bodyColumns: 60 },
+    })
+    const rows = rowsOf(await ui.drawn())
+    const alerts = line(bandAlertLine(normalize(waiting, BOARD), NOW, 60))
+
+    // 1줄째는 버튼 두 개의 폭(18칸)을 뺀 42칸이지만, 2줄째는 60칸을 다 쓴다.
+    expect(cellWidth(line(bandAlertLine(normalize(waiting, BOARD), NOW, 42)))).toBeLessThan(
+      cellWidth(alerts),
+    )
+    expect(textOf(rows[1])).toBe(`${alerts} `)
+
+    await ui.unmount()
+  })
+
   test('folds to one line and opens again from it', async ($, on) => {
     worldOf(on, filesOf())
 
@@ -454,6 +480,33 @@ describe('the band', () => {
 
     expect(drawn).toContain('막힘 2')
     expect(drawn).toContain('접기')
+
+    await after.unmount()
+  })
+
+  test('stays folded as the turns end', async ($, on) => {
+    const files = filesOf()
+
+    const { clock } = worldOf(on, files)
+
+    await $.session.start(SESSION)
+
+    const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+
+    await ui.press({ key: 'collapse' })
+    await ui.unmount()
+
+    // 턴이 끝나면 상태가 idle 로 돌아온다. 접기를 풀 만한 변화는 아니다.
+    files[STATE_PATH] = JSON.stringify(stateOf({ status: 'idle' }))
+
+    await clock.advance(15000)
+
+    const after = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+    const drawn = textOf(await after.drawn())
+
+    expect(drawn).toContain('/deadhd-band ✓ 3/6')
+    expect(drawn).toContain('펼치기')
+    expect(drawn).not.toContain('막힘')
 
     await after.unmount()
   })
@@ -711,7 +764,7 @@ describe('the status hint', () => {
 
   test('falls quiet, warns, then stops, as the last write falls behind', async ($, on) => {
     const written = (minutes: number): typeof SAMPLE =>
-      statusState({ updatedAt: new Date(NOW - minutes * 60000).toISOString() })
+      statusState({}, { dataAt: new Date(NOW - minutes * 60000).toISOString() })
 
     statusWorld(on, filesOf(written(11)))
 
@@ -759,6 +812,37 @@ describe('the status hint', () => {
     expect(textOf(rows[0])).toContain('열기')
 
     await ui.unmount()
+  })
+
+  test('cuts the long row to the width the surface measured', async ($, on) => {
+    const long = statusState({}, { title: '아주 긴 제목이 여기에 들어 있다 '.repeat(12) })
+
+    statusWorld(on, filesOf(long))
+
+    await $.session.start(SESSION)
+
+    const narrow = await $.ui.mount({
+      ...MOUNT_HINT,
+      surface: 'terminal',
+      viewport: { columns: 120, rows: 24 },
+    })
+    const cut = textOf(rowsOf(await narrow.drawn())[0])
+
+    await narrow.unmount()
+
+    const wide = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+    const whole = textOf(rowsOf(await wide.drawn())[0])
+
+    await wide.unmount()
+
+    // PromptHint hands the tree no width of its own, so the viewport's cells are
+    // the budget: the narrow surface gives way where a 240-cell one keeps the pieces.
+    expect(whole).toContain(OPEN_CMD)
+    expect(whole).toContain('▶️ 실제 화면 확인')
+    expect(cut).not.toContain('▶️ 실제 화면 확인')
+    expect(cut).not.toContain(OPEN_CMD)
+    expect(cut).toContain('✅ 3/6')
+    expect(cellWidth(cut)).toBeLessThan(cellWidth(whole))
   })
 
   test('with no state file the engine keeps its own hint', async ($, on) => {
@@ -861,12 +945,26 @@ describe('the status line command', () => {
 })
 
 describe('the view', () => {
-  test('resolves the state file first, then the config, then band', () => {
+  test('resolves the state file first, then the config, then html', () => {
     expect(resolveView('statusline', 'band')).toBe('statusline')
     expect(resolveView(null, 'statusline')).toBe('statusline')
-    expect(resolveView(null, null)).toBe('band')
+    expect(resolveView(null, null)).toBe('html')
     expect(resolveView('html', 'band')).toBe('html')
     expect(resolveView('paper', 'band')).toBe('band')
+  })
+
+  test('draws nothing for a session with no view anywhere', async ($, on) => {
+    worldOf(on, filesOf(stateOf({ view: undefined })))
+    pinsNothing(on)
+    on('ui.render', () => ENGINE_OWN)
+
+    await $.session.start(SESSION)
+
+    const band = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+
+    expect(textOf(await band.drawn())).toBe('(the engine drew its own)')
+
+    await band.unmount()
   })
 
   test('takes the config file when the state file names no view', async ($, on) => {
@@ -1035,12 +1133,27 @@ describe('formatLine', () => {
 
   test('warns, then stops, as the last write falls behind', () => {
     const written = (minutes: number): typeof SAMPLE =>
-      stateOf({ updatedAt: new Date(NOW - minutes * 60000).toISOString() })
+      stateOf({}, { dataAt: new Date(NOW - minutes * 60000).toISOString() })
 
     expect(formatLine(normalize(written(10), BOARD), NOW, 240)).toContain('🔄 10분 전')
     expect(formatLine(normalize(written(11), BOARD), NOW, 240)).toContain('⚠️ 11분 전')
     expect(formatLine(normalize(written(30), BOARD), NOW, 240)).toContain('⚠️ 30분 전')
     expect(formatLine(normalize(written(31), BOARD), NOW, 240)).toContain('🛑 31분 전')
+  })
+
+  test('counts from the data write, not the state write the hooks keep fresh', () => {
+    const stalled = stateOf(
+      { updatedAt: new Date(NOW).toISOString() },
+      { dataAt: new Date(NOW - 31 * 60000).toISOString() },
+    )
+
+    expect(formatLine(normalize(stalled, BOARD), NOW, 240)).toContain('🛑 31분 전')
+  })
+
+  test('falls back to the state write for a state file with no data write', () => {
+    const older = stateOf({ updatedAt: new Date(NOW - 31 * 60000).toISOString() }, { dataAt: undefined })
+
+    expect(formatLine(normalize(older, BOARD), NOW, 240)).toContain('🛑 31분 전')
   })
 
   test('draws nothing without a state', () => {
@@ -1169,6 +1282,30 @@ describe('the open button and command', () => {
     expect(world.runs).toHaveLength(2)
   })
 
+  test('gives the path when the opener leaves the page to the desktop app', async ($, on) => {
+    const world = worldOf(on, filesOf())
+    pinsNothing(on)
+
+    world.opener.stdout = `opened: desktop ${OUT_PATH}`
+
+    await $.session.start(SESSION)
+
+    expect((await $.command.run(open)).text).toBe(
+      `Claude 데스크톱 앱에서 이 경로를 눌러 주세요: ${OUT_PATH}`,
+    )
+  })
+
+  test('says no browser was found when the opener opened nothing', async ($, on) => {
+    const world = worldOf(on, filesOf())
+    pinsNothing(on)
+
+    world.opener.stdout = `opened: none ${OUT_PATH}`
+
+    await $.session.start(SESSION)
+
+    expect((await $.command.run(open)).text).toBe(`열 수 있는 브라우저를 찾지 못했어요: ${OUT_PATH}`)
+  })
+
   test('runs the opener while the status line draws', async ($, on) => {
     const { runs } = worldOf(on, filesOf(statusState()))
     pinsNothing(on)
@@ -1251,6 +1388,25 @@ describe('cellWidth', () => {
     expect(cellWidth('한글')).toBe(4)
     expect(cellWidth('é')).toBe(1)
     expect(cellWidth('🙂')).toBe(2)
+  })
+
+  test('counts the emoji the lines draw as two cells', () => {
+    const emoji = ['✅', '▶️', '⏭', '⏱', '🔄', '⚠️', '🛑', '⛔', '⏳', '🔐', '💬', '🧵', '🗜', '⌨️']
+
+    for (const glyph of emoji) {
+      expect([glyph, cellWidth(glyph)]).toEqual([glyph, 2])
+    }
+  })
+
+  test('counts the text symbols the lines draw as one cell', () => {
+    for (const glyph of ['✓', '▶', '↗', '▓', '░', '◇', '·']) {
+      expect([glyph, cellWidth(glyph)]).toEqual([glyph, 1])
+    }
+  })
+
+  test('reads a whole row by the same metric', () => {
+    expect(cellWidth('✅ 3/6')).toBe(6)
+    expect(cellWidth('⛔ 막힘 1')).toBe(9)
   })
 })
 

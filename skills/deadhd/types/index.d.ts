@@ -58,7 +58,11 @@ export type DeadhdState = {
   stuck: DeadhdStep | null
   /** The completion estimate, an ISO 8601 instant with an offset, or null. */
   eta: string | null
-  /** When the skill last wrote the state file, ISO 8601 with an offset. */
+  /**
+   * When the skill last wrote the data file, ISO 8601 with an offset; the lines
+   * count `N분 전` from here. The state file's own write time stands in when the
+   * summary carries none, since the hooks rewrite it on every event.
+   */
   updatedAt: string | null
   /** When the current status began, ISO 8601 with an offset. */
   since: string | null
@@ -81,7 +85,7 @@ declare module 'claude-code' {
       state: DeadhdState | null
       /** True while the line is folded to its one-word summary; kept for the session. */
       collapsed: boolean
-      /** The view in force: the state file's, else the config file's, else `band`. */
+      /** The view in force: the state file's, else the config file's, else `html`. */
       view: DeadhdView
     }
   }

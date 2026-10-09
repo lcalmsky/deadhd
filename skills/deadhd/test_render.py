@@ -2698,6 +2698,27 @@ class StateScriptTest(unittest.TestCase):
         self.assertEqual(self.read_state()['lastTool']['name'], 'Read')
         self.assertIsNone(self.read_state()['lastTool']['durationMs'])
 
+    def test_page_less_session_throttles_its_renders_too(self):
+        """페이지를 아직 안 쓴 밴드 세션도 도구 호출마다 다시 렌더하지 않는다."""
+        self.seed_session(
+            view='band',
+            summary={'title': '옛 제목', 'lang': 'ko', 'counts': {'done': 0}, 'total': 0,
+                     'renderedAt': '2020-01-01T00:00:00+09:00'},
+        )
+        config = {'DEADHD_CONFIG': self.band_config()}
+
+        first = self.event({'hook_event_name': 'PostToolUse', 'tool_name': 'Bash'}, env_extra=config)
+        self.assertEqual(first.returncode, 0)
+        self.assertFalse(os.path.exists(self.out))
+        rendered = self.read_state()['summary']['renderedAt']
+        self.assertNotEqual(rendered, '2020-01-01T00:00:00+09:00')
+
+        hub = os.stat(TEST_HUB).st_mtime_ns
+        second = self.event({'hook_event_name': 'PostToolUse', 'tool_name': 'Read'}, env_extra=config)
+        self.assertEqual(second.returncode, 0)
+        self.assertEqual(os.stat(TEST_HUB).st_mtime_ns, hub)
+        self.assertEqual(self.read_state()['summary']['renderedAt'], rendered)
+
     def test_stop_records_idle_and_background_tasks(self):
         self.render_session()
         r = self.event({'hook_event_name': 'Stop', 'last_assistant_message': 'done',
@@ -3322,6 +3343,41 @@ class RenderViewTest(unittest.TestCase):
         r = self.render(view='band', config={'view': 'statusline'})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.read_state()['view'], 'band')
+
+    def seed_view(self, view):
+        """이 세션의 상태 파일에 이미 남아 있는 view 로 시작한다."""
+        os.makedirs(self.state_dir, exist_ok=True)
+        with open(os.path.join(self.state_dir, 'abc.json'), 'w', encoding='utf-8') as f:
+            json.dump({'view': view}, f)
+
+    def test_state_view_beats_the_saved_view(self):
+        self.seed_view('band')
+        r = self.render(config={'view': 'html'})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.read_state()['view'], 'band')
+        self.assertTrue(r.stdout.strip().startswith('skipped: view band'))
+        self.assertFalse(os.path.exists(self.out))
+
+    def test_a_flagless_render_keeps_the_sessions_band_view(self):
+        """--view band 로 한 번 바꾼 세션은 설정이 html 이어도 밴드로 남는다."""
+        self.assertEqual(self.render(view='band', config={'view': 'html'}).returncode, 0)
+        r = self.render(config={'view': 'html'})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.read_state()['view'], 'band')
+        self.assertFalse(os.path.exists(self.out))
+
+    def test_a_flagless_render_keeps_the_sessions_html_view(self):
+        """--view html 로 한 번 바꾼 세션은 설정이 band 여도 HTML 을 계속 쓴다."""
+        self.assertEqual(self.render(view='html', config={'view': 'band'}).returncode, 0)
+        os.unlink(self.out)
+        r = self.render(config={'view': 'band'})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.read_state()['view'], 'html')
+        self.assertTrue(os.path.exists(self.out))
+
+    def test_no_state_and_no_saved_view_draws_html(self):
+        self.assertEqual(self.render().returncode, 0)
+        self.assertEqual(self.read_state()['view'], 'html')
 
     def test_saved_view_applies_without_a_flag(self):
         r = self.render(config={'view': 'statusline'})

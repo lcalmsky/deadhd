@@ -113,16 +113,39 @@ def background_tasks(payload):
     return kept
 
 
+def last_render_age(state):
+    """이 세션의 마지막 렌더 이후 지난 초. 알 수 없으면 None."""
+    summary = state.get('summary')
+    stamp = summary.get('renderedAt') if isinstance(summary, dict) else None
+    if isinstance(stamp, str):
+        text = stamp[:-1] + '+00:00' if stamp.endswith('Z') else stamp
+        try:
+            at = datetime.fromisoformat(text)
+        except ValueError:
+            at = None
+        if at is not None and at.tzinfo is not None:
+            return (datetime.now(at.tzinfo) - at).total_seconds()
+    # 이 값이 없는 예전 상태 파일은 페이지 파일의 시각으로 판정한다.
+    out = state.get('out')
+    if isinstance(out, str):
+        try:
+            return time.time() - os.path.getmtime(out)
+        except OSError:
+            return None
+    return None
+
+
 def refresh(state, session_id, skip_recent=False):
     data, out = state.get('data'), state.get('out')
     if not isinstance(data, str) or not isinstance(out, str):
         return
+    # 페이지가 없는 밴드·상태줄 세션도 같은 제한을 받는다. 기준은 페이지 파일 시각이
+    # 아니라 요약의 마지막 렌더 시각이라, 쓸 페이지가 아직 없어도 도구 호출마다
+    # 파이썬 프로세스를 하나씩 더 띄우지 않는다.
     if skip_recent:
-        try:
-            if time.time() - os.path.getmtime(out) < RENDER_SKIP_SECONDS:
-                return
-        except OSError:
-            pass
+        age = last_render_age(state)
+        if age is not None and age < RENDER_SKIP_SECONDS:
+            return
     try:
         subprocess.run(
             [sys.executable, RENDER, '--session', session_id, data, out],

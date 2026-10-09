@@ -20,8 +20,8 @@ const STATUS_CMD = '/deadhd-statusline'
 /** The command a status line names at its end, so the page has a keyboard way open too. */
 const OPEN_CMD = '/deadhd-open'
 
-/** With no state file and no config the session draws in this view. */
-export const DEFAULT_VIEW: DeadhdView = 'band'
+/** With no state file and no config the session draws in this view, as render.py decides too. */
+export const DEFAULT_VIEW: DeadhdView = 'html'
 
 const VIEWS: readonly DeadhdView[] = ['html', 'band', 'statusline']
 
@@ -76,6 +76,8 @@ const WORDS: Record<
     opened: string
     noPage: string
     openFailed: string
+    desktopPath: string
+    noBrowser: string
   }
 > = {
   ko: {
@@ -100,6 +102,8 @@ const WORDS: Record<
     opened: 'HTML 페이지를 열었어요',
     noPage: '아직 HTML 페이지가 없어요',
     openFailed: 'HTML 페이지를 열지 못했어요',
+    desktopPath: 'Claude 데스크톱 앱에서 이 경로를 눌러 주세요:',
+    noBrowser: '열 수 있는 브라우저를 찾지 못했어요:',
   },
   en: {
     blocked: 'blocked',
@@ -123,6 +127,8 @@ const WORDS: Record<
     opened: 'Opened the HTML.',
     noPage: 'No HTML page yet.',
     openFailed: 'Could not open the HTML',
+    desktopPath: 'Press this path in the Claude desktop app to open the page:',
+    noBrowser: 'Could not find a browser to open the page:',
   },
 }
 
@@ -136,9 +142,52 @@ const shown = atom({ plugin: 'deadhd', key: 'view' } as const, DEFAULT_VIEW)
  */
 const painted: Partial<Record<'band' | 'status', string>> = {}
 
-/** Code point ranges that take two cells in a terminal's monospace metric. */
+/**
+ * The cells each mode's line may take, as the surface last measured them: the
+ * band's region without its buttons, the status line's viewport without the
+ * button beside it. A refresh cuts the line it compares to the same width; the
+ * fixed budget stands in until a drawing has measured one.
+ */
+const widths: Record<'band' | 'status', number> = { band: STATUS_COLS, status: STATUS_COLS }
+
+/**
+ * Code point ranges that take two cells in a terminal's monospace metric:
+ * East Asian Wide, plus the emoji blocks a terminal draws with emoji
+ * presentation (a symbol below U+1F300 like `✅` or `⏳` is one of these).
+ */
 const WIDE: readonly (readonly [number, number])[] = [
   [0x1100, 0x115f],
+  [0x231a, 0x231b],
+  [0x23e9, 0x23f3],
+  [0x25fd, 0x25fe],
+  [0x2614, 0x2615],
+  [0x2648, 0x2653],
+  [0x267f, 0x267f],
+  [0x2693, 0x2693],
+  [0x26a1, 0x26a1],
+  [0x26aa, 0x26ab],
+  [0x26bd, 0x26be],
+  [0x26c4, 0x26c5],
+  [0x26ce, 0x26ce],
+  [0x26d4, 0x26d4],
+  [0x26ea, 0x26ea],
+  [0x26f2, 0x26f3],
+  [0x26f5, 0x26f5],
+  [0x26fa, 0x26fa],
+  [0x26fd, 0x26fd],
+  [0x2705, 0x2705],
+  [0x270a, 0x270b],
+  [0x2728, 0x2728],
+  [0x274c, 0x274c],
+  [0x274e, 0x274e],
+  [0x2753, 0x2755],
+  [0x2757, 0x2757],
+  [0x2795, 0x2797],
+  [0x27b0, 0x27b0],
+  [0x27bf, 0x27bf],
+  [0x2b1b, 0x2b1c],
+  [0x2b50, 0x2b50],
+  [0x2b55, 0x2b55],
   [0x2e80, 0xa4cf],
   [0xac00, 0xd7a3],
   [0xf900, 0xfaff],
@@ -156,17 +205,37 @@ const ZERO: readonly (readonly [number, number])[] = [
   [0xfe00, 0xfe0f],
 ]
 
+/** The variation selector that asks for a glyph's emoji drawing. */
+const VS16 = 0xfe0f
+
 const within = (code: number, ranges: readonly (readonly [number, number])[]): boolean =>
   ranges.some(([low, high]) => code >= low && code <= high)
 
-/** How many terminal cells `text` takes, one code point at a time. */
+/**
+ * How many terminal cells `text` takes, one code point at a time. A symbol
+ * drawn as text (`✓`, `▶`, `↗`, `▓`) is one cell, an emoji-presentation one is
+ * two, and a base character followed by U+FE0F is drawn as the emoji it selects.
+ */
 export function cellWidth(text: string): number {
+  const points = Array.from(text, code => code.codePointAt(0) ?? 0)
   let cells = 0
 
-  for (const code of text) {
-    const point = code.codePointAt(0) ?? 0
+  for (let at = 0; at < points.length; at += 1) {
+    const point = points[at] ?? 0
 
-    cells += within(point, ZERO) ? 0 : within(point, WIDE) ? 2 : 1
+    if (within(point, ZERO)) {
+      // The selector itself is no cell; the character it follows gains the one
+      // that makes it an emoji.
+      const before = points[at - 1]
+
+      if (point === VS16 && before !== undefined && !within(before, WIDE) && !within(before, ZERO)) {
+        cells += 1
+      }
+
+      continue
+    }
+
+    cells += within(point, WIDE) ? 2 : 1
   }
 
   return cells
@@ -772,6 +841,10 @@ export function normalize(raw: unknown, data?: unknown): DeadhdState | null {
   const counts = record(summary.counts)
   const steps = readSteps(data)
   const nowLabel = text(summary.nowLabel, '')
+  // The hooks rewrite the state file on every event, so its own write time stays
+  // fresh while the skill stalls. The data file's last write is the honest clock,
+  // and a state file that carries none (an older one) falls back to `updatedAt`.
+  const dataAt = typeof summary.dataAt === 'string' && summary.dataAt !== '' ? summary.dataAt : null
   const done = count(counts.done)
   const now = count(counts.now)
   const side = count(counts.side)
@@ -809,7 +882,7 @@ export function normalize(raw: unknown, data?: unknown): DeadhdState | null {
     next: nextStep(steps, running),
     stuck: steps.find(step => step.state === 'blocked') ?? (now === 0 && blocked > 0 ? summaryStep : null),
     eta: typeof summary.eta === 'string' ? summary.eta : null,
-    updatedAt: typeof source.updatedAt === 'string' ? source.updatedAt : null,
+    updatedAt: dataAt ?? (typeof source.updatedAt === 'string' ? source.updatedAt : null),
     since: typeof source.since === 'string' ? source.since : null,
     background: Array.isArray(source.backgroundTasks) ? source.backgroundTasks.length : 0,
     compactions: count(record(source.compactions).count),
@@ -878,7 +951,7 @@ async function configView($: EngineInterface): Promise<DeadhdView | null> {
   }
 }
 
-/** The view in force for this session: the state file's, else the config's, else `band`. */
+/** The view in force for this session: the state file's, else the config's, else `html`. */
 async function viewOf($: EngineInterface, state: DeadhdState | null): Promise<DeadhdView> {
   return resolveView(state?.view ?? null, await configView($))
 }
@@ -900,25 +973,39 @@ async function skillDir($: EngineInterface): Promise<string> {
   }
 }
 
-/** Whether a fresh state says a step got stuck, or the session now waits on the person. */
+/**
+ * Whether the fresh state asks for the person: a new blockage, or a wait for
+ * permission. A turn's end also reads as `idle`, so an idle status alone must
+ * not unfold a line the person folded.
+ */
 const needsAttention = (fresh: DeadhdState, previous: DeadhdState): boolean =>
   fresh.blocked > previous.blocked ||
-  (fresh.status !== previous.status &&
-    (fresh.status === 'waiting_permission' || fresh.status === 'idle'))
+  (fresh.status === 'waiting_permission' && previous.status !== 'waiting_permission')
 
 /**
  * The line the current view would draw now, as plain text: what a refresh
  * compares against the last to tell whether a repaint would move anything.
  * A folded line carries no elapsed time, so it reads the same every interval.
  */
-const paintText = (state: DeadhdState, now: number, folded: boolean, view: DeadhdView): string =>
-  view === 'band'
+const paintText = (state: DeadhdState, now: number, folded: boolean, view: DeadhdView): string => {
+  const mode = view === 'band' ? 'band' : 'status'
+  const cells = widths[mode]
+
+  return view === 'band'
     ? folded
       ? segmentsText(foldedSegments(state))
-      : segmentsText(bandLine(state, now, STATUS_COLS))
+      : segmentsText(bandLine(state, now, cells))
     : folded
       ? segmentsText(statusFoldedSegments(state))
-      : formatLine(state, now, STATUS_COLS)
+      : formatLine(state, now, cells)
+}
+
+/** The kind and the path `open.sh` names on its `opened:` line, or null. */
+const openedOf = (output: string): { kind: string; path: string } | null => {
+  const match = /^opened: (\S+) (.*)$/m.exec(output)
+
+  return match === null ? null : { kind: match[1] ?? '', path: (match[2] ?? '').trim() }
+}
 
 /** What opening the page answers, in the words the button toasts and `/deadhd-open` returns. */
 async function openText($: EngineInterface, state: DeadhdState | null): Promise<string> {
@@ -948,13 +1035,23 @@ async function openText($: EngineInterface, state: DeadhdState | null): Promise<
 
     const opened = await $.process.run(['bash', `${dir}/open.sh`, out], { timeoutMs: OPEN_TIMEOUT_MS })
 
-    if (opened.exitCode === 0) {
+    if (opened.exitCode !== 0) {
+      const reason = firstLine(opened.stderr)
+
+      return `${words.openFailed}: exit ${opened.exitCode}${reason === '' ? '' : `: ${reason}`}`
+    }
+
+    // The exit code alone is not the answer: `desktop` and `none` exit 0 with the
+    // page unopened, so the path goes into the sentence the person reads.
+    const result = openedOf(opened.stdout)
+
+    if (result === null || result.kind === 'orca-tab' || result.kind === 'browser') {
       return words.opened
     }
 
-    const reason = firstLine(opened.stderr)
-
-    return `${words.openFailed}: exit ${opened.exitCode}${reason === '' ? '' : `: ${reason}`}`
+    return result.kind === 'desktop'
+      ? `${words.desktopPath} ${result.path}`
+      : `${words.noBrowser} ${result.path}`
   } catch (error) {
     return `${words.openFailed}: ${firstLine(String(error))}`
   }
@@ -963,7 +1060,7 @@ async function openText($: EngineInterface, state: DeadhdState | null): Promise<
 /**
  * Reads the session's two files, the view in force, and, when the state
  * changed, puts it in the atoms the render hooks draw from. A new blockage or
- * a wait opens a folded line again. An interval whose line moved (`8분째`
+ * a wait for permission opens a folded line again. An interval whose line moved (`8분째`
  * becoming `9분째`) asks the mode's component to draw again, so the clock keeps
  * up without a state write. Its own failures are swallowed: a refresh that
  * cannot read or write leaves the last line standing.
@@ -1042,7 +1139,7 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     const ran = await next(e)
 
-    await refresh($)
+    void refresh($)
 
     return ran
   })
@@ -1050,7 +1147,10 @@ export const register: Register = on => {
   on('tool.call', async ($, e, next) => {
     const ran = await next(e)
 
-    await refresh($)
+    // A tool call never waits on this: refresh reads the state, the config and the
+    // data JSON, and the timer keeps the line current anyway. It swallows its own
+    // failures, so nothing here needs a catch.
+    void refresh($)
 
     return ran
   })
@@ -1106,8 +1206,15 @@ export const register: Register = on => {
     const now = await $.clock.now()
     const words = WORDS[state.lang]
     // The button and the space before it are drawn beside the text, so their
-    // cells come off the budget the line's own pieces are cut to.
-    const room = Math.max(0, STATUS_COLS - (1 + buttonCols(words.open)))
+    // cells come off the budget the line's own pieces are cut to. The width is
+    // the surface's own, which PromptHint's props do not carry.
+    const cols = e.viewport?.columns ?? STATUS_COLS
+    const room = Math.max(0, cols - (1 + buttonCols(words.open)))
+
+    if (room > 0) {
+      widths.status = room
+    }
+
     const parts = folded ? statusFoldedSegments(state) : statusLine(state, now, room)
     // The engine's hint keeps its own tree, drawn under the deadhd line.
     const hint = await next(e)
@@ -1171,6 +1278,11 @@ export const register: Register = on => {
     const now = await $.clock.now()
     const controls = buttonCols(words.open) + 1 + buttonCols(words.collapse) + 1
     const room = Math.max(0, e.props.bodyColumns - controls)
+
+    if (room > 0) {
+      widths.band = room
+    }
+
     const line = bandLine(state, now, room)
 
     if (line.length === 0) {
@@ -1190,7 +1302,8 @@ export const register: Register = on => {
     ]
 
     if (e.props.maxRows > 1) {
-      const alerts = bandAlertLine(state, now, room)
+      // The second row carries no button, so the whole region is its budget.
+      const alerts = bandAlertLine(state, now, e.props.bodyColumns)
 
       if (alerts.length > 0) {
         rows.push(
