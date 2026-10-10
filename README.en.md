@@ -22,6 +22,11 @@
 
 When you run several Claude Code sessions at once, it is easy to lose track of how far a session got while you were looking at another one. deadhd opens the steps a session has completed, the step in progress, and the remaining steps as a checklist page and keeps updating it while the work runs. You can check progress from one page without scrolling back through the terminal log.
 
+There are plenty of progress HUDs; deadhd differs in two ways.
+
+- **Session state comes from events, not from the model.** Claude writes the checklist steps and their evidence, but working, waiting for input, waiting for permission, last tool, and compaction count are read by the plugin hooks and mod straight from turn start and end, tool calls, notifications, and compaction. So you can see what the session is waiting on even when the model forgot to update, or before you ran `/deadhd`.
+- **The same progress shows inside and outside the terminal.** Inside the terminal you watch it as a band above the prompt or a status line under it, and the same state file draws the browser page beside the terminal and the hub that gathers every session on this computer.
+
 <p align="center"><img src="docs/hero.webp" alt="A progress page in the in-app browser beside the terminal, switching workspaces" width="800"></p>
 
 Built for terminal apps with an in-app browser, such as [Orca](https://onorca.dev), keeping the progress page open in a panel beside the terminal. Without Orca you can open it in the system browser or the Claude desktop app's in-app browser, and in Claude Code you can also watch the same progress as a line above or under the prompt instead of the page.
