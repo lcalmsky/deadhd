@@ -88,6 +88,10 @@ const WORDS: Record<
     collapse: string
     expand: string
     open: string
+    enable: string
+    enablePrompt: string
+    enableSent: string
+    enableFailed: string
     folded: string
     unfolded: string
     statusFolded: string
@@ -116,6 +120,10 @@ const WORDS: Record<
     collapse: '접기',
     expand: '펼치기',
     open: '열기',
+    enable: '켜기',
+    enablePrompt: 'deadhd 스킬로 이 세션의 체크리스트를 띄워 줘.',
+    enableSent: '체크리스트를 켜 달라고 보냈어요',
+    enableFailed: '체크리스트를 켜 달라고 보내지 못했어요',
     folded: '밴드를 접었어요',
     unfolded: '밴드를 펼쳤어요',
     statusFolded: '상태줄을 접었어요',
@@ -143,6 +151,10 @@ const WORDS: Record<
     collapse: 'Collapse',
     expand: 'Expand',
     open: 'Open',
+    enable: 'Enable',
+    enablePrompt: "Show this session's checklist with the deadhd skill.",
+    enableSent: 'Asked Claude to show the checklist.',
+    enableFailed: 'Could not ask Claude to show the checklist.',
     folded: 'Band collapsed.',
     unfolded: 'Band expanded.',
     statusFolded: 'Collapsed the status line',
@@ -1341,6 +1353,23 @@ async function openText($: EngineInterface, state: DeadhdState | null): Promise<
 }
 
 /**
+ * Asks the model to run this skill, so a session the skill has not made a
+ * checklist for yet gets one. The button standing where `열기` does calls this;
+ * the prompt is queued and runs once the session is idle.
+ */
+async function askToEnable($: EngineInterface, state: DeadhdState | null): Promise<void> {
+  const words = WORDS[state?.lang ?? 'ko']
+
+  try {
+    const entered = await $.prompt.submit({ text: words.enablePrompt })
+
+    $.ui.toast(entered.drop === undefined ? words.enableSent : words.enableFailed)
+  } catch {
+    $.ui.toast(words.enableFailed)
+  }
+}
+
+/**
  * Reads the session's two files, the view in force, and, when the state
  * changed, puts it in the atoms the render hooks draw from. A new blockage or
  * a wait for permission opens a folded line again. An interval whose line moved (`8분째`
@@ -1584,11 +1613,11 @@ export const register: Register = on => {
     // The two buttons and the space before each are drawn beside the text, so
     // their cells come off the budget the line's own pieces are cut to. The
     // width is the surface's own, which PromptHint's props do not carry. A
-    // session with no state file has no page to open, so no `열기` button is
-    // drawn and its cells are not taken off the budget either.
+    // session with no state file draws the `켜기` button where `열기` stands,
+    // and its cells come off the budget just the same.
     const cols = e.viewport?.columns ?? STATUS_COLS
     const toggle = folded ? words.expand : words.collapse
-    const opening = state === null ? 0 : 1 + buttonCols(words.open)
+    const opening = 1 + buttonCols(state === null ? words.enable : words.open)
     const room = Math.max(0, cols - HINT_INSET - opening - (1 + buttonCols(toggle)))
 
     if (room > 0) {
@@ -1601,6 +1630,9 @@ export const register: Register = on => {
     const { Box, Text, Button, Link } = $.ui.resolve(e)
     const open = (): void => {
       void openText($, state).then(message => $.ui.toast(message))
+    }
+    const enable = (): void => {
+      void askToEnable($, state)
     }
 
     return (
@@ -1621,7 +1653,9 @@ export const register: Register = on => {
               </Link>
             )
           })}
-          {state === null ? null : (
+          {state === null ? (
+            <Button key="enable" label={words.enable} variant="primary" onPress={enable} />
+          ) : (
             <Button key="open" label={words.open} variant="primary" onPress={open} />
           )}
           {folded ? (
@@ -1658,6 +1692,9 @@ export const register: Register = on => {
     const open = (): void => {
       void openText($, state).then(message => $.ui.toast(message))
     }
+    const enable = (): void => {
+      void askToEnable($, state)
+    }
 
     if (await read($, collapsed)) {
       const folded = foldedSegments(state, hud, await $.clock.now())
@@ -1669,7 +1706,9 @@ export const register: Register = on => {
               {index === folded.length - 1 ? `${part.text} ` : part.text}
             </Text>
           ))}
-          {state === null ? null : (
+          {state === null ? (
+            <Button key="enable" label={words.enable} variant="primary" onPress={enable} />
+          ) : (
             <Button key="open" label={words.open} variant="primary" onPress={open} />
           )}
           <Button key="expand" label={words.expand} onPress={() => update($, collapsed, () => false)} />
@@ -1678,10 +1717,10 @@ export const register: Register = on => {
     }
 
     const now = await $.clock.now()
-    // A session with no state file has no page to open, so no `열기` button is
-    // drawn and its cells stay in the line's budget.
+    // A session with no state file draws the `켜기` button where `열기` stands,
+    // and its cells come off the line's budget just the same.
     const controls =
-      buttonCols(words.collapse) + 1 + (state === null ? 0 : buttonCols(words.open) + 1)
+      buttonCols(words.collapse) + 1 + (1 + buttonCols(state === null ? words.enable : words.open))
     const room = Math.max(0, e.props.bodyColumns - controls)
 
     if (room > 0) {
@@ -1701,7 +1740,9 @@ export const register: Register = on => {
             {index === line.length - 1 ? `${part.text} ` : part.text}
           </Text>
         ))}
-        {state === null ? null : (
+        {state === null ? (
+          <Button key="enable" label={words.enable} variant="primary" onPress={enable} />
+        ) : (
           <Button key="open" label={words.open} variant="primary" onPress={open} />
         )}
         <Button key="collapse" label={words.collapse} onPress={() => update($, collapsed, () => true)} />

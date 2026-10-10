@@ -200,6 +200,7 @@ function worldOf(
   clock: MockClock
   registered: string[]
   toasts: string[]
+  submitted: string[]
   runs: string[][]
   invalidates: string[]
   stats: string[]
@@ -209,6 +210,7 @@ function worldOf(
   const clock = mock.clock(on, { now })
   const registered: string[] = []
   const toasts: string[] = []
+  const submitted: string[] = []
   const runs: string[][] = []
   const invalidates: string[] = []
   const stats: string[] = []
@@ -240,6 +242,11 @@ function worldOf(
 
     return { value: undefined }
   })
+  on('prompt.submit', ($, e) => {
+    submitted.push(e.text)
+
+    return { text: e.text }
+  })
   on('ui.invalidate', ($, e) => {
     invalidates.push(e.event)
 
@@ -266,7 +273,7 @@ function worldOf(
     }
   })
 
-  return { clock, registered, toasts, runs, invalidates, stats, renderer, opener }
+  return { clock, registered, toasts, submitted, runs, invalidates, stats, renderer, opener }
 }
 
 /** The status line's world: the files, the pinned-status answer and the engine's hint tree. */
@@ -409,10 +416,26 @@ describe('the band', () => {
     const drawn = textOf(await ui.drawn())
 
     expect(drawn).toContain(`${STATUS_MARK} · ${RUNNING}`)
-    // 상태 파일이 없으니 체크리스트도, 열 페이지도 없다.
+    // 상태 파일이 없으니 체크리스트도, 열 페이지도 없다. 열 자리에 켜기 버튼이 선다.
     expect(drawn).not.toContain('막힘')
     expect(drawn).not.toContain('열기')
+    expect(drawn).toContain('켜기')
     expect(drawn).toContain('접기')
+
+    await ui.unmount()
+  })
+
+  test('asks the model for the checklist when the enable button is pressed', async ($, on) => {
+    const { clock, submitted, toasts } = worldOf(on, configOf('band'), START)
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+
+    await ui.press({ key: 'enable' })
+
+    expect(submitted).toEqual(['deadhd 스킬로 이 세션의 체크리스트를 띄워 줘.'])
+    expect(toasts).toEqual(['체크리스트를 켜 달라고 보냈어요'])
 
     await ui.unmount()
   })
@@ -584,6 +607,7 @@ describe('the band', () => {
     expect(summary).toContain(`${STATUS_MARK} ${RUNNING}`)
     expect(summary).toContain('펼치기')
     expect(summary).not.toContain('열기')
+    expect(summary).toContain('켜기')
 
     await folded.unmount()
   })
@@ -1070,11 +1094,27 @@ describe('the status hint', () => {
     const drawn = textOf(rows[0])
 
     expect(drawn).toContain(`${STATUS_MARK} · ${RUNNING}`)
-    // 상태 파일이 없으니 체크리스트도, 열 페이지도 없다.
+    // 상태 파일이 없으니 체크리스트도, 열 페이지도 없다. 열 자리에 켜기 버튼이 선다.
     expect(drawn).not.toContain('남음')
     expect(drawn).not.toContain('열기')
+    expect(drawn).toContain('켜기')
     expect(drawn).toContain('접기')
     expect(rows[1]).toEqual(ENGINE_HINT)
+
+    await ui.unmount()
+  })
+
+  test('asks the model for the checklist when the enable button is pressed', async ($, on) => {
+    const { clock, submitted, toasts } = statusWorld(on, configOf('statusline'), ENGINE_HINT, START)
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+
+    await ui.press({ key: 'enable' })
+
+    expect(submitted).toEqual(['deadhd 스킬로 이 세션의 체크리스트를 띄워 줘.'])
+    expect(toasts).toEqual(['체크리스트를 켜 달라고 보냈어요'])
 
     await ui.unmount()
   })

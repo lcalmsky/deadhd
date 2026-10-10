@@ -39,13 +39,13 @@ WORDS = {
     'ko': {
         'blocked': '막힘', 'left': '남음', 'allDone': '완료', 'next': '다음', 'eta': '예상',
         'background': '백그라운드', 'compacted': '압축', 'collapse': '접기', 'expand': '펼치기',
-        'open': '열기', 'permission': '권한 승인 대기', 'input': '입력 대기',
+        'open': '열기', 'enable': '켜기', 'permission': '권한 승인 대기', 'input': '입력 대기',
         'running': '작업 중', 'toolRunning': '실행 중',
     },
     'en': {
         'blocked': 'blocked', 'left': 'left', 'allDone': 'all done', 'next': 'next', 'eta': 'ETA',
         'background': 'background', 'compacted': 'compacted', 'collapse': 'Collapse',
-        'expand': 'Expand', 'open': 'Open', 'permission': 'waiting for permission',
+        'expand': 'Expand', 'open': 'Open', 'enable': 'Enable', 'permission': 'waiting for permission',
         'input': 'waiting for input', 'running': 'working', 'toolRunning': 'running',
     },
 }
@@ -978,12 +978,13 @@ def main(argv):
             global TERM_COLS
             TERM_COLS = cols
             # register.tsx 처럼 버튼이 차지하는 칸을 줄의 예산에서 뺀다. 상태 파일이 없는
-            # 세션에는 열 페이지가 없어 열기 버튼을 그리지 않으니 그 칸도 빼지 않는다.
+            # 세션에는 열 페이지가 없어 열기 자리에 켜기 버튼을 그리니 그 칸도 뺀다.
             opening = 1 + button_cols(words['open'])
+            enabling = 1 + button_cols(words['enable'])
             toggle = 1 + button_cols(words['collapse'])
             band_room = cols - opening - toggle
             status_room = cols - opening - toggle
-            only_room = cols - toggle
+            only_room = cols - enabling - toggle
             band = band_line(state, now, band_room, hud)
             alerts = band_alert_line(state, now, cols)
             folded = folded_segments(state, hud, now)
@@ -1001,7 +1002,7 @@ def main(argv):
                         row(alerts),
                     ] + under_input)),
                     (talk['hudBandCap'], terminal(talk_lines + [
-                        control_row(band_only, [(words['collapse'], False)]),
+                        control_row(band_only, [(words['enable'], True), (words['collapse'], False)]),
                     ] + under_input)),
                 ],
                 'statusline': [
@@ -1009,7 +1010,7 @@ def main(argv):
                         control_row(status, [(words['open'], True), (words['collapse'], False)]),
                     ])),
                     (talk['hudCap'], terminal(talk_lines + under_input + [
-                        control_row(only, [(words['collapse'], False)]),
+                        control_row(only, [(words['enable'], True), (words['collapse'], False)]),
                     ])),
                 ],
             }
