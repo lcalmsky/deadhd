@@ -630,7 +630,10 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
 .bd-legend i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
 .bd-stack i.done, .bd-legend i.done { background: var(--done); }
 .bd-stack i.now, .bd-legend i.now { background: var(--now); }
-.bd-stack i.stall, .bd-legend i.stall { background: var(--bd-stall); }
+/* 정체는 진행과 색이 가까워 색만으로는 갈리지 않는다. 같은 색 사선 빗금으로 모양도 다르게 한다. */
+.bd-stack i.stall, .bd-legend i.stall {
+  background: repeating-linear-gradient(45deg, var(--bd-stall) 0 3px, transparent 3px 6px);
+}
 .bd-stack i.blocked, .bd-legend i.blocked { background: var(--blocked); }
 .bd-stack i.waiting, .bd-legend i.waiting { background: var(--ink-3); opacity: .55; }
 .bd-stack i.left, .bd-legend i.left { background: var(--left); }
@@ -961,7 +964,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       eyebrowNow: l => l + ' 진행 중',
       eyebrowBlocked: l => l + ' 막힘',
       allDone: '모든 단계 완료',
-      tally: { done: '완료', now: '진행', blocked: '막힘', side: '병행', left: '대기' },
+      tally: { done: '완료', now: '진행', blocked: '막힘', side: '병행', left: '남음' },
       secBlocked: '막힌 작업',
       secNow: '진행 중인 작업',
       secDone: '완료된 작업',
@@ -991,6 +994,12 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       stepListLabel: '단계 목록',
       hub: '허브',
       liveWait: d => '권한 승인 대기 · ' + d,
+      // 엔진이 보내는 영어 권한 문구만 도구 이름을 뽑아 한국어로 바꾼다. 다른 문구는 그대로 둔다.
+      permMsg: m => {
+        if (m == null) return '';
+        const hit = /^Claude needs your permission to use (.+)$/.exec(String(m));
+        return hit ? hit[1] + ' 사용 승인 요청' : String(m);
+      },
       liveIdle: d => '입력 대기 · ' + d,
       liveWorking: '작업 중',
       liveStall: d => '신호 없음 · ' + d,
@@ -1033,7 +1042,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       boardLogTitle: '레인 기록',
       boardNoLog: '기록 없음',
       boardRecent: '최근 전이',
-      boardNoTime: '시작 시각이 있는 레인이 없다'
+      boardNoTime: '시작 시각이 있는 레인이 없어요'
     },
     en: {
       countDone: 'done',
@@ -1076,6 +1085,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       stepListLabel: 'Step list',
       hub: 'Hub',
       liveWait: d => 'Waiting for permission · ' + d,
+      permMsg: m => (m == null ? '' : String(m)),
       liveIdle: d => 'Waiting for your input · ' + d,
       liveWorking: 'Working',
       liveStall: d => 'No signal · ' + d,
@@ -1325,7 +1335,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     else if (lv.status === 'working' && stalled) title = L.liveStall(L.forDur(relDur(lv.lastTool.at)));
     else if (lv.status === 'ended') title = L.liveEnded(fmtClock(toDate(lv.since), viewNow));
     main.appendChild(el('b', 'status-title', title));
-    const what = lv.status === 'waiting_permission' ? lv.message
+    const what = lv.status === 'waiting_permission' ? L.permMsg(lv.message)
       : lv.status === 'working' && lv.lastTool ? lv.lastTool.name : '';
     if (what) main.appendChild(el('span', 'status-what mono', what));
     band.appendChild(main);
@@ -1540,7 +1550,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     const board = data.board;
     const bdLanes = board.lanes;
     const bdStages = Array.isArray(board.stages) && board.stages.length ? board.stages : null;
-    const STALL_DEFAULT = 15;
+    const STALL_DEFAULT = 10;
     const bdStateKey = KEY + ':board';
     const bdSaved = store.get(bdStateKey);
     const bdState = (bdSaved && typeof bdSaved === 'object' && !Array.isArray(bdSaved)) ? bdSaved : {};
@@ -1570,6 +1580,13 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       : lane.state === 'done' ? 'done'
       : lane.state === 'now' ? 'now'
       : lane.state === 'blocked' ? 'blocked' : 'blank';
+    // 펼침 요소는 키보드로도 눌러야 한다. Enter 와 Space 를 클릭과 같이 다루고
+    // Space 가 페이지를 스크롤하지 않게 막는다.
+    const keyActivate = (node, action) => node.addEventListener('keydown', e => {
+      if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+      e.preventDefault();
+      action();
+    });
 
     const sec = $('board');
     sec.hidden = false;
@@ -1627,6 +1644,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       tab.type = 'button';
       tab.setAttribute('role', 'tab');
       tab.setAttribute('aria-selected', i ? 'false' : 'true');
+      tab.dataset.focusKey = 'tab:' + (i ? 'time' : 'stage');
     });
     tabs.setAttribute('role', 'tablist');
     const stagePanel = el('div', 'bd-panel');
@@ -1686,6 +1704,8 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     function laneRow(lane) {
       const row = el('div', 'bd-row');
       row.dataset.lane = lane.id;
+      row.setAttribute('tabindex', '0');
+      row.setAttribute('role', 'button');
       const task = el('div', 'bd-task');
       const t1 = el('div', 'bd-t1');
       const key = el('span', 'bd-k');
@@ -1766,26 +1786,38 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       headEl.appendChild(el('span', 'bd-car', '▾'));
       headEl.appendChild(document.createTextNode(label));
       headEl.appendChild(el('span', 'bd-n', String(list.length)));
+      headEl.setAttribute('tabindex', '0');
+      headEl.setAttribute('role', 'button');
+      headEl.dataset.focusKey = 'grp:' + key;
       const box = el('div');
       box.hidden = closed;
       list.forEach(lane => {
         const row = laneRow(lane);
         const detail = laneDetail(lane);
         if (bdOpen.has(lane.id)) detail.classList.add('open');
-        row.addEventListener('click', () => {
+        row.dataset.focusKey = 'row:' + lane.id;
+        const toggleRow = () => {
           detail.classList.toggle('open');
           if (bdOpen.has(lane.id)) bdOpen.delete(lane.id); else bdOpen.add(lane.id);
+          row.setAttribute('aria-expanded', String(detail.classList.contains('open')));
           bdState.open = Array.from(bdOpen);
           bdSave();
-        });
+        };
+        row.setAttribute('aria-expanded', String(detail.classList.contains('open')));
+        row.addEventListener('click', toggleRow);
+        keyActivate(row, toggleRow);
         box.appendChild(row);
         box.appendChild(detail);
       });
-      headEl.addEventListener('click', () => {
+      const toggleGroup = () => {
         box.hidden = !box.hidden;
         headEl.classList.toggle('closed', box.hidden);
+        headEl.setAttribute('aria-expanded', String(!box.hidden));
         bdSetGroupClosed(key, box.hidden);
-      });
+      };
+      headEl.setAttribute('aria-expanded', String(!box.hidden));
+      headEl.addEventListener('click', toggleGroup);
+      keyActivate(headEl, toggleGroup);
       grid.appendChild(headEl);
       grid.appendChild(box);
     };
@@ -2201,6 +2233,35 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
   box.addEventListener('click', e => { const b = e.target.closest('.cc-chips button'); if (!b) return; vst.chip = b.dataset.k; saveView(); apply(); });
   landMq.addEventListener('change', () => { if (vst.o === 'auto') apply(); });
   apply();
+
+  // ---- 키보드 포커스 복원 ----
+  // meta refresh 로 15초마다 새로 그려지면 포커스가 문서 처음으로 돌아간다. 포커스된 요소의
+  // 안정적인 키를 남겨 두고, 렌더가 끝난 뒤 방금 남긴 기록이면 그 요소로 되돌린다.
+  const FOCUS_KEY = KEY + ':focus';
+  const FOCUS_TTL_MS = 30 * 1000;
+  const focusKeyOf = node => {
+    for (let n = node; n && n.nodeType === 1; n = n.parentNode) {
+      if (n.dataset && n.dataset.focusKey) return n.dataset.focusKey;
+      if (n.id) return 'id:' + n.id;
+    }
+    return null;
+  };
+  // 키에 따옴표가 섞여도 선택자가 깨지지 않게 이스케이프한다.
+  const attrValue = k => String(k).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  document.addEventListener('focusin', e => {
+    const key = focusKeyOf(e.target);
+    if (key) store.set(FOCUS_KEY, { key: key, at: Date.now() });
+  });
+  const focusRec = store.get(FOCUS_KEY);
+  if (focusRec && typeof focusRec.key === 'string' && typeof focusRec.at === 'number'
+      && Date.now() - focusRec.at <= FOCUS_TTL_MS) {
+    try {
+      const attr = attrValue(focusRec.key.replace(/^id:/, ''));
+      const node = document.querySelector(focusRec.key.indexOf('id:') === 0
+        ? '[id="' + attr + '"]' : '[data-focus-key="' + attr + '"]');
+      if (node) node.focus({ preventScroll: true });
+    } catch (err) { /* 요소가 사라졌거나 포커스를 못 걸면 처음 상태로 둔다 */ }
+  }
 })();
 </script>
 </body>

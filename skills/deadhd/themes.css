@@ -1,4 +1,6 @@
 /* 테마 변수와 글꼴 프리셋. template.html 과 hub.html 이 공유한다. */
+/* 보조 글자색(--ink-2·--ink-3)은 페이지 바탕(--bg) 위에서 WCAG AA 4.5:1 을 넘겨야 한다.
+   값을 바꿀 때는 같은 색상(hue)을 지키면서 대비를 다시 계산한다 (test_render.py 가 검사한다). */
 :root {
   --bg: #f6f7fb;
   --bg-2: #eceef6;
@@ -6,7 +8,7 @@
   --card-line: rgba(20,24,40,.08);
   --ink: #141828;
   --ink-2: #4a5068;
-  --ink-3: #8a90a6;
+  --ink-3: #6a718c;
   --done: #10b981;
   --done-2: #34d399;
   --now: #f59e0b;
@@ -37,7 +39,7 @@
     --card-line: rgba(255,255,255,.07);
     --ink: #f3f4f8;
     --ink-2: #b4b9cc;
-    --ink-3: #6f7590;
+    --ink-3: #717791;
     --left: #4b5068;
     --track: rgba(255,255,255,.07);
     --scroll: rgba(255,255,255,.16);
@@ -50,14 +52,14 @@
 }
 :root[data-theme="dark"] {
   --bg: #07080d; --bg-2: #0d0f18; --card: rgba(22,25,38,.72); --card-line: rgba(255,255,255,.07);
-  --ink: #f3f4f8; --ink-2: #b4b9cc; --ink-3: #6f7590; --left: #4b5068; --track: rgba(255,255,255,.07);
+  --ink: #f3f4f8; --ink-2: #b4b9cc; --ink-3: #717791; --left: #4b5068; --track: rgba(255,255,255,.07);
   --scroll: rgba(255,255,255,.16); --scroll-hover: rgba(255,255,255,.3);
   --glow-a: rgba(16,185,129,.22); --glow-b: rgba(139,92,246,.20); --glow-c: rgba(245,158,11,.14);
   --count-end: #a7f3d0;
 }
 :root[data-theme="neon"] {
   --bg: #07000f; --bg-2: #120424; --card: rgba(28,8,52,.72); --card-line: rgba(255,43,214,.18);
-  --ink: #f5f0ff; --ink-2: #c9b8ee; --ink-3: #7d6aa8;
+  --ink: #f5f0ff; --ink-2: #c9b8ee; --ink-3: #7e6ca9;
   --done: #00e5ff; --done-2: #7af4ff; --done-deep: #0097b2;
   --now: #ff2bd6; --now-2: #ff7ae6; --now-deep: #c4009f; --now-hi: #ff7ae6;
   --side: #e8ff00; --side-hi: #c9b8ee; --left: #4a3a6a;
@@ -83,7 +85,7 @@
 }
 :root[data-theme="matrix"] {
   --bg: #000000; --bg-2: #020a03; --card: rgba(0,20,6,.78); --card-line: rgba(0,255,65,.16);
-  --ink: #c8ffd0; --ink-2: #6fdc84; --ink-3: #2f7a3f;
+  --ink: #c8ffd0; --ink-2: #6fdc84; --ink-3: #338444;
   --done: #00ff41; --done-2: #7dff9b; --done-deep: #00a82b;
   --now: #d4ff00; --now-2: #ecff7a; --now-deep: #9ab800; --now-hi: #ecff7a;
   --side: #00c8ff; --side-hi: #6fdc84; --left: #1f4a29;
@@ -109,7 +111,7 @@
 }
 :root[data-theme="paper"] {
   --bg: #fbf6ea; --bg-2: #f3ecdb; --card: rgba(255,252,244,.85); --card-line: rgba(80,60,30,.12);
-  --ink: #2b2520; --ink-2: #5c5247; --ink-3: #9a8f80;
+  --ink: #2b2520; --ink-2: #5c5247; --ink-3: #7a7061;
   --done: #2f855a; --done-2: #48bb78; --done-deep: #22543d;
   --now: #dd6b20; --now-2: #f6ad55; --now-deep: #c05621; --now-hi: #f6ad55;
   --side: #6b46c1; --side-hi: #5c5247; --left: #c9bfae;
@@ -122,7 +124,7 @@
 }
 :root[data-theme="sakura"] {
   --bg: #fff5f8; --bg-2: #ffe9f0; --card: rgba(255,255,255,.8); --card-line: rgba(214,51,108,.12);
-  --ink: #3d1f2b; --ink-2: #7a4a5c; --ink-3: #b88a9b;
+  --ink: #3d1f2b; --ink-2: #7a4a5c; --ink-3: #9d6076;
   --done: #e64980; --done-2: #f783ac; --done-deep: #c2255c;
   --now: #f59f00; --now-2: #ffd43b; --now-deep: #e67700; --now-hi: #ffd43b;
   --side: #7950f2; --side-hi: #7a4a5c; --left: #e2c6d0;

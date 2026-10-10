@@ -99,7 +99,9 @@ def collect(state_dir):
         # 아직 페이지를 쓰지 않은 세션에는 링크를 걸지 않는다. 깨진 링크가 되기 때문이다.
         href = page_href(out) if out and os.path.exists(out) else None
         view = data.get('view')
-        view = view if href is None and view in ('band', 'statusline') else None
+        # 페이지가 없는 세션은 view 로 어디를 보고 있는지 알린다. html 세션은 페이지 파일이
+        # 사라진 경우라 이름 대신 「페이지 없음」으로 드러난다.
+        view = view if href is None and view in ('html', 'band', 'statusline') else None
         tasks = data.get('backgroundTasks')
         compactions = data.get('compactions')
         tool = data.get('lastTool')

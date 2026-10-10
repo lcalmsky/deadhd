@@ -151,7 +151,7 @@ Use `board` when four or more work units run at once: an epic's subtasks, severa
   - `dependsOn`: the ids of the lanes this one waits for. The row shows them as `↳ … waiting`.
   - `startedAt`, `doneAt`: same rule as on an item — a real time only, never invented.
   - `lastSignal`: the last time a tool result in this session showed that worker's output: a result file update, a completion notice, a log line. Never invent it, and refresh it every time you look. The page prints it as `N ago` and turns the lane `stalled` once the silence passes `stallAfter`.
-  - `stallAfter`: minutes of silence before a `now` lane counts as stalled. Defaults to 15. The page decides this in the browser, so a lane you stopped updating still shows up as stalled.
+  - `stallAfter`: minutes of silence before a `now` lane counts as stalled. Defaults to 10. The page decides this in the browser, so a lane you stopped updating still shows up as stalled.
   - `estimate`: minutes left, as on a `now` item.
   - `note`: a few words under the current stage dot, e.g. `code-reviewer`.
   - `body`: the text the row expands to, one or two sentences.

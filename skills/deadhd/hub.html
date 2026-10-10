@@ -57,6 +57,9 @@ h1 {
   font-size: clamp(24px, 3.6vw, 34px); line-height: 1.3; margin: 16px 0 8px;
 }
 .hub-sub { font-family: var(--f-mono); font-size: 12.5px; color: var(--ink-3); }
+/* 타일의 점 스트립과 같은 .dot 클래스를 쓴다. 그러면 ink 테마의 빗금 규칙도 함께 걸린다. */
+.hub-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; font-size: 11.5px; color: var(--ink-3); }
+.hub-legend span { display: inline-flex; align-items: center; gap: 5px; }
 
 /* ---------- 절 ---------- */
 .hub-h {
@@ -165,6 +168,7 @@ details summary {
   <span class="eyebrow"><span class="dot"></span><span id="eyebrowText"></span></span>
   <h1 id="h1"></h1>
   <div class="hub-sub" id="sub"></div>
+  <div class="hub-legend" id="legend" hidden></div>
 
   <section id="sec-wait" hidden>
     <h2 class="hub-h" id="waitHead"></h2>
@@ -215,11 +219,17 @@ details summary {
       bucketDone: '완료',
       bucketEnded: '종료',
       bucketStale: '지난',
-      empty: '아직 세션이 없다. 작업 중인 세션에서 /deadhd 를 실행하면 여기 모인다.',
+      empty: '아직 세션이 없어요. 작업 중인 세션에서 /deadhd 를 실행하면 여기 모여요.',
       countDone: '완료',
       eta: '완료 예상 ',
       now: l => '지금 · ' + l,
       liveWait: d => '권한 승인 대기 · ' + d,
+      // 엔진이 보내는 영어 권한 문구만 도구 이름을 뽑아 한국어로 바꾼다. 다른 문구는 그대로 둔다.
+      permMsg: m => {
+        if (m == null) return '';
+        const hit = /^Claude needs your permission to use (.+)$/.exec(String(m));
+        return hit ? hit[1] + ' 사용 승인 요청' : String(m);
+      },
       liveIdle: d => '입력 대기 · ' + d,
       liveWorking: '작업 중',
       liveStall: d => '신호 없음 · ' + d,
@@ -239,7 +249,13 @@ details summary {
       ago: d => d + ' 전',
       sec: s => s + '초',
       viewBand: '밴드',
-      viewStatusline: '상태줄'
+      viewStatusline: '상태줄',
+      viewPageNone: '페이지 없음',
+      legendDone: '완료',
+      legendNow: '진행',
+      legendSide: '병행',
+      legendLeft: '남음',
+      legendBlocked: '막힘'
     },
     en: {
       eyebrow: 'deadhd hub',
@@ -263,6 +279,7 @@ details summary {
       eta: 'ETA ',
       now: l => 'Now · ' + l,
       liveWait: d => 'Waiting for permission · ' + d,
+      permMsg: m => (m == null ? '' : String(m)),
       liveIdle: d => 'Waiting for your input · ' + d,
       liveWorking: 'Working',
       liveStall: d => 'No signal · ' + d,
@@ -282,7 +299,13 @@ details summary {
       ago: d => d + ' ago',
       sec: s => s + 's',
       viewBand: 'band',
-      viewStatusline: 'status line'
+      viewStatusline: 'status line',
+      viewPageNone: 'no page yet',
+      legendDone: 'Done',
+      legendNow: 'Now',
+      legendSide: 'Parallel',
+      legendLeft: 'Left',
+      legendBlocked: 'Blocked'
     }
   };
 
@@ -346,6 +369,20 @@ details summary {
   });
   $('sub').textContent = parts.join(' · ');
 
+  // 점 스트립이 붙은 타일이 하나도 없으면 무엇을 가리키는 범례인지 알 수 없으니 감춘다.
+  const legend = $('legend');
+  const hasStrip = sessions.some(s => Array.isArray((s.summary || {}).states) && s.summary.states.length);
+  legend.hidden = !hasStrip;
+  if (hasStrip) {
+    [['done', L.legendDone], ['now', L.legendNow], ['side', L.legendSide],
+     ['left', L.legendLeft], ['blocked', L.legendBlocked]].forEach(([cls, label]) => {
+      const item = el('span');
+      item.appendChild(el('i', 'dot ' + cls));
+      item.appendChild(document.createTextNode(label));
+      legend.appendChild(item);
+    });
+  }
+
   function badgeEl(session) {
     const badge = el('span', 'badge');
     badge.appendChild(el('i'));
@@ -368,13 +405,15 @@ details summary {
     const sum = session.summary || {};
     const a = el('a', 'tile tile-' + session.bucket);
     if (session.href) a.href = session.href;
+    a.dataset.focusKey = 'tile:' + session.sessionId;
 
     const top = el('div', 'tile-top');
     top.appendChild(badgeEl(session));
     // 페이지를 아직 쓰지 않은 세션은 링크가 없으므로 표시 방식 이름으로 어디에 있는지 알린다.
+    // html 은 이름 대신 아직 페이지 파일이 없다는 뜻을 보여 준다.
     if (session.view) {
-      top.appendChild(el('span', 'tile-view mono',
-        session.view === 'band' ? L.viewBand : L.viewStatusline));
+      const names = { band: L.viewBand, statusline: L.viewStatusline, html: L.viewPageNone };
+      top.appendChild(el('span', 'tile-view mono', names[session.view] || String(session.view)));
     }
     if (session.updatedAt) {
       top.appendChild(el('span', 'tile-upd mono', L.updated(fmtClock(toDate(session.updatedAt), viewNow))));
@@ -421,7 +460,7 @@ details summary {
     a.appendChild(main);
 
     const line = [];
-    if (session.status === 'waiting_permission' && session.message) line.push(session.message);
+    if (session.status === 'waiting_permission' && session.message) line.push(L.permMsg(session.message));
     if (session.status === 'working' && session.lastTool && session.lastTool.name) line.push(session.lastTool.name);
     const tasks = Array.isArray(session.backgroundTasks) ? session.backgroundTasks : [];
     if (tasks.length) line.push(L.liveBackground(tasks.length));
@@ -452,6 +491,39 @@ details summary {
   $('sec-ended').hidden = !ended.length;
   $('empty').hidden = sessions.length > 0;
   if (!sessions.length) $('empty').textContent = L.empty;
+
+  // ---- 키보드 포커스 복원 ----
+  // meta refresh 로 15초마다 새로 그려지면 포커스가 문서 처음으로 돌아간다. 포커스된 요소의
+  // 안정적인 키를 남겨 두고, 렌더가 끝난 뒤 방금 남긴 기록이면 그 요소로 되돌린다.
+  const FOCUS_KEY = 'deadhd-hub:focus';
+  const FOCUS_TTL_MS = 30 * 1000;
+  const focusStore = {
+    get() { try { return JSON.parse(sessionStorage.getItem(FOCUS_KEY) || 'null'); } catch (e) { return null; } },
+    set(v) { try { sessionStorage.setItem(FOCUS_KEY, JSON.stringify(v)); } catch (e) { /* 저장 불가 환경에서는 매번 처음 보는 것으로 취급한다 */ } }
+  };
+  const focusKeyOf = node => {
+    for (let n = node; n && n.nodeType === 1; n = n.parentNode) {
+      if (n.dataset && n.dataset.focusKey) return n.dataset.focusKey;
+      if (n.id) return 'id:' + n.id;
+    }
+    return null;
+  };
+  // 키에 따옴표가 섞여도 선택자가 깨지지 않게 이스케이프한다.
+  const attrValue = k => String(k).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  document.addEventListener('focusin', e => {
+    const key = focusKeyOf(e.target);
+    if (key) focusStore.set({ key: key, at: Date.now() });
+  });
+  const focusRec = focusStore.get();
+  if (focusRec && typeof focusRec.key === 'string' && typeof focusRec.at === 'number'
+      && Date.now() - focusRec.at <= FOCUS_TTL_MS) {
+    try {
+      const attr = attrValue(focusRec.key.replace(/^id:/, ''));
+      const node = document.querySelector(focusRec.key.indexOf('id:') === 0
+        ? '[id="' + attr + '"]' : '[data-focus-key="' + attr + '"]');
+      if (node) node.focus({ preventScroll: true });
+    } catch (err) { /* 요소가 사라졌거나 포커스를 못 걸면 처음 상태로 둔다 */ }
+  }
 })();
 </script>
 </body>

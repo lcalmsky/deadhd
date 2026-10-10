@@ -147,6 +147,7 @@ function setParent(child, parent) {
 function El(tag) {
   this.tag = tag;
   this.tagName = tag === '#text' ? '#text' : tag.toUpperCase();
+  this.nodeType = tag === '#text' ? 3 : 1;
   this.children = [];
   this.attrs = {};
   this.dataset = {};
@@ -212,6 +213,11 @@ El.prototype.setAttribute = function (k, v) {
 };
 El.prototype.addEventListener = function (type, fn) { (this._on || (this._on = {}))[type] = fn; };
 El.prototype.click = function () { const fn = this._on && this._on.click; if (fn) fn(); };
+El.prototype.keydown = function (key) {
+  const fn = this._on && this._on.keydown;
+  if (fn) fn({ key: key, preventDefault: function () { this.defaultPrevented = true; } });
+};
+El.prototype.focus = function () {};
 El.prototype.remove = function () {};
 El.prototype.getBoundingClientRect = function () { return { left: 0, top: 0, width: 0, height: 0 }; };
 El.prototype.querySelector = function () { return null; };
@@ -225,6 +231,7 @@ function makeDocument(raw) {
     createElementNS: function (ns, t) { return new El(t); },
     createTextNode: function (t) { return textNode(t); },
     createDocumentFragment: function () { return new El('#fragment'); },
+    addEventListener: function (type, fn) { (doc._on || (doc._on = {}))[type] = fn; },
     getElementById: function (id) {
       if (!byId.has(id)) { const e = new El('div'); e.id = id; setParent(e, doc.body); byId.set(id, e); }
       return byId.get(id);
@@ -237,6 +244,7 @@ function makeDocument(raw) {
   setParent(doc.body, DOC_ROOT);
   doc.getElementById('progress-data').textContent = raw;
   doc._byId = byId;
+  doc._queries = queries;
   return doc;
 }
 
@@ -310,7 +318,7 @@ function matchesClick(n, spec) {
   if (spec.lane != null && (n.dataset || {}).lane !== spec.lane) return false;
   return true;
 }
-function clickSpec(spec) {
+function findNodes(spec) {
   const found = [];
   for (const entry of doc._byId) {
     if (entry[0] === 'progress-data') continue;
@@ -319,11 +327,24 @@ function clickSpec(spec) {
       for (const kid of n.children) walk(kid);
     })(entry[1]);
   }
-  const node = found[spec.nth || 0];
-  if (!node) throw new Error('클릭할 노드를 찾지 못했다: ' + JSON.stringify(spec));
-  node.click();
+  return found;
 }
+function pickNode(spec, what) {
+  const node = findNodes(spec)[spec.nth || 0];
+  if (!node) throw new Error(what + ' 노드를 찾지 못했다: ' + JSON.stringify(spec));
+  return node;
+}
+function clickSpec(spec) { pickNode(spec, '클릭할').click(); }
 for (const spec of (cases && cases.clicks) || []) clickSpec(spec);
+
+// 포커스와 키 입력은 클릭과 같은 노드 찾기 규칙을 쓴다.
+function focusinSpec(spec) {
+  const node = pickNode(spec, '포커스를 보낼');
+  const fn = doc._on && doc._on.focusin;
+  if (fn) fn({ target: node });
+}
+for (const spec of (cases && cases.focusins) || []) focusinSpec(spec);
+for (const spec of (cases && cases.keys) || []) pickNode(spec, '키를 보낼').keydown(spec.key);
 
 // nodes 는 클릭 전 스냅숏이라, 클릭이 바꾼 상태는 여기서 한 번 더 뜬다.
 const nodesAfter = {};
@@ -357,7 +378,8 @@ process.stdout.write(JSON.stringify({
   },
   nodes: nodes,
   nodesAfter: nodesAfter,
-  storage: ss._m
+  storage: ss._m,
+  queried: Array.from(doc._queries.keys())
 }));
 '''
 
@@ -390,8 +412,10 @@ function textNode(s) {
 function El(tag) {
   this.tag = tag;
   this.tagName = tag === '#text' ? '#text' : tag.toUpperCase();
+  this.nodeType = tag === '#text' ? 3 : 1;
   this.children = [];
   this.attrs = {};
+  this.dataset = {};
   this.hidden = false;
   this.text = '';
   this.id = '';
@@ -427,21 +451,29 @@ El.prototype.setAttribute = function (k, v) {
   this.attrs[k] = String(v);
   if (k === 'class') this._cls = String(v);
 };
-El.prototype.addEventListener = function () {};
+El.prototype.addEventListener = function (type, fn) { (this._on || (this._on = {}))[type] = fn; };
+El.prototype.focus = function () {};
 
 function makeDocument(raw) {
   const byId = new Map();
+  const queries = new Map();
   const doc = {
     createElement: function (t) { return new El(t); },
     createTextNode: function (t) { return textNode(t); },
     createDocumentFragment: function () { return new El('#fragment'); },
+    addEventListener: function (type, fn) { (doc._on || (doc._on = {}))[type] = fn; },
     getElementById: function (id) {
       if (!byId.has(id)) { const e = new El('div'); e.id = id; byId.set(id, e); }
       return byId.get(id);
+    },
+    querySelector: function (sel) {
+      if (!queries.has(sel)) queries.set(sel, new El('div'));
+      return queries.get(sel);
     }
   };
   doc.getElementById('hub-data').textContent = raw;
   doc._byId = byId;
+  doc._queries = queries;
   return doc;
 }
 
@@ -477,15 +509,48 @@ function fixClock(iso) {
 const fixedNow = process.argv[4] || '';
 if (fixedNow) fixClock(fixedNow);
 
+const ss = {
+  _m: {},
+  getItem: function (k) { return Object.prototype.hasOwnProperty.call(this._m, k) ? this._m[k] : null; },
+  setItem: function (k, v) { this._m[k] = String(v); }
+};
+const seed = process.argv[5] ? JSON.parse(fs.readFileSync(process.argv[5], 'utf8')) : null;
+if (seed) Object.assign(ss._m, seed);
+
 const doc = makeDocument(rawData);
-new Function('document', code)(doc);
+new Function('document', 'sessionStorage', code)(doc, ss);
+
+// 포커스가 들어온 것처럼 만들어 focusin 처리기가 남긴 기록을 본다.
+function findNode(cls, text) {
+  for (const entry of doc._byId) {
+    if (entry[0] === 'hub-data') continue;
+    const hit = (function walk(n) {
+      if ((n.className || '').split(' ').includes(cls) && (text == null || textOf(n) === text)) return n;
+      for (const kid of n.children) { const r = walk(kid); if (r) return r; }
+      return null;
+    })(entry[1]);
+    if (hit) return hit;
+  }
+  return null;
+}
+const focusinAt = process.argv[6] ? JSON.parse(process.argv[6]) : null;
+if (focusinAt) {
+  const node = findNode(focusinAt.cls, focusinAt.text == null ? null : focusinAt.text);
+  if (!node) throw new Error('포커스를 보낼 노드를 찾지 못했다: ' + JSON.stringify(focusinAt));
+  const fn = doc._on && doc._on.focusin;
+  if (fn) fn({ target: node });
+}
 
 const nodes = {};
 for (const entry of doc._byId) {
   if (entry[0] === 'hub-data') continue;
   nodes[entry[0]] = serialize(entry[1]);
 }
-process.stdout.write(JSON.stringify({ nodes }));
+process.stdout.write(JSON.stringify({
+  nodes: nodes,
+  storage: ss._m,
+  queried: Array.from(doc._queries.keys())
+}));
 '''
 
 
@@ -513,7 +578,7 @@ def run_hub(state_dir, hub_path=None, theme=None, font=None, out=None, env_extra
     return subprocess.run(cmd, capture_output=True, text=True, env=env)
 
 
-def run_hub_harness(html, fixed_now=None):
+def run_hub_harness(html, fixed_now=None, storage=None, focusin=None):
     with tempfile.TemporaryDirectory(prefix='progress-hub-') as d:
         for name, text in (('harness.js', HUB_HARNESS), ('script.js', script_block(html)),
                            ('data.txt', hub_data_block(html))):
@@ -522,6 +587,14 @@ def run_hub_harness(html, fixed_now=None):
         env = dict(os.environ, TZ='Asia/Seoul')
         cmd = [NODE, os.path.join(d, 'harness.js'), os.path.join(d, 'script.js'),
                os.path.join(d, 'data.txt'), fixed_now or '']
+        if storage is not None:
+            path = os.path.join(d, 'storage.json')
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(storage, f, ensure_ascii=False)
+            cmd.append(path)
+        else:
+            cmd.append('')
+        cmd.append(json.dumps(focusin, ensure_ascii=False) if focusin is not None else '')
         r = subprocess.run(cmd, capture_output=True, text=True, cwd=d, env=env)
     assert r.returncode == 0, r.stderr
     return json.loads(r.stdout)
@@ -939,6 +1012,14 @@ class TemplateDomStateTest(unittest.TestCase):
 
     def test_eta_absent_without_estimate(self):
         self.assertEqual(self.find(self.render_dom([mini_item('a', 'done')]), 'eta'), [])
+
+    def test_tally_calls_the_remaining_steps_남음(self):
+        result = self.render_dom([mini_item('a', 'done'), mini_item('b', 'left'), mini_item('c', 'side')])
+        tally = result['nodes']['tally']
+        self.assertEqual(
+            [(k['text'], [d.get('cls') for d in k['kids'] if d['t'] == 'I']) for k in tally['kids']],
+            [('완료 1', ['done']), ('병행 1', ['side']), ('남음 1', ['left'])],
+        )
 
     def test_node_when_texts(self):
         items = [
@@ -1984,6 +2065,14 @@ class TemplateThemeTest(unittest.TestCase):
         self.assertIn(':root[data-theme="dark"]', html)
         self.assertIn('--bg: #07080d', html)
 
+    def test_stall_swatch_is_hatched_as_well_as_colored(self):
+        with open(TEMPLATE, encoding='utf-8') as f:
+            tpl = f.read()
+        rule = re.search(r'\.bd-stack i\.stall, \.bd-legend i\.stall \{(.*?)\}', tpl, re.S)
+        self.assertIsNotNone(rule, '정체 견본 규칙을 찾지 못했다')
+        self.assertIn('repeating-linear-gradient', rule.group(1))
+        self.assertIn('var(--bd-stall)', rule.group(1))
+
     def test_ink_overrides_and_tally_classes_exist(self):
         with open(TEMPLATE, encoding='utf-8') as f:
             tpl = f.read()
@@ -1991,6 +2080,62 @@ class TemplateThemeTest(unittest.TestCase):
         self.assertIn('.tally i.done { background: var(--done); }', tpl)
         self.assertIn('dot.className = k;', tpl)
         self.assertNotIn('dot.style.background', tpl)
+
+
+def srgb_channel(value):
+    c = value / 255
+    return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def relative_luminance(color):
+    h = color.lstrip('#')
+    if len(h) == 3:
+        h = ''.join(ch * 2 for ch in h)
+    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+    return 0.2126 * srgb_channel(r) + 0.7152 * srgb_channel(g) + 0.0722 * srgb_channel(b)
+
+
+def contrast_ratio(a, b):
+    la, lb = relative_luminance(a), relative_luminance(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+def block_vars(block):
+    return dict(re.findall(r'(--[\w-]+):\s*([^;]+);', block))
+
+
+class ThemeContrastTest(unittest.TestCase):
+    """보조 글자색이 페이지 바탕 위에서 WCAG AA(4.5:1)를 넘는지 확인한다."""
+
+    def themes(self):
+        with open(THEMES_CSS, encoding='utf-8') as f:
+            css = f.read()
+        base = block_vars(re.search(r':root \{(.*?)\}', css, re.S).group(1))
+        media = re.search(
+            r'@media \(prefers-color-scheme: dark\) \{\s*:root:not\(\[data-theme="light"\]\) \{(.*?)\}',
+            css, re.S).group(1)
+        themes = {'system light': base, 'system dark': dict(base, **block_vars(media))}
+        for theme in EXTRA_THEMES:
+            block = re.search(r':root\[data-theme="%s"\] \{(.*?)\}' % theme, css, re.S).group(1)
+            themes[theme] = dict(base, **block_vars(block))
+        return themes
+
+    def test_page_background_is_a_flat_color(self):
+        # 대비는 바탕이 그라디언트가 아니어야 한 값으로 계산할 수 있다.
+        for name, tokens in self.themes().items():
+            with self.subTest(theme=name):
+                self.assertRegex(tokens['--bg'], r'^#[0-9a-fA-F]{3,6}$')
+
+    def test_secondary_text_meets_aa_on_the_page_background(self):
+        themes = self.themes()
+        self.assertEqual(len(themes), 2 + len(EXTRA_THEMES))
+        for name, tokens in sorted(themes.items()):
+            bg = tokens['--bg']
+            for token in ('--ink-2', '--ink-3'):
+                with self.subTest(theme=name, token=token):
+                    self.assertGreaterEqual(
+                        contrast_ratio(tokens[token], bg), 4.5,
+                        '%s 의 %s %s 이 바탕 %s 에서 4.5:1 에 못 미친다' % (name, token, tokens[token], bg))
 
 
 class TemplateFontTest(unittest.TestCase):
@@ -2891,8 +3036,14 @@ class HubTest(unittest.TestCase):
         self.assertEqual(sessions[0]['href'], 'file://' + os.path.join(self.tmp, 'a.html'))
         self.assertIsNone(sessions[0]['view'])
 
-    def test_a_view_outside_the_lines_names_nothing(self):
+    def test_html_session_without_a_page_is_named(self):
         self.write_state('a', 'working', '2026-10-03T09:30:00+09:00', FIXED_NOW, view='html', page=False)
+        sessions = self.sessions()
+        self.assertIsNone(sessions[0]['href'])
+        self.assertEqual(sessions[0]['view'], 'html')
+
+    def test_a_view_outside_the_lines_names_nothing(self):
+        self.write_state('a', 'working', '2026-10-03T09:30:00+09:00', FIXED_NOW, view='paper', page=False)
         self.assertIsNone(self.sessions()[0]['view'])
 
     def test_recently_moved_tool_is_stalled(self):
@@ -2982,7 +3133,7 @@ class HubPageTest(unittest.TestCase):
 
     def write_state(self, session, status, since, title, lang='ko', tool_at=None,
                     key_href='https://x.test/SHOP-1', hooked=True, all_done=False,
-                    view=None, page=True):
+                    view=None, page=True, states=('done', 'done', 'done', 'now', 'left'), message=None):
         path = os.path.join(self.tmp, session + '.html')
         if page:
             with open(path, 'w', encoding='utf-8') as f:
@@ -2994,7 +3145,8 @@ class HubPageTest(unittest.TestCase):
             'status': status,
             'since': since,
             'updatedAt': FIXED_NOW,
-            'message': 'Bash 권한' if status == 'waiting_permission' else None,
+            'message': message if message is not None else (
+                'Bash 권한' if status == 'waiting_permission' else None),
             'lastTool': {'name': 'Bash', 'at': tool_at, 'durationMs': None} if tool_at else None,
             'backgroundTasks': [],
             'compactions': {'count': 0, 'lastAt': None},
@@ -3002,7 +3154,7 @@ class HubPageTest(unittest.TestCase):
             'summary': {
                 'title': title, 'key': 'SHOP-1', 'keyHref': key_href, 'lang': lang,
                 'updated': None, 'counts': {'done': 3, 'now': 1, 'side': 0, 'left': 1, 'blocked': 0},
-                'total': 5, 'states': ['done', 'done', 'done', 'now', 'left'], 'nowLabel': '배포 검증',
+                'total': 5, 'states': list(states), 'nowLabel': '배포 검증',
                 'eta': '2026-10-03T10:30:00+09:00', 'etaCalibrated': '2026-10-03T10:48:00+09:00',
                 'renderedAt': FIXED_NOW, 'hooked': hooked, 'allDone': all_done,
             },
@@ -3010,12 +3162,15 @@ class HubPageTest(unittest.TestCase):
         with open(os.path.join(self.state_dir, session + '.json'), 'w', encoding='utf-8') as f:
             json.dump(state, f, ensure_ascii=False)
 
-    def dom(self, theme=None, font=None):
+    def harness(self, theme=None, font=None, storage=None, focusin=None):
         r = run_hub(self.state_dir, self.hub, theme=theme, font=font,
                     env_extra={'DEADHD_NOW': FIXED_NOW})
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(self.hub, encoding='utf-8') as f:
-            return run_hub_harness(f.read(), fixed_now=FIXED_NOW)['nodes']
+            return run_hub_harness(f.read(), fixed_now=FIXED_NOW, storage=storage, focusin=focusin)
+
+    def dom(self, theme=None, font=None):
+        return self.harness(theme=theme, font=font)['nodes']
 
     def tiles(self, nodes, grid):
         return [n for n in iter_nodes(nodes[grid]) if 'tile' in (n.get('cls') or '').split()]
@@ -3029,6 +3184,49 @@ class HubPageTest(unittest.TestCase):
         tile = self.tiles(self.dom(), 'waitGrid')[0]
         self.assertIsNone(tile.get('href'))
         self.assertEqual(self.texts(tile, 'tile-view'), ['밴드'])
+
+    def test_html_session_without_a_page_names_it(self):
+        self.write_state('h', 'working', '2026-10-03T09:30:00+09:00', '페이지 없는 세션',
+                         view='html', page=False)
+        tile = self.tiles(self.dom(), 'workGrid')[0]
+        self.assertIsNone(tile.get('href'))
+        self.assertEqual(self.texts(tile, 'tile-view'), ['페이지 없음'])
+
+    def test_html_session_without_a_page_names_it_in_english(self):
+        self.write_state('h', 'working', '2026-10-03T09:30:00+09:00', 'Page-less session',
+                         lang='en', view='html', page=False)
+        tile = self.tiles(self.dom(), 'workGrid')[0]
+        self.assertEqual(self.texts(tile, 'tile-view'), ['no page yet'])
+
+    def test_legend_lists_the_strip_states(self):
+        self.write_state('w', 'waiting_permission', '2026-10-03T09:48:00+09:00', '기다리는 세션')
+        legend = self.dom()['legend']
+        self.assertNotIn('hidden', legend)
+        self.assertEqual([n.get('cls') for n in iter_nodes(legend) if 'dot' in (n.get('cls') or '').split()],
+                         ['dot done', 'dot now', 'dot side', 'dot left', 'dot blocked'])
+        self.assertEqual([n['text'] for n in legend['kids']], ['완료', '진행', '병행', '남음', '막힘'])
+
+    def test_legend_follows_the_language(self):
+        self.write_state('w', 'waiting_permission', '2026-10-03T09:48:00+09:00', 'Waiting session', lang='en')
+        legend = self.dom()['legend']
+        self.assertEqual([n['text'] for n in legend['kids']],
+                         ['Done', 'Now', 'Parallel', 'Left', 'Blocked'])
+
+    def test_legend_is_hidden_without_a_dot_strip(self):
+        self.write_state('w', 'waiting_permission', '2026-10-03T09:48:00+09:00', '기다리는 세션', states=())
+        self.assertEqual(self.dom()['legend']['hidden'], True)
+
+    def test_engine_permission_message_is_shown_in_korean(self):
+        self.write_state('w', 'waiting_permission', '2026-10-03T09:48:00+09:00', '기다리는 세션',
+                         message='Claude needs your permission to use Bash')
+        tile = self.tiles(self.dom(), 'waitGrid')[0]
+        self.assertEqual(self.texts(tile, 'tile-sub'), ['Bash 사용 승인 요청'])
+
+    def test_focus_on_a_tile_is_remembered_with_the_session_id(self):
+        self.write_state('w', 'waiting_permission', '2026-10-03T09:48:00+09:00', '기다리는 세션')
+        result = self.harness(focusin={'cls': 'tile'})
+        self.assertEqual(json.loads(result['storage']['deadhd-hub:focus']),
+                         {'key': 'tile:w', 'at': FIXED_NOW_MS})
 
     def test_tile_with_a_page_names_no_view(self):
         self.write_state('w', 'waiting_permission', '2026-10-03T09:48:00+09:00', '페이지 세션',
@@ -3093,7 +3291,7 @@ class HubPageTest(unittest.TestCase):
 
     def test_empty_page_shows_the_sentence(self):
         nodes = self.dom()
-        self.assertIn('아직 세션이 없다', nodes['empty']['text'])
+        self.assertIn('아직 세션이 없어요', nodes['empty']['text'])
         self.assertNotIn('hidden', nodes['empty'])
         self.assertEqual(nodes['h1']['text'], '세션 0 · 나를 기다리는 세션 0')
 
@@ -3663,6 +3861,22 @@ class LiveBandTest(unittest.TestCase):
         self.assertTrue(self.texts(node, 'status-title')[0].startswith('권한 승인 대기 · '))
         self.assertEqual(self.texts(node, 'status-what'), ['Bash 권한'])
 
+    def test_engine_permission_message_is_shown_in_korean(self):
+        node = self.band_with_state({
+            'hooked': True, 'status': 'waiting_permission',
+            'since': '2026-10-03T09:48:00+09:00',
+            'message': 'Claude needs your permission to use Bash',
+        })
+        self.assertEqual(self.texts(node, 'status-what'), ['Bash 사용 승인 요청'])
+
+    def test_english_band_keeps_the_engine_message(self):
+        node = self.band_with_state({
+            'hooked': True, 'status': 'waiting_permission',
+            'since': '2026-10-03T09:48:00+09:00',
+            'message': 'Claude needs your permission to use Bash',
+        }, lang='en')
+        self.assertEqual(self.texts(node, 'status-what'), ['Claude needs your permission to use Bash'])
+
     def test_stalled_working_band(self):
         node = self.band_with_state({
             'hooked': True,
@@ -3880,6 +4094,9 @@ class HooksJsonTest(unittest.TestCase):
 BOARD_STAGES = ['분석', '설계', '구현', '검증']
 # board_data 의 제목은 'T', key 는 없다. 템플릿의 KEY 는 'progress:' + key + ':' + title 이다.
 BOARD_STATE_KEY = 'progress::T:board'
+BOARD_FOCUS_KEY = 'progress::T:focus'
+# 템플릿 스크립트는 렌더된 시각을 고정해 돌린다. Date.now 도 같은 값이 된다.
+FIXED_NOW_MS = int(datetime.fromisoformat(FIXED_NOW).timestamp() * 1000)
 DEMO_EPIC = os.path.join(os.path.dirname(os.path.dirname(HERE)), 'docs', 'demos', 'epic.json')
 
 
@@ -4024,7 +4241,8 @@ class BoardDomTest(unittest.TestCase):
         self.tmp = tempfile.mkdtemp(prefix='progress-board-dom-test-')
         self.addCleanup(shutil.rmtree, self.tmp, True)
 
-    def render_dom(self, data, now=FIXED_NOW, view=FIXED_NOW, storage=None, clicks=None):
+    def render_dom(self, data, now=FIXED_NOW, view=FIXED_NOW, storage=None, clicks=None,
+                   keys=None, focusins=None):
         path = os.path.join(self.tmp, 'data.json')
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False)
@@ -4032,30 +4250,45 @@ class BoardDomTest(unittest.TestCase):
         r = run_render(path, out, env_extra={'DEADHD_NOW': now, 'DEADHD_PORT': '47410'})
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(out, encoding='utf-8') as f:
-            cases = {'clicks': clicks} if clicks else None
+            cases = {'clicks': clicks, 'keys': keys, 'focusins': focusins}
             return run_linkify_harness(f.read(), cases=cases, fixed_now=view, storage=storage)
 
-    def find(self, result, cls):
+    def find_in(self, nodes, cls):
         found = []
-        for tree in result['nodes'].values():
+        for tree in nodes.values():
             for node in iter_nodes(tree):
                 if cls in (node.get('cls') or '').split():
                     found.append(node)
         return found
 
-    def lane_node(self, result, lid):
-        for node in iter_nodes(result['nodes']['board']):
+    def find(self, result, cls):
+        return self.find_in(result['nodes'], cls)
+
+    def lane_node_in(self, nodes, lid):
+        for node in iter_nodes(nodes['board']):
             if (node.get('data') or {}).get('lane') == lid:
                 return node
         self.fail('레인 행을 찾지 못했다: ' + lid)
 
-    def lane_detail(self, result, lid):
-        for node in iter_nodes(result['nodes']['board']):
+    def lane_node_after(self, result, lid):
+        return self.lane_node_in(result['nodesAfter'], lid)
+
+    def lane_detail_in(self, nodes, lid):
+        for node in iter_nodes(nodes['board']):
             kids = node.get('kids', [])
             for i, kid in enumerate(kids):
                 if (kid.get('data') or {}).get('lane') == lid:
                     return kids[i + 1]
         self.fail('레인 상세를 찾지 못했다: ' + lid)
+
+    def lane_node(self, result, lid):
+        return self.lane_node_in(result['nodes'], lid)
+
+    def lane_detail(self, result, lid):
+        return self.lane_detail_in(result['nodes'], lid)
+
+    def lane_detail_after(self, result, lid):
+        return self.lane_detail_in(result['nodesAfter'], lid)
 
     def board_storage(self, state):
         return {BOARD_STATE_KEY: json.dumps(state, ensure_ascii=False)}
@@ -4194,6 +4427,86 @@ class BoardDomTest(unittest.TestCase):
         result = self.render_dom(board_data(board), storage=self.board_storage({'open': ['gone']}))
         self.assertNotIn('open', (self.lane_detail(result, 'l1').get('cls') or '').split())
         self.assertEqual([n['text'] for n in self.find(result, 'bd-grp')], ['▾진행 중1'])
+
+    def test_rows_and_group_heads_are_keyboard_buttons(self):
+        board = {'stages': BOARD_STAGES,
+                 'lanes': [board_lane('l1', 'done', stage='검증'), board_lane('l2', 'now', stage='구현')]}
+        result = self.render_dom(board_data(board))
+        lane = self.lane_node(result, 'l2')
+        self.assertEqual(lane['attrs']['tabindex'], '0')
+        self.assertEqual(lane['attrs']['role'], 'button')
+        self.assertEqual(lane['attrs']['aria-expanded'], 'false')
+        heads = self.find(result, 'bd-grp')
+        for head in heads:
+            self.assertEqual(head['attrs']['tabindex'], '0')
+            self.assertEqual(head['attrs']['role'], 'button')
+        # 펼쳐진 진행 그룹과 접힌 채로 시작하는 완료 그룹이 상태를 그대로 알린다
+        self.assertEqual([h['attrs']['aria-expanded'] for h in heads], ['true', 'false'])
+        self.assertEqual([h.get('cls') for h in heads], ['bd-grp active', 'bd-grp finished closed'])
+
+    def test_space_on_a_row_toggles_like_a_click(self):
+        board = {'stages': BOARD_STAGES, 'lanes': [board_lane('l1', 'now', stage='구현')]}
+        result = self.render_dom(board_data(board),
+                                 keys=[{'cls': 'bd-row', 'lane': 'l1', 'key': ' '}])
+        self.assertEqual(self.saved_board_state(result)['open'], ['l1'])
+        self.assertIn('open', (self.lane_detail_after(result, 'l1').get('cls') or '').split())
+        self.assertEqual(self.lane_node_after(result, 'l1')['attrs']['aria-expanded'], 'true')
+
+    def test_enter_on_a_group_head_toggles_like_a_click(self):
+        board = {'stages': BOARD_STAGES,
+                 'lanes': [board_lane('l1', 'done', stage='검증'), board_lane('l2', 'now', stage='구현')]}
+        result = self.render_dom(board_data(board), keys=[{'cls': 'bd-grp', 'nth': 0, 'key': 'Enter'}])
+        self.assertEqual(self.saved_board_state(result)['closed'], {'active': True})
+        head = self.find_in(result['nodesAfter'], 'bd-grp')[0]
+        self.assertEqual(head['attrs']['aria-expanded'], 'false')
+        self.assertIn('closed', head.get('cls').split())
+
+    def test_other_keys_do_not_toggle(self):
+        board = {'stages': BOARD_STAGES, 'lanes': [board_lane('l1', 'now', stage='구현')]}
+        result = self.render_dom(board_data(board),
+                                 keys=[{'cls': 'bd-row', 'lane': 'l1', 'key': 'Tab'}])
+        # 토글이 일어나지 않으면 보드 상태를 저장할 일 자체가 없다
+        self.assertNotIn(BOARD_STATE_KEY, result['storage'])
+
+    def test_default_stall_threshold_is_ten_minutes(self):
+        board = {'stages': BOARD_STAGES, 'lanes': [
+            board_lane('nine', 'now', stage='구현', lastSignal='2026-10-03T09:51:00+09:00'),
+            board_lane('eleven', 'now', stage='구현', lastSignal='2026-10-03T09:49:00+09:00'),
+        ]}
+        result = self.render_dom(board_data(board))
+        self.assertIn('bd-cell now', [k.get('cls') for k in self.lane_node(result, 'nine')['kids']])
+        self.assertIn('bd-cell stall', [k.get('cls') for k in self.lane_node(result, 'eleven')['kids']])
+
+    def test_focus_on_a_row_is_remembered_with_its_key(self):
+        board = {'stages': BOARD_STAGES, 'lanes': [board_lane('l1', 'now', stage='구현')]}
+        result = self.render_dom(board_data(board), focusins=[{'cls': 'bd-row', 'lane': 'l1'}])
+        self.assertEqual(json.loads(result['storage'][BOARD_FOCUS_KEY]),
+                         {'key': 'row:l1', 'at': FIXED_NOW_MS})
+
+    def test_focus_on_a_group_head_is_remembered_with_its_key(self):
+        board = {'stages': BOARD_STAGES, 'lanes': [board_lane('l1', 'now', stage='구현')]}
+        result = self.render_dom(board_data(board), focusins=[{'cls': 'bd-grp', 'nth': 0}])
+        self.assertEqual(json.loads(result['storage'][BOARD_FOCUS_KEY]),
+                         {'key': 'grp:active', 'at': FIXED_NOW_MS})
+
+    def focus_record(self, key, at=None):
+        return {BOARD_FOCUS_KEY: json.dumps({'key': key, 'at': FIXED_NOW_MS if at is None else at})}
+
+    def test_recent_focus_record_is_restored(self):
+        board = {'stages': BOARD_STAGES, 'lanes': [board_lane('l1', 'now', stage='구현')]}
+        result = self.render_dom(board_data(board), storage=self.focus_record('row:l1'))
+        self.assertIn('[data-focus-key="row:l1"]', result['queried'])
+
+    def test_stale_focus_record_is_left_alone(self):
+        board = {'stages': BOARD_STAGES, 'lanes': [board_lane('l1', 'now', stage='구현')]}
+        result = self.render_dom(board_data(board),
+                                 storage=self.focus_record('row:l1', at=FIXED_NOW_MS - 60000))
+        self.assertNotIn('[data-focus-key="row:l1"]', result['queried'])
+
+    def test_view_button_focus_is_restored_by_id(self):
+        board = {'stages': BOARD_STAGES, 'lanes': [board_lane('l1', 'now', stage='구현')]}
+        result = self.render_dom(board_data(board), storage=self.focus_record('id:v-c'))
+        self.assertIn('[id="v-c"]', result['queried'])
 
     def test_board_interactions_are_saved(self):
         board = {'stages': BOARD_STAGES,

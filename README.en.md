@@ -83,7 +83,7 @@ The band and the status line are drawn by the deadhd plugin's mod (`skills/deadh
 <details>
 <summary>How the band and the status line handle the page file</summary>
 
-Under `band` and `statusline` the page file is not written straight away. The state summary and the hub are rewritten on every update; the page is written when it is first opened (`/deadhd-open`, the `Open` button) and from then on with every update. A session with no page yet shows its display name (`band`/`status line`) in the hub instead of a link. A command that does not match the current display answers in one line with how to switch.
+Under `band` and `statusline` the page file is not written straight away. The state summary and the hub are rewritten on every update; the page is written when it is first opened (`/deadhd-open`, the `Open` button) and from then on with every update. A session with no page yet shows its display name (`band`/`status line`) or `no page yet` in the hub instead of a link. A command that does not match the current display answers in one line with how to switch.
 
 </details>
 
@@ -118,7 +118,7 @@ When four or more work units run in parallel, such as the subtasks of an epic, f
 
 <p align="center"><img src="docs/board.en.png" alt="The lane board showing a task × stage table and recent transitions" width="800"></p>
 
-The browser measures how long a lane has been quiet past its `stallAfter` (15 minutes by default), so a lane you stop updating still shows up as stalled in the attention band. A harness session that splits work across workers uses the same format as a plain session that hands work to a default subagent. A session without `board` draws only the flow.
+The browser measures how long a lane has been quiet past its `stallAfter` (10 minutes by default), so a lane you stop updating still shows up as stalled in the attention band. A harness session that splits work across workers uses the same format as a plain session that hands work to a default subagent. A session without `board` draws only the flow.
 
 ### Themes and fonts
 
