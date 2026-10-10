@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, ThemeKey } from 'claude-code'
+import type { EngineInterface, Register, RenderElement, ThemeKey } from 'claude-code'
 
 import type {
   DeadhdHud,
@@ -1596,6 +1596,13 @@ async function watch(write: () => Promise<void>): Promise<void> {
   }
 }
 
+/**
+ * Whether `next(e)` answered with a plugin's own tree. Core's answer for the
+ * band is `{ type: 'engine', ref: 0 }`, which draws nothing: the band is where
+ * surveys and plugins draw, and core's own mark sits outside the tree.
+ */
+const isPluginTree = (below: RenderElement): boolean => below.type !== 'engine'
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await watch(async () => {
@@ -1850,8 +1857,8 @@ export const register: Register = on => {
 
     if (await read($, collapsed)) {
       const folded = foldedSegments(state, hud, await $.clock.now())
-
-      return (
+      const below = await next(e)
+      const line = (
         <Box>
           {folded.map((part, index) => (
             <Text key={`folded-${index}`} bold={part.bold === true} {...paint(part.tone)}>
@@ -1865,6 +1872,15 @@ export const register: Register = on => {
           )}
           <Button key="expand" label={words.expand} onPress={() => update($, collapsed, () => false)} />
         </Box>
+      )
+
+      return isPluginTree(below) ? (
+        <Box flexDirection="column">
+          {line}
+          {below}
+        </Box>
+      ) : (
+        line
       )
     }
 
@@ -1885,6 +1901,7 @@ export const register: Register = on => {
       return next(e)
     }
 
+    const below = await next(e)
     const rows = [
       <Box key="band-line">
         {line.map((part, index) => (
@@ -1916,6 +1933,10 @@ export const register: Register = on => {
           </Box>,
         )
       }
+    }
+
+    if (isPluginTree(below)) {
+      rows.push(<Box key="below">{below}</Box>)
     }
 
     return <Box flexDirection="column">{rows}</Box>

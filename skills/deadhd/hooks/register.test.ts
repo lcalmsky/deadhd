@@ -209,6 +209,8 @@ function worldOf(
   stats: string[]
   renderer: { exitCode: number; stdout: string; stderr: string }
   opener: { exitCode: number; stdout: string; stderr: string }
+  /** What `next(e)` answers for the band; a test puts another plugin's tree here. */
+  below: RenderElement
 } {
   const clock = mock.clock(on, { now })
   const registered: string[] = []
@@ -219,6 +221,19 @@ function worldOf(
   const stats: string[] = []
   const renderer = { exitCode: 0, stdout: '', stderr: '' }
   const opener = { exitCode: 0, stdout: `opened: browser ${OUT_PATH}`, stderr: '' }
+
+  const world = {
+    clock,
+    registered,
+    toasts,
+    submitted,
+    runs,
+    invalidates,
+    stats,
+    renderer,
+    opener,
+    below: ENGINE_NONE as RenderElement,
+  }
 
   mock.env(on, { HOME })
 
@@ -275,8 +290,10 @@ function worldOf(
       },
     }
   })
+  // 아래에 아무것도 없는 답: 밴드를 그리는 훅이 아래 플러그인의 밴드를 물어볼 자리다.
+  on('ui.render', () => world.below)
 
-  return { clock, registered, toasts, submitted, runs, invalidates, stats, renderer, opener }
+  return world
 }
 
 /** The status line's world: the files, the pinned-status answer and the engine's hint tree. */
@@ -289,7 +306,7 @@ const statusWorld = (
   const world = worldOf(on, files, now)
 
   pinsNothing(on)
-  on('ui.render', () => hint)
+  world.below = hint
 
   return world
 }
@@ -384,6 +401,12 @@ const LONG_ROW_RUNNING = `${LONG_ROW} · ${RUNNING}`
 
 /** What the engine draws when the plugin leaves the component to it. */
 const ENGINE_OWN: RenderElement = { type: 'Text', children: ['(the engine drew its own)'] }
+
+/** A plugin's own band below deadhd, as `next(e)` resolves with one. */
+const BELOW: RenderElement = { type: 'Text', children: ['현타 줄'] }
+
+/** What core answers on the band when no plugin draws one: core's own tree, which draws nothing. */
+const ENGINE_NONE: RenderElement = { type: 'engine', ref: 0 }
 
 describe('the band', () => {
   for (const surface of ['terminal', 'desktop'] as const) {
@@ -486,8 +509,7 @@ describe('the band', () => {
   })
 
   test('with nothing naming the band the engine keeps the row it draws', async ($, on) => {
-    worldOf(on, {})
-    on('ui.render', () => ENGINE_OWN)
+    worldOf(on, {}).below = ENGINE_OWN
 
     await $.session.start(SESSION)
 
@@ -499,8 +521,7 @@ describe('the band', () => {
   })
 
   test('a survey on the band is left to the engine', async ($, on) => {
-    worldOf(on, filesOf())
-    on('ui.render', () => ({ type: 'Text', children: ['(a survey)'] }))
+    worldOf(on, filesOf()).below = { type: 'Text', children: ['(a survey)'] }
 
     await $.session.start(SESSION)
 
@@ -776,6 +797,82 @@ describe('the band', () => {
     const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
 
     expect(textOf(await ui.drawn())).toContain('완료')
+
+    await ui.unmount()
+  })
+
+  test("draws the band a plugin below draws, under deadhd's own line", async ($, on) => {
+    const world = worldOf(on, filesOf(), START)
+
+    world.below = BELOW
+
+    await startsRunning($, world.clock)
+
+    const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+    const drawn = textOf(await ui.drawn())
+
+    expect(drawn).toContain(STATUS_MARK)
+    expect(drawn).toContain('현타 줄')
+    expect(drawn.indexOf(STATUS_MARK)).toBeLessThan(drawn.indexOf('현타 줄'))
+
+    await ui.unmount()
+  })
+
+  test('draws the band below it while it is folded', async ($, on) => {
+    const world = worldOf(on, filesOf(), START)
+
+    world.below = BELOW
+
+    await startsRunning($, world.clock)
+
+    const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+
+    await ui.press({ key: 'collapse' })
+    await ui.unmount()
+
+    const folded = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+    const summary = textOf(await folded.drawn())
+
+    expect(summary).toContain(`${STATUS_MARK} ${RUNNING}`)
+    expect(summary).toContain('현타 줄')
+    expect(summary.indexOf(STATUS_MARK)).toBeLessThan(summary.indexOf('현타 줄'))
+
+    await folded.unmount()
+  })
+
+  test("draws only its own line when core answers the band's own empty tree", async ($, on) => {
+    const world = worldOf(on, filesOf(), START)
+
+    world.below = ENGINE_NONE
+
+    await startsRunning($, world.clock)
+
+    const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+    const drawn = await ui.drawn()
+
+    expect(textOf(drawn)).toContain(STATUS_MARK)
+    expect(textOf(drawn)).not.toContain('현타 줄')
+    // 엔진의 빈 트리는 행이 되지 않는다: 밴드 줄과 막힘 줄, 두 줄 그대로다.
+    expect(rowsOf(drawn)).toHaveLength(2)
+    expect(JSON.stringify(drawn)).not.toContain('"engine"')
+
+    await ui.unmount()
+  })
+
+  test('draws the band a plugin below draws when the session has no state file', async ($, on) => {
+    const world = worldOf(on, configOf('band'), START)
+
+    world.below = BELOW
+
+    await startsRunning($, world.clock)
+
+    const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+    const drawn = textOf(await ui.drawn())
+
+    expect(drawn).toContain(`${STATUS_MARK} · ${RUNNING}`)
+    expect(drawn).toContain('켜기')
+    expect(drawn).toContain('현타 줄')
+    expect(drawn.indexOf(STATUS_MARK)).toBeLessThan(drawn.indexOf('현타 줄'))
 
     await ui.unmount()
   })
@@ -1390,9 +1487,8 @@ describe('the status hint', () => {
   })
 
   test('with nothing naming the status line the engine keeps its own hint', async ($, on) => {
-    worldOf(on, {})
+    worldOf(on, {}).below = ENGINE_OWN
     pinsNothing(on)
-    on('ui.render', () => ENGINE_OWN)
 
     await $.session.start(SESSION)
 
@@ -1772,9 +1868,8 @@ describe('the view', () => {
   })
 
   test('draws nothing for a session with no view anywhere', async ($, on) => {
-    worldOf(on, filesOf(stateOf({ view: undefined })))
+    worldOf(on, filesOf(stateOf({ view: undefined }))).below = ENGINE_OWN
     pinsNothing(on)
-    on('ui.render', () => ENGINE_OWN)
 
     await $.session.start(SESSION)
 
@@ -1816,9 +1911,8 @@ describe('the view', () => {
   })
 
   test('draws nothing in the html view', async ($, on) => {
-    worldOf(on, filesOf(stateOf({ view: 'html' })))
+    worldOf(on, filesOf(stateOf({ view: 'html' }))).below = ENGINE_OWN
     pinsNothing(on)
-    on('ui.render', () => ENGINE_OWN)
 
     await $.session.start(SESSION)
 
@@ -1887,11 +1981,11 @@ describe('the HUD setting', () => {
   })
 
   test('draws no band before the checklist when the config turns the HUD off', async ($, on) => {
-    const { clock } = worldOf(on, configOf('band', { hud: 'off' }), START)
+    const world = worldOf(on, configOf('band', { hud: 'off' }), START)
 
-    on('ui.render', () => ENGINE_OWN)
+    world.below = ENGINE_OWN
 
-    await startsRunning($, clock)
+    await startsRunning($, world.clock)
 
     const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
 
@@ -1947,11 +2041,11 @@ describe('the HUD setting', () => {
   test('stops drawing the HUD on the next refresh when the config turns it off', async ($, on) => {
     const files: Record<string, string> = { ...configOf('band') }
 
-    const { clock } = worldOf(on, files, START)
+    const world = worldOf(on, files, START)
 
-    on('ui.render', () => ENGINE_OWN)
+    world.below = ENGINE_OWN
 
-    await startsRunning($, clock)
+    await startsRunning($, world.clock)
 
     const before = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
 
@@ -1961,7 +2055,7 @@ describe('the HUD setting', () => {
 
     files[CONFIG_PATH] = JSON.stringify({ view: 'band', hud: 'off' })
 
-    await clock.advance(5000)
+    await world.clock.advance(5000)
 
     const after = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
 
