@@ -177,8 +177,8 @@ All you need is [Claude Code](https://code.claude.com) and `python3` (standard l
 | Method | Invocation name | Status band hooks |
 |---|---|---|
 | [Plugin](#install-as-a-plugin) (recommended) | `/deadhd:deadhd` | Included |
-| [Skill folder](#install-as-a-skill-folder) | `/deadhd` | [Register manually](#registering-hooks-manually) |
-| [Orca share link](#orca-install) | `/deadhd` | [Register manually](#registering-hooks-manually) |
+| [Skill folder](#install-as-a-skill-folder) | `/deadhd` | Included |
+| [Orca share link](#orca-install) | `/deadhd` | Included |
 
 ### Install as a plugin
 
@@ -194,7 +194,7 @@ git clone https://github.com/lcalmsky/deadhd.git
 cp -r deadhd/skills/deadhd ~/.claude/skills/
 ```
 
-Because `skills/deadhd/.claude-plugin/` is copied along, the folder is auto-loaded as the `deadhd@skills-dir` plugin from the next session on, which is what draws the band and the status line. The command hooks that maintain the status band do not come along.
+Because `skills/deadhd/.claude-plugin/` is copied along, the folder is auto-loaded as the `deadhd@skills-dir` plugin from the next session on, which is what draws the band and the status line. The command hooks that maintain the status band live in that plugin's `hooks/hooks.json`, so they load along with it.
 
 > [!WARNING]
 > Do not use the plugin install and the skill folder install together. With both in place the `deadhd` plugin is loaded twice: the same commands, the same state key, and two timers over one state file.
@@ -268,16 +268,18 @@ If `~/.config/deadhd/writing-rules.md` exists, page sentences follow that file's
 
 ### Waiting-for-you notifications and calibrated ETA
 
-Installed as a plugin, the hooks in `hooks/hooks.json` take session events (permission request, turn end, tool run, compaction, session end), write the state to `/tmp/deadhd-state/<session ID>.json`, and re-render the page. A band appears at the top: `Waiting for permission · 12m`, `Waiting for your input · 23m`, `Working · Last tool Bash 8s ago`, `No signal`, `Session ended`. The hooks keep the band fresh even when the model forgets to update the page, and after a compaction the session-start hook tells the model the data file path again.
+Installed as a plugin or as a skill folder, the hooks in the `hooks/hooks.json` that loads with it take session events (permission request, turn end, tool run, compaction, session end), write the state to `/tmp/deadhd-state/<session ID>.json`, and re-render the page. A band appears at the top: `Waiting for permission · 12m`, `Waiting for your input · 23m`, `Working · Last tool Bash 8s ago`, `No signal`, `Session ended`. The hooks keep the band fresh even when the model forgets to update the page, and after a compaction the session-start hook tells the model the data file path again.
 
 When a step finishes, the estimate first written for it and the actual duration accumulate in `~/.config/deadhd/history.jsonl`, and from three records on a calibrated completion time is shown next to the raw one. What is recorded is only the step id, the estimate, and the actual minutes.
 
 <a id="registering-hooks-manually"></a>
 
 <details>
-<summary>Registering hooks manually (skill folder and Orca installs)</summary>
+<summary>Hooks you added to settings.json under the old instructions</summary>
 
-The skill folder and Orca installs do not carry the hooks. To use them, add the following hooks to `~/.claude/settings.json`. Without the hooks no status band appears on the page, and the hub lists the session as `No hooks` or `Done`.
+The skill folder and Orca installs carry the status band hooks themselves, so there is nothing to add to `~/.claude/settings.json`. If you added the six hooks below under the old instructions you may delete them, and leaving them in changes nothing you see: `state.py` treats a second copy of the same event as one already applied and passes it by.
+
+A session where no hooks run at all (somewhere that does not load this plugin, such as Codex) shows no status band on the page, and the hub lists it as `No hooks` or `Done`.
 
 ```json
 {

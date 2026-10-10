@@ -1384,9 +1384,11 @@ async function watch(write: () => Promise<void>): Promise<void> {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    const at = instant(await $.clock.now())
+    await watch(async () => {
+      const at = instant(await $.clock.now())
 
-    await update($, seen, () => ({ ...EMPTY_HUD, startedAt: at }))
+      await update($, seen, () => ({ ...EMPTY_HUD, startedAt: at }))
+    })
 
     await refresh($)
 
@@ -1418,9 +1420,13 @@ export const register: Register = on => {
 
   on('turn.start', async ($, e, next) => {
     const ran = await next(e)
-    const at = instant(await $.clock.now())
 
-    await watch(() => update($, seen, held => ({ ...held, turnAt: at, endedAt: null })))
+    await watch(async () => {
+      const at = instant(await $.clock.now())
+
+      // A turn beginning is this loop running again, whatever a call left behind.
+      await update($, seen, held => ({ ...held, turnAt: at, endedAt: null, running: 0 }))
+    })
     void refresh($)
 
     return ran
@@ -1428,10 +1434,17 @@ export const register: Register = on => {
 
   on('turn.complete', async ($, e, next) => {
     const ran = await next(e)
-    const at = instant(await $.clock.now())
 
-    await watch(() => update($, seen, held => ({ ...held, turnAt: null, endedAt: at })))
-    void refresh($)
+    // A subagent's own run ends with its own turn.complete, with an `agentId`; the
+    // line draws the session's loop, so the HUD is left to the main loop's turn.
+    if (e.agentId === undefined) {
+      await watch(async () => {
+        const at = instant(await $.clock.now())
+
+        await update($, seen, held => ({ ...held, turnAt: null, endedAt: at, running: 0 }))
+      })
+      void refresh($)
+    }
 
     return ran
   })
@@ -1459,21 +1472,25 @@ export const register: Register = on => {
       )
     }
 
-    const ran = await next(e)
+    try {
+      return await next(e)
+    } finally {
+      if (name !== null) {
+        await watch(async () => {
+          const at = instant(await $.clock.now())
 
-    if (name !== null) {
-      const at = instant(await $.clock.now())
+          await update($, seen, held => ({
+            ...held,
+            toolAt: at,
+            running: Math.max(0, held.running - 1),
+          }))
+        })
+      }
 
-      await watch(() =>
-        update($, seen, held => ({ ...held, toolAt: at, running: Math.max(0, held.running - 1) })),
-      )
+      // A tool call never waits on this: refresh reads the state, the config and the
+      // data JSON, and the timer keeps the line current anyway.
+      void refresh($)
     }
-
-    // A tool call never waits on this: refresh reads the state, the config and the
-    // data JSON, and the timer keeps the line current anyway.
-    void refresh($)
-
-    return ran
   }).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'deadhd-open' }, async $ => {

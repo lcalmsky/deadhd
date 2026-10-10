@@ -2933,6 +2933,44 @@ class StateScriptTest(unittest.TestCase):
             self.assertEqual(f.read(), '{"x": 1}')
         self.assertEqual(sorted(os.listdir(self.state_dir)), ['s1.json'])
 
+    def test_the_same_event_twice_leaves_the_same_state(self):
+        """플러그인 훅과 settings.json 훅이 함께 있으면 같은 이벤트가 두 번 들어온다."""
+        self.render_session()
+        events = (
+            {'hook_event_name': 'Notification', 'notification_type': 'permission_prompt',
+             'message': 'm'},
+            {'hook_event_name': 'UserPromptSubmit', 'prompt': 'hi'},
+            {'hook_event_name': 'PostToolUse', 'tool_name': 'Bash', 'duration_ms': 1200},
+            {'hook_event_name': 'Stop',
+             'background_tasks': [{'type': 'shell', 'description': 'x'}]},
+            {'hook_event_name': 'SessionStart', 'source': 'compact'},
+            {'hook_event_name': 'SessionEnd', 'reason': 'exit'},
+        )
+        for payload in events:
+            with self.subTest(event=payload['hook_event_name']):
+                self.event(payload)
+                once = self.read_state()
+                second = self.event(payload)
+                self.assertEqual(second.returncode, 0, second.stderr)
+                self.assertEqual(self.read_state(), once)
+
+    def test_a_repeated_compact_counts_once(self):
+        self.render_session()
+        compact = {'hook_event_name': 'SessionStart', 'source': 'compact'}
+        first = self.event(compact)
+        self.assertEqual(self.read_state()['compactions']['count'], 1)
+        self.assertIn('additionalContext', first.stdout)
+
+        second = self.event(compact)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(second.stdout, '')
+        self.assertEqual(self.read_state()['compactions']['count'], 1)
+
+        # 다른 이벤트가 끼면 다음 압축은 새 이벤트로 센다.
+        self.event({'hook_event_name': 'UserPromptSubmit', 'prompt': 'hi'})
+        self.event(compact)
+        self.assertEqual(self.read_state()['compactions']['count'], 2)
+
 
 class HubTest(unittest.TestCase):
     """hub.py 가 상태 파일을 버킷으로 나눠 허브 페이지를 쓰는지 확인한다."""
@@ -4045,24 +4083,53 @@ class HubButtonTest(unittest.TestCase):
         self.assertNotIn('rel=', tag.group(0))
 
 
+# 상태 띠 훅 여섯. 플러그인 루트와 스킬 폴더 두 진입점이 같은 모양을 싣는다.
+STATE_HOOKS = {
+    'Notification': 'permission_prompt|idle_prompt',
+    'UserPromptSubmit': None,
+    'PostToolUse': None,
+    'Stop': None,
+    'SessionStart': 'compact',
+    'SessionEnd': None,
+}
+
+
 class HooksJsonTest(unittest.TestCase):
+    def hooks_of(self, root):
+        with open(os.path.join(root, 'hooks', 'hooks.json'), encoding='utf-8') as f:
+            return json.load(f)['hooks']
+
+    def command_targets(self, hooks):
+        """이벤트 이름 -> (matcher, 플러그인 루트 기준 state.py 상대 경로)."""
+        targets = {}
+        for event, groups in hooks.items():
+            for group in groups:
+                for hook in group['hooks']:
+                    self.assertEqual(hook['type'], 'command')
+                    self.assertIn('${CLAUDE_PLUGIN_ROOT}/', hook['command'])
+                    rel = hook['command'].split('${CLAUDE_PLUGIN_ROOT}/')[1].rstrip('"')
+                    targets[event] = (group.get('matcher'), rel)
+        return targets
+
     def test_hooks_file_points_at_state_script(self):
         root = os.path.dirname(os.path.dirname(HERE))
-        with open(os.path.join(root, 'hooks', 'hooks.json'), encoding='utf-8') as f:
-            hooks = json.load(f)['hooks']
-        self.assertEqual(sorted(hooks), sorted([
-            'Notification', 'UserPromptSubmit', 'PostToolUse',
-            'Stop', 'SessionStart', 'SessionEnd']))
-        self.assertEqual(hooks['Notification'][0]['matcher'], 'permission_prompt|idle_prompt')
-        self.assertEqual(hooks['SessionStart'][0]['matcher'], 'compact')
-        for event, groups in hooks.items():
+        targets = self.command_targets(self.hooks_of(root))
+        self.assertEqual(sorted(targets), sorted(STATE_HOOKS))
+        for event, (matcher, rel) in targets.items():
             with self.subTest(event=event):
-                for group in groups:
-                    for hook in group['hooks']:
-                        self.assertEqual(hook['type'], 'command')
-                        self.assertIn('${CLAUDE_PLUGIN_ROOT}/', hook['command'])
-                        rel = hook['command'].split('${CLAUDE_PLUGIN_ROOT}/')[1].rstrip('"')
-                        self.assertTrue(os.path.exists(os.path.join(root, rel)), rel)
+                self.assertEqual(matcher, STATE_HOOKS[event])
+                self.assertTrue(os.path.exists(os.path.join(root, rel)), rel)
+
+    def test_skill_folder_carries_the_same_hooks(self):
+        """스킬 폴더·Orca 설치도 상태 띠 훅을 함께 싣는다. 이벤트와 matcher 는 루트와 같다."""
+        targets = self.command_targets(self.hooks_of(HERE))
+        self.assertEqual(sorted(targets), sorted(STATE_HOOKS))
+        for event, (matcher, rel) in targets.items():
+            with self.subTest(event=event):
+                self.assertEqual(matcher, STATE_HOOKS[event])
+                # 이 플러그인의 루트가 skills/deadhd 라 state.py 가 바로 아래에 있다.
+                self.assertEqual(rel, 'state.py')
+                self.assertTrue(os.path.exists(os.path.join(HERE, rel)), rel)
 
     def test_root_manifest_names_the_hooks_module_and_its_types(self):
         root = os.path.dirname(os.path.dirname(HERE))
@@ -4087,7 +4154,7 @@ class HooksJsonTest(unittest.TestCase):
         self.assertEqual(nested['types'], './types/index.d.ts')
         with open(os.path.join(HERE, 'hooks', 'hooks.json'), encoding='utf-8') as f:
             hooks = json.load(f)
-        self.assertEqual(hooks, {'modules': ['./register.tsx']})
+        self.assertEqual(hooks['modules'], ['./register.tsx'])
         self.assertTrue(os.path.exists(os.path.join(HERE, 'hooks', 'register.tsx')))
 
 

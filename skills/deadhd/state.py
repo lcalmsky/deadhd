@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Claude Code 훅의 stdin JSON 을 세션 상태 파일로 옮기고 페이지를 다시 렌더한다."""
+import hashlib
 import json
 import os
 import re
@@ -14,6 +15,7 @@ RENDER = os.path.join(HERE, 'render.py')
 DEFAULT_DIR = '/tmp/deadhd-state'
 STALE_SECONDS = 7 * 24 * 3600
 RENDER_SKIP_SECONDS = 10
+REPEAT_SECONDS = 5
 SESSION_ID = re.compile(r'[A-Za-z0-9._-]{1,128}')
 
 
@@ -113,18 +115,50 @@ def background_tasks(payload):
     return kept
 
 
+def parse_stamp(value):
+    """ISO 시각 문자열을 시간대 있는 datetime 으로. 못 읽으면 None."""
+    if not isinstance(value, str):
+        return None
+    text = value[:-1] + '+00:00' if value.endswith('Z') else value
+    try:
+        at = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return at if at.tzinfo is not None else None
+
+
+def event_key(payload):
+    """이벤트 하나의 지문.
+
+    엔진은 한 이벤트를 등록된 훅마다 한 번씩 보내므로, 플러그인 훅과
+    settings.json 훅이 함께 있으면 같은 입력이 두 번 들어온다.
+    """
+    text = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
+    return hashlib.sha256(text.encode('utf-8')).hexdigest()
+
+
+def repeated_event(state, key):
+    """방금 전에 같은 이벤트를 이미 반영했는지.
+
+    두 번째 호출이 첫 호출의 저장 뒤에 읽었을 때만 참이 된다. 두 호출이 같은
+    값을 읽고 각자 저장하는 경우에는 어차피 같은 결과가 남아 문제가 없다.
+    """
+    last = state.get('lastEvent')
+    if not isinstance(last, dict) or last.get('key') != key:
+        return False
+    at = parse_stamp(last.get('at'))
+    if at is None:
+        return False
+    return (datetime.now(at.tzinfo) - at).total_seconds() < REPEAT_SECONDS
+
+
 def last_render_age(state):
     """이 세션의 마지막 렌더 이후 지난 초. 알 수 없으면 None."""
     summary = state.get('summary')
     stamp = summary.get('renderedAt') if isinstance(summary, dict) else None
-    if isinstance(stamp, str):
-        text = stamp[:-1] + '+00:00' if stamp.endswith('Z') else stamp
-        try:
-            at = datetime.fromisoformat(text)
-        except ValueError:
-            at = None
-        if at is not None and at.tzinfo is not None:
-            return (datetime.now(at.tzinfo) - at).total_seconds()
+    at = parse_stamp(stamp)
+    if at is not None:
+        return (datetime.now(at.tzinfo) - at).total_seconds()
     # 이 값이 없는 예전 상태 파일은 페이지 파일의 시각으로 판정한다.
     out = state.get('out')
     if isinstance(out, str):
@@ -235,6 +269,10 @@ def main():
     if not state:
         return 0
 
+    key = event_key(payload)
+    if repeated_event(state, key):
+        return 0
+
     outcome = apply_event(state, payload)
     if outcome is None:
         return 0
@@ -243,7 +281,8 @@ def main():
     # 이 세션은 훅이 돌고 있다. render.py 는 이 표시가 있을 때만 상태 띠를 붙인다.
     state['hooked'] = True
     state['sessionId'] = session_id
-    state['updatedAt'] = now_iso()
+    state['lastEvent'] = {'key': key, 'at': now_iso()}
+    state['updatedAt'] = state['lastEvent']['at']
     save_state(session_id, state)
     refresh(state, session_id, skip_recent=skip_recent)
 

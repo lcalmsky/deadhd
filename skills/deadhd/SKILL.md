@@ -212,7 +212,7 @@ On the first render only:
 
 After the first render, update the JSON and rerun `render.py` whenever an item changes state (finished, started, blocked) until the task ends or the user says `/deadhd off`.
 
-The plugin's hooks (`hooks/hooks.json`) keep a status band on the page fresh on their own: waiting for permission, waiting for input, last tool, background tasks, compactions. `render.py` links the page to this session through `CLAUDE_CODE_SESSION_ID`; nothing to do for that. After a context compaction the session-start hook tells you the data file path; keep using it. Without the plugin's hooks (skill-folder or Orca installs) no status band is shown and the hub lists the session as `untracked` or `done`; the README shows how to add the hooks to `~/.claude/settings.json`.
+The plugin's hooks (`hooks/hooks.json`) keep a status band on the page fresh on their own: waiting for permission, waiting for input, last tool, background tasks, compactions. `render.py` links the page to this session through `CLAUDE_CODE_SESSION_ID`; nothing to do for that. After a context compaction the session-start hook tells you the data file path; keep using it. A skill-folder or Orca install loads that same `hooks/hooks.json` through the folder's own manifest; only a session with no hooks at all — a host that does not load the plugin, such as Codex — shows no status band and is listed as `untracked` or `done`.
 
 Under a `band` or `statusline` view the mod draws its own session state (a running turn, a wait, the last tool, compactions) from the session's events, and the checklist fields from the same state file, so the renders above are what keeps the checklist fresh. Nothing else to do for it.
 

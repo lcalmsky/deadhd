@@ -1210,6 +1210,89 @@ describe('the session the mod watches', () => {
 
     await ui.unmount()
   })
+
+  test("leaves a subagent's own turn end to the loop it runs in", async ($, on) => {
+    const { clock } = statusWorld(on, filesOf(statusState()), ENGINE_HINT, START)
+
+    await startsRunning($, clock)
+
+    // 하위 에이전트의 턴도 이 훅에 닿는다. 끝난 것은 그 루프의 턴이지 이 세션의 턴이 아니다.
+    await $.turn.complete({ ...TURN_END, agentId: 'agent-1' })
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+
+    expect(textOf(await ui.drawn())).toContain(RUNNING)
+
+    await ui.unmount()
+  })
+
+  test('counts a call out again when the engine refuses it', async ($, on) => {
+    const { clock } = statusWorld(on, filesOf(statusState()), ENGINE_HINT, START)
+
+    on('tool.call', () => {
+      throw new Error('refused')
+    })
+
+    await startsRunning($, clock)
+
+    await expect($.tool.call({ tool: 'Bash', command: 'sleep 1' })).rejects.toThrow()
+    await clock.advance(12000)
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+
+    // 거절당한 호출이 「실행 중」으로 남으면 줄이 영영 그렇게 말한다.
+    expect(textOf(await ui.drawn())).toContain('🔧 Bash 12초 전')
+
+    await ui.unmount()
+  })
+
+  test('leaves no call running once the turn ends', async ($, on) => {
+    const { clock } = statusWorld(on, filesOf(statusState()), ENGINE_HINT, START)
+
+    // 끝나지 않은 호출 하나를 남긴 채 턴이 끝나는 경우: 중단된 턴이 그런 모양이다.
+    let release = (): void => {}
+    const held = new Promise<{ result: unknown }>(resolve => {
+      release = () => resolve({ result: {} })
+    })
+
+    on('tool.call', () => held)
+
+    await startsRunning($, clock)
+
+    const call = $.tool.call({ tool: 'Bash', command: 'sleep 1' })
+
+    await clock.settle()
+    await $.turn.complete(TURN_END)
+    await clock.advance(12000)
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+
+    expect(textOf(await ui.drawn())).toContain('🔧 Bash 12초 전')
+
+    await ui.unmount()
+
+    release()
+    await call
+  })
+
+  test('leaves no call running when the next turn begins', async ($, on) => {
+    const { clock } = statusWorld(on, filesOf(statusState()), ENGINE_HINT, START)
+
+    on('tool.call', () => new Promise<{ result: unknown }>(() => {}))
+
+    await startsRunning($, clock)
+    void $.tool.call({ tool: 'Bash', command: 'sleep 1' })
+
+    await clock.settle()
+    await $.turn.start({ ...TURN, turnId: 'turn-2' })
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+
+    expect(textOf(await ui.drawn())).not.toContain('실행 중')
+
+    await ui.unmount()
+  })
+
   test('keeps the session state when the row has room for nothing else', async ($, on) => {
     const { clock } = statusWorld(on, filesOf(statusState()), ENGINE_HINT, START)
 
