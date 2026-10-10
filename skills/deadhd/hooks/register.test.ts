@@ -1212,6 +1212,44 @@ describe('the session the mod watches', () => {
     await ui.unmount()
   })
 
+  test('carries the call through when the clock cannot be read', async ($, on) => {
+    let broken = false
+
+    // 시계를 한 번 읽지 못하는 세션: 다음 한 번의 읽기가 넘어진다. 이 훅은 mock.clock 의
+    // 답 위에 서야 하므로 세계보다 먼저 등록한다(나중에 등록하면 그 아래라 닿지 않는다).
+    on('clock.now', {}, ($, e, next) => {
+      if (!broken) {
+        return next(e)
+      }
+
+      broken = false
+
+      throw new Error('no clock')
+    })
+
+    const { clock } = statusWorld(on, filesOf(statusState()), ENGINE_HINT, START)
+
+    on('tool.call', () => ({ result: {} }))
+
+    await startsRunning($, clock)
+    await $.tool.call({ tool: 'Read', file_path: '/work/a.md' })
+    await clock.advance(12000)
+
+    broken = true
+
+    // 넘어진 시계 하나가 호출을 막지 않는다: 엔진이 준 답이 그대로 나오고,
+    await expect($.tool.call({ tool: 'Bash', command: 'sleep 1' })).resolves.toEqual({ result: {} })
+    await clock.advance(12000)
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+
+    // 훅도 끝까지 돈다: 넘어진 적기가 건너뛰어 실행 중 셈이 서지 않아도, 마지막 호출을 본
+    // 시각은 이 호출의 끝으로 다시 맞춰진다(훅이 통째로 건너뛰어지면 24초 전에 멈춘다).
+    expect(textOf(await ui.drawn())).toContain('🔧 Read 12초 전')
+
+    await ui.unmount()
+  })
+
   test("leaves a subagent's own turn end to the loop it runs in", async ($, on) => {
     const { clock } = statusWorld(on, filesOf(statusState()), ENGINE_HINT, START)
 

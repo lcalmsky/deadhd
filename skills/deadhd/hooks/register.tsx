@@ -1500,11 +1500,11 @@ export const register: Register = on => {
     const name = mine ? text(e.tool, '') : null
 
     if (name !== null) {
-      const at = instant(await $.clock.now())
+      await watch(async () => {
+        const at = instant(await $.clock.now())
 
-      await watch(() =>
-        update($, seen, held => ({ ...held, tool: name, toolAt: at, running: held.running + 1 })),
-      )
+        await update($, seen, held => ({ ...held, tool: name, toolAt: at, running: held.running + 1 }))
+      })
     }
 
     try {

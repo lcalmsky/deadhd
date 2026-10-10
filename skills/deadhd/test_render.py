@@ -2968,13 +2968,18 @@ class StateScriptTest(unittest.TestCase):
             {'hook_event_name': 'SessionStart', 'source': 'compact'},
             {'hook_event_name': 'SessionEnd', 'reason': 'exit'},
         )
+        path = os.path.join(self.state_dir, 's1.json')
         for payload in events:
             with self.subTest(event=payload['hook_event_name']):
                 self.event(payload)
                 once = self.read_state()
+                written = os.stat(path).st_mtime_ns
                 second = self.event(payload)
                 self.assertEqual(second.returncode, 0, second.stderr)
                 self.assertEqual(self.read_state(), once)
+                # 두 번째 이벤트는 상태 파일을 다시 쓰지 않는다. 시각이 초 단위라 내용만
+                # 보면 같은 초 안의 두 번이 구별되지 않으므로, 쓴 흔적까지 본다.
+                self.assertEqual(os.stat(path).st_mtime_ns, written)
 
     def test_a_repeated_compact_counts_once(self):
         self.render_session()
