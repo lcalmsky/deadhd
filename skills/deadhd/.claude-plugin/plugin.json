@@ -1,6 +1,6 @@
 {
   "name": "deadhd",
-  "version": "1.12.0",
+  "version": "1.13.0",
   "description": "Draw this session's deadhd progress as a band above the prompt or a status line under it, from the state file the deadhd skill writes.",
   "author": {
     "name": "lcalmsky",
