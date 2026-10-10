@@ -75,7 +75,9 @@ const SAMPLE = {
     total: 6,
     nowLabel: '실제 화면 확인',
     pr: { text: 'app-api#512', href: 'https://github.com/example/app-api/pull/512' },
-    eta: '2026-10-09T16:20:00+09:00',
+    eta: '2026-10-09T16:20:00+09:00' as string | null,
+    // render.py 는 보정할 표본이 모자라면 이 키를 null 로 싣는다.
+    etaCalibrated: null as string | null,
     allDone: false,
     // SKILL.md 가 데이터 JSON 을 마지막으로 쓴 시각. 「N분 전」 의 기준이다.
     dataAt: '2026-10-09T15:36:53+09:00',
@@ -298,11 +300,8 @@ const pieceIn = (
 const MOUNT = { plugin: PLUGIN, component: 'AbovePrompt', props: BAND } as const
 const MOUNT_HINT = { plugin: PLUGIN, component: 'PromptHint', props: HINT } as const
 
-/** The mark the long status line leads with, from the piece a test reads. */
+/** The mark both lines lead with, from the piece a test reads. */
 const STATUS_MARK = '◆'
-
-/** The command the folded row names as the way back to the long line. */
-const FOLDED_GUIDE = '/deadhd-statusline 펼치기'
 
 /** The pull request the sample's running step carries, as the row draws it. */
 const PR_PIECE = '🔀 app-api#512'
@@ -311,12 +310,12 @@ const PR_PIECE = '🔀 app-api#512'
 const PR_TEXT = 'app-api#512'
 
 /** The mark and the count as one piece: no separator falls between them. */
-const MARK_COUNT = `${STATUS_MARK} ✅ 3/6`
+const MARK_COUNT = `${STATUS_MARK} ✓ 3/6`
 
 /** The whole long row the sample draws, piece by piece. */
 const LONG_ROW =
-  `${STATUS_MARK} ✅ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · ` +
-  '▶️ 실제 화면 확인 4분째 · 🔀 app-api#512 · ⏭ 다음 정리 · ⏱ 예상 16:20 · 🔄 2분 전 · ' +
+  `${STATUS_MARK} ✓ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · ` +
+  '▶ 실제 화면 확인 4분째 · 🔀 app-api#512 · ⏭ 다음 정리 · ⏱ 예상 16:20 · 🔄 2분 전 · ' +
   '⛔ 막힘 1: 배포 검증 · ⏳ 남음 2 · 🧵 백그라운드 2 · 🗜 압축 1'
 
 /** What the engine draws when the plugin leaves the component to it. */
@@ -332,7 +331,7 @@ describe('the band', () => {
       const ui = await $.ui.mount({ ...MOUNT, surface })
       const drawn = textOf(await ui.drawn())
 
-      expect(drawn).toContain('/deadhd-band')
+      expect(drawn).toContain(STATUS_MARK)
       expect(drawn).toContain('▓▓▓░░░ 3/6')
       expect(drawn).toContain('▶ 실제 화면 확인 4분째')
       expect(drawn).toContain('막힘 1')
@@ -467,7 +466,8 @@ describe('the band', () => {
     const folded = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
     const summary = textOf(await folded.drawn())
 
-    expect(summary).toContain('/deadhd-band ✓ 3/6')
+    expect(summary).toContain(`${STATUS_MARK} ✓ 3/6`)
+    expect(summary).not.toContain('/deadhd-band')
     expect(summary).toContain('열기')
     expect(summary).toContain('펼치기')
     expect(summary).not.toContain('막힘')
@@ -529,7 +529,7 @@ describe('the band', () => {
     const after = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
     const drawn = textOf(await after.drawn())
 
-    expect(drawn).toContain('/deadhd-band ✓ 3/6')
+    expect(drawn).toContain(`${STATUS_MARK} ✓ 3/6`)
     expect(drawn).toContain('펼치기')
     expect(drawn).not.toContain('막힘')
 
@@ -546,7 +546,7 @@ describe('the band', () => {
       const painted = await paintedOf(ui)
       const separators = painted.filter(one => one.text.includes('·'))
 
-      expect(pieceOf(painted, '/deadhd-band')).toMatchObject({ color: 'claude', bold: true })
+      expect(pieceOf(painted, STATUS_MARK)).toMatchObject({ color: 'claude', bold: true })
       expect(pieceOf(painted, '▓▓▓')?.color).toBe('success')
       expect(pieceOf(painted, '░░░')?.color).toBe('subtle')
       expect(pieceOf(painted, '3/6')).toMatchObject({ color: 'success', bold: true })
@@ -604,8 +604,15 @@ describe('the band', () => {
 describe('the band line', () => {
   test('carries the progress, the current step and the counts', () => {
     expect(line(bandLine(STATE, NOW, 200))).toBe(
-      '/deadhd-band · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · 막힘 1 · 남음 2',
+      `${STATUS_MARK} · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · 막힘 1 · 남음 2`,
     )
+  })
+
+  test('leads with the mark the status line leads with, not the command name', () => {
+    const drawn = line(bandLine(STATE, NOW, 200))
+
+    expect(drawn.startsWith(`${STATUS_MARK} ·`)).toBe(true)
+    expect(drawn).not.toContain('/deadhd-band')
   })
 
   test('marks work running in parallel with its own glyph and color', () => {
@@ -615,14 +622,14 @@ describe('the band line', () => {
     )
     const parts = bandLine(parallel, NOW, 200)
 
-    expect(line(parts)).toContain('◇ 병렬 작업')
-    expect(parts.find(part => part.text.includes('◇'))?.tone).toBe('autoAccept')
+    expect(line(parts)).toContain('◐ 병렬 작업')
+    expect(parts.find(part => part.text.includes('◐'))?.tone).toBe('autoAccept')
   })
 
   test('leaves out what the session does not have', () => {
     const bare = normalize({ status: 'working', summary: { title: '', lang: 'ko', total: 1, counts: { done: 1 } } })
 
-    expect(line(bandLine(bare, NOW, 200))).toBe('/deadhd-band · ▓▓▓▓▓▓ 1/1')
+    expect(line(bandLine(bare, NOW, 200))).toBe(`${STATUS_MARK} · ▓▓▓▓▓▓ 1/1`)
   })
 
   test('cuts the current step so the row fits', () => {
@@ -645,7 +652,9 @@ describe('the band line', () => {
     }
 
     // Past the step, the left count is the next piece the band's row spares.
-    expect(line(bandLine(long, NOW, 40))).toBe('/deadhd-band · ▓▓▓░░░ 3/6 · 막힘 1')
+    // The mark leaves the row's other pieces 31 cells before not one of the
+    // step's own is left.
+    expect(line(bandLine(long, NOW, 31))).toBe(`${STATUS_MARK} · ▓▓▓░░░ 3/6 · 막힘 1`)
   })
 
   test('fits the row in 60 and 40 cells, as the status line does', () => {
@@ -689,7 +698,8 @@ describe('the status hint', () => {
 
       expect(elementOf(drawn).props?.flexDirection).toBe('column')
       expect(rows).toHaveLength(2)
-      expect(textOf(rows[0])).toBe(`${LONG_ROW} 열기`)
+      // 버튼 두 개는 줄 뒤에 나란히 붙는다.
+      expect(textOf(rows[0])).toBe(`${LONG_ROW} 열기접기`)
       expect(rows[1]).toEqual(ENGINE_HINT)
 
       await ui.unmount()
@@ -731,7 +741,7 @@ describe('the status hint', () => {
     await ui.unmount()
   })
 
-  test('keeps the button and the way back on the folded row', async ($, on) => {
+  test('keeps the buttons and the count on the folded row, naming no command', async ($, on) => {
     statusWorld(on, filesOf(statusState()))
 
     await $.session.start(SESSION)
@@ -740,9 +750,11 @@ describe('the status hint', () => {
     const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
     const drawn = textOf(await ui.drawn())
 
-    expect(drawn).toContain(`${STATUS_MARK} ✅ 3/6`)
-    expect(drawn).toContain(FOLDED_GUIDE)
+    expect(drawn).toContain(`${STATUS_MARK} ✓ 3/6`)
+    // 접힌 줄은 명령 이름 대신 버튼 두 개로 되돌아가는 길을 알린다.
     expect(drawn).toContain('열기')
+    expect(drawn).toContain('펼치기')
+    expect(drawn).not.toContain('/deadhd-statusline')
     expect(drawn).not.toContain('⏳ 남음 2')
 
     await ui.unmount()
@@ -794,12 +806,12 @@ describe('the status hint', () => {
       const separators = painted.filter(one => one.text.includes('·'))
 
       expect(pieceOf(painted, STATUS_MARK)).toMatchObject({ color: 'claude', bold: true })
-      expect(pieceOf(painted, '✅ 3/6')).toMatchObject({ color: 'success', bold: true })
+      expect(pieceOf(painted, '✓ 3/6')).toMatchObject({ color: 'success', bold: true })
       expect(pieceOf(painted, '▓▓▓')?.color).toBe('success')
       expect(pieceOf(painted, '░░░')?.color).toBe('subtle')
       expect(pieceOf(painted, 'CAS-1161')).toMatchObject({ color: 'permission', bold: true })
       expect(pieceOf(painted, '콘솔 dev 회귀 3회차')?.color).toBe('text')
-      expect(pieceOf(painted, '▶️ 실제 화면 확인 4분째')).toMatchObject({
+      expect(pieceOf(painted, '▶ 실제 화면 확인 4분째')).toMatchObject({
         color: 'suggestion',
         bold: true,
       })
@@ -845,7 +857,7 @@ describe('the status hint', () => {
     const rows = rowsOf(await ui.drawn())
     const painted = await paintedOf(ui)
 
-    expect(textOf(rows[0])).toBe(`${LONG_ROW} 열기`)
+    expect(textOf(rows[0])).toBe(`${LONG_ROW} 열기접기`)
     expect(textOf(rows[1])).toBe('x'.repeat(200))
     expect(pieceOf(painted, '⏳ 남음 2')).toBeDefined()
 
@@ -895,19 +907,42 @@ describe('the status hint', () => {
 
     // PromptHint hands the tree no width of its own, so the viewport's cells are
     // the budget: the narrow surface gives way where a 240-cell one keeps the pieces.
-    expect(whole).toContain('▶️ 실제 화면 확인')
+    expect(whole).toContain('▶ 실제 화면 확인')
     expect(whole).toContain(PR_PIECE)
-    expect(cut).not.toContain('▶️ 실제 화면 확인')
+    expect(cut).not.toContain('▶ 실제 화면 확인')
     expect(cut).not.toContain('🗜 압축 1')
     expect(cut).toContain(PR_PIECE)
     expect(cut).toContain('⏳ 남음 2')
-    expect(cut).toContain('✅ 3/6')
+    expect(cut).toContain('✓ 3/6')
     expect(cellWidth(cut)).toBeLessThan(cellWidth(whole))
     // The hint line is drawn indented, so of the screen's 120 cells the four of
-    // indent and the button's own seven are not the line's to draw in. What the
-    // drawing adds beside the line (a space and the button) is not its either.
-    expect(cellWidth(formatLine(normalize(long, BOARD), NOW, 109))).toBeLessThanOrEqual(109)
+    // indent and the two buttons with the space before each are not the line's
+    // to draw in. What the drawing adds beside the line (a space and the two
+    // buttons) is not its either.
+    expect(cellWidth(formatLine(normalize(long, BOARD), NOW, 98))).toBeLessThanOrEqual(98)
     expect(cellWidth(cut)).toBeLessThan(cellWidth(whole))
+  })
+
+  test('keeps the line and its two buttons inside the viewport', async ($, on) => {
+    const long = statusState({}, { title: '아주 긴 제목이 여기에 들어 있다 '.repeat(12) })
+
+    statusWorld(on, filesOf(long))
+
+    await $.session.start(SESSION)
+
+    const ui = await $.ui.mount({
+      ...MOUNT_HINT,
+      surface: 'terminal',
+      viewport: { columns: 120, rows: 24 },
+    })
+    const row = textOf(rowsOf(await ui.drawn())[0])
+
+    // 120칸에서 들여쓰기 4칸과 버튼 두 개(각 8칸)와 그 앞 여백을 뺀 98칸이 줄의 몫이다.
+    expect(cellWidth(row.replace(/열기접기$/, '').trimEnd())).toBeLessThanOrEqual(98)
+    // 줄에 붙은 여백과 버튼 글자까지 더해도 화면 안에 남는다.
+    expect(cellWidth(row)).toBeLessThanOrEqual(107)
+
+    await ui.unmount()
   })
 
   test('with no state file the engine keeps its own hint', async ($, on) => {
@@ -943,6 +978,38 @@ describe('the status hint', () => {
 })
 
 describe('the status line command', () => {
+  test('folds and unfolds from the buttons beside it, as the command does', async ($, on) => {
+    statusWorld(on, filesOf(statusState()))
+
+    await $.session.start(SESSION)
+
+    const long = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+    const open = textOf(await long.drawn())
+
+    expect(open).toContain(`${LONG_ROW} 열기접기`)
+    expect(open).not.toContain('펼치기')
+
+    await long.press({ key: 'collapse' })
+    await long.unmount()
+
+    const folded = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+    const shut = textOf(await folded.drawn())
+
+    expect(shut).toContain(`${STATUS_MARK} ✓ 3/6 열기펼치기`)
+    expect(shut).not.toContain('접기')
+
+    await folded.press({ key: 'expand' })
+    await folded.unmount()
+
+    const opened = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+
+    expect(textOf(await opened.drawn())).toContain('⏳ 남음 2')
+    // 버튼이 바꾸는 것은 /deadhd-statusline 이 토글하는 것과 같은 접힘 상태다.
+    expect((await $.command.run(statusRun)).text).toBe('상태줄을 접었어요')
+
+    await opened.unmount()
+  })
+
   test('folds and opens the line, answering each time', async ($, on) => {
     statusWorld(on, filesOf(statusState()))
 
@@ -953,7 +1020,7 @@ describe('the status line command', () => {
     const folded = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
     const drawn = textOf(await folded.drawn())
 
-    expect(drawn).toContain(`${STATUS_MARK} ✅ 3/6`)
+    expect(drawn).toContain(`${STATUS_MARK} ✓ 3/6`)
     expect(drawn).not.toContain('⏳ 남음 2')
     // The engine's own hint stays under the line whether or not it is folded.
     expect(drawn).toContain('? for shortcuts')
@@ -973,7 +1040,7 @@ describe('the status line command', () => {
 
     const folded = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
 
-    expect(textOf(await folded.drawn())).toContain(`${STATUS_MARK} ✅ 3/6`)
+    expect(textOf(await folded.drawn())).toContain(`${STATUS_MARK} ✓ 3/6`)
 
     await folded.unmount()
 
@@ -1042,7 +1109,7 @@ describe('the view', () => {
 
     const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
 
-    expect(textOf(await ui.drawn())).toContain('/deadhd-band')
+    expect(textOf(await ui.drawn())).toContain(STATUS_MARK)
 
     await ui.unmount()
   })
@@ -1091,7 +1158,7 @@ describe('the view', () => {
 
     const band = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
 
-    expect(textOf(await band.drawn())).toContain('/deadhd-band')
+    expect(textOf(await band.drawn())).toContain(STATUS_MARK)
 
     await band.unmount()
 
@@ -1118,7 +1185,7 @@ describe('formatLine', () => {
       summary: { title: '작은 판', lang: 'ko', total: 1, counts: { done: 1 } },
     })
 
-    expect(formatLine(bare, NOW, 240)).toBe(`${STATUS_MARK} ✅ 1/1 ▓▓▓▓▓▓ · 작은 판`)
+    expect(formatLine(bare, NOW, 240)).toBe(`${STATUS_MARK} ✓ 1/1 ▓▓▓▓▓▓ · 작은 판`)
   })
 
   test('draws the mark against the count, no separator between them', () => {
@@ -1135,12 +1202,31 @@ describe('formatLine', () => {
     expect(formatLine(STATE, NOW, 240)).toContain('⏭ 다음 정리')
   })
 
+  test('draws the calibrated estimate when the summary carries one, else the raw one', () => {
+    const raw = normalize(stateOf(), BOARD)
+    const calibrated = normalize(stateOf({}, { etaCalibrated: '2026-10-09T16:48:00+09:00' }), BOARD)
+
+    expect(raw?.eta).toBe('2026-10-09T16:20:00+09:00')
+    expect(formatLine(raw, NOW, 240)).toContain('⏱ 예상 16:20')
+
+    // render.py 가 보정값을 실으면 그쪽이 실제 완료 예상이다. 형식은 둘 다 같다.
+    expect(calibrated?.eta).toBe('2026-10-09T16:48:00+09:00')
+    expect(formatLine(calibrated, NOW, 240)).toContain('⏱ 예상 16:48')
+  })
+
+  test('leaves the estimate out when the summary carries neither', () => {
+    const none = normalize(stateOf({}, { eta: null }), BOARD)
+
+    expect(none?.eta).toBeNull()
+    expect(formatLine(none, NOW, 240)).not.toContain('⏱')
+  })
+
   test('draws from the summary alone when the data file is gone', () => {
     const alone = normalize(stateOf({ data: '' }))
 
     expect(formatLine(alone, NOW, 240)).toBe(
-      `${STATUS_MARK} ✅ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · ` +
-        '▶️ 실제 화면 확인 · 🔀 app-api#512 · ⏱ 예상 16:20 · 🔄 2분 전 · ⛔ 막힘 1 · ⏳ 남음 2 · ' +
+      `${STATUS_MARK} ✓ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · ` +
+        '▶ 실제 화면 확인 · 🔀 app-api#512 · ⏱ 예상 16:20 · 🔄 2분 전 · ⛔ 막힘 1 · ⏳ 남음 2 · ' +
         '🧵 백그라운드 2 · 🗜 압축 1',
     )
   })
@@ -1196,7 +1282,7 @@ describe('formatLine', () => {
     const freed = formatLine(STATE, NOW, cellWidth(withPr) - 1)
 
     expect(freed).not.toContain(PR_PIECE)
-    expect(freed).toContain('✅ 3/6')
+    expect(freed).toContain('✓ 3/6')
     expect(freed).toContain('CAS-1161 콘솔 dev 회귀…')
     expect(cellWidth(freed)).toBeLessThanOrEqual(cellWidth(withPr) - 1)
   })
@@ -1204,7 +1290,7 @@ describe('formatLine', () => {
   test('draws the words in English for a state file that says en', () => {
     const english = formatLine(normalize(stateOf({}, { lang: 'en' }), BOARD), NOW, 240)
 
-    expect(english).toContain('▶️ 실제 화면 확인 4m in')
+    expect(english).toContain('▶ 실제 화면 확인 4m in')
     expect(english).toContain('⏭ next 정리')
     expect(english).toContain('⏱ ETA 16:20')
     expect(english).toContain('🔄 2m ago')
@@ -1517,7 +1603,7 @@ describe('cellWidth', () => {
   })
 
   test('counts the emoji the lines draw as two cells', () => {
-    const emoji = ['✅', '▶️', '⏭', '⏱', '🔄', '⚠️', '🛑', '⛔', '⏳', '🔐', '💬', '🧵', '🗜', '⌨️']
+    const emoji = ['⏭', '⏱', '🔄', '⚠️', '🛑', '⛔', '⏳', '🔐', '💬', '🧵', '🗜', '⌨️']
 
     for (const glyph of emoji) {
       expect([glyph, cellWidth(glyph)]).toEqual([glyph, 2])
@@ -1525,13 +1611,13 @@ describe('cellWidth', () => {
   })
 
   test('counts the text symbols the lines draw as one cell', () => {
-    for (const glyph of ['✓', '▶', '↗', '▓', '░', '◇', '·']) {
+    for (const glyph of ['✓', '▶', '↗', '▓', '░', '◇', '◐', '·']) {
       expect([glyph, cellWidth(glyph)]).toEqual([glyph, 1])
     }
   })
 
   test('reads a whole row by the same metric', () => {
-    expect(cellWidth('✅ 3/6')).toBe(6)
+    expect(cellWidth('✓ 3/6')).toBe(5)
     expect(cellWidth('⛔ 막힘 1')).toBe(9)
   })
 })

@@ -19,11 +19,11 @@ const BAR_CELLS = 6
 const SEP = ' · '
 const OPEN_TIMEOUT_MS = 15000
 
-/** The slash command each line leads with, the one that folds it. */
+/** The slash command each line folds from, spelled here and in `session.start`'s registration. */
 const BAND_CMD = '/deadhd-band'
 const STATUS_CMD = '/deadhd-statusline'
 
-/** What a status line opens with: the mark, the command that folds it staying in the folded guide. */
+/** The mark both lines open with, so a folded row names no command. */
 const STATUS_MARK = '◆'
 
 /** With no state file and no config the session draws in this view, as render.py decides too. */
@@ -392,7 +392,7 @@ const barParts = (done: number, total: number): Segment[] => {
 /** The glyph and color a marked step carries: work running in parallel draws its own. */
 const stepMark = (state: string, running: string): Segment =>
   state === 'side'
-    ? { text: '◇', tone: 'autoAccept' }
+    ? { text: '◐', tone: 'autoAccept' }
     : { text: running, tone: 'suggestion', bold: true }
 
 /** The piece for the step a line marks, colored and marked by that step's own state. */
@@ -431,7 +431,9 @@ const waitField = (state: DeadhdState, now: number): Field | null => {
 /** The band's first row: how far the run has come, and what is on it. */
 const bandFields = (state: DeadhdState, now: number): Field[] => {
   const words = WORDS[state.lang]
-  const fields: Field[] = [{ tag: 'name', parts: [{ text: BAND_CMD, tone: 'claude', bold: true }] }]
+  const fields: Field[] = [
+    { tag: 'name', parts: [{ text: STATUS_MARK, tone: 'claude', bold: true }] },
+  ]
 
   if (state.total > 0) {
     fields.push({
@@ -504,7 +506,7 @@ const statusFields = (state: DeadhdState, now: number): Field[] => {
       tag: 'count',
       parts: [
         { text: `${STATUS_MARK} `, tone: 'claude', bold: true },
-        { text: `✅ ${state.done}/${state.total}`, tone: 'success', bold: true },
+        { text: `✓ ${state.done}/${state.total}`, tone: 'success', bold: true },
         { text: ' ', tone: 'plain' },
         ...barParts(state.done, state.total),
       ],
@@ -520,7 +522,7 @@ const statusFields = (state: DeadhdState, now: number): Field[] => {
   }
 
   if (state.current !== null) {
-    fields.push(stepField(state.current, state.lang, now, '▶️'))
+    fields.push(stepField(state.current, state.lang, now, '▶'))
   }
 
   if (state.pr !== null) {
@@ -828,9 +830,9 @@ export function formatLine(state: DeadhdState | null, now: number, maxCols: numb
   return segmentsText(statusLine(state, now, maxCols))
 }
 
-/** The folded band's one line: the command and how far the run has come, nothing else. */
+/** The folded band's one line: the mark and how far the run has come, nothing else. */
 function foldedSegments(state: DeadhdState): Segment[] {
-  const parts: Segment[] = [{ text: BAND_CMD, tone: 'claude', bold: true }]
+  const parts: Segment[] = [{ text: STATUS_MARK, tone: 'claude', bold: true }]
 
   if (state.total > 0) {
     parts.push(
@@ -843,25 +845,19 @@ function foldedSegments(state: DeadhdState): Segment[] {
 }
 
 /**
- * The folded status line's one row: the mark, the count, and the command that
- * unfolds it. The page's own way open is the button drawn at the row's end, so
- * the folded row names the way back to the long line instead.
+ * The folded status line's one row: the mark and the count. The buttons drawn
+ * at the row's end carry the way back to the long line, so the row itself names
+ * no command.
  */
 function statusFoldedSegments(state: DeadhdState): Segment[] {
-  const words = WORDS[state.lang]
   const parts: Segment[] = [{ text: STATUS_MARK, tone: 'claude', bold: true }]
 
   if (state.total > 0) {
     parts.push(
       { text: ' ', tone: 'plain' },
-      { text: `✅ ${state.done}/${state.total}`, tone: 'success', bold: true },
+      { text: `✓ ${state.done}/${state.total}`, tone: 'success', bold: true },
     )
   }
-
-  parts.push(
-    { text: SEP, tone: 'subtle' },
-    { text: `${STATUS_CMD} ${words.expand}`, tone: 'suggestion' },
-  )
 
   return parts
 }
@@ -962,6 +958,21 @@ const prOf = (value: unknown): DeadhdPr | null => {
 }
 
 /**
+ * The completion estimate a summary carries: render.py's calibrated instant when
+ * it calibrated one, else the estimate it computed from the steps alone. Both
+ * are ISO 8601 instants with an offset, so the clock reads either.
+ */
+const etaOf = (summary: Record<string, unknown>): string | null => {
+  const calibrated = summary.etaCalibrated
+
+  if (typeof calibrated === 'string') {
+    return calibrated
+  }
+
+  return typeof summary.eta === 'string' ? summary.eta : null
+}
+
+/**
  * One session's state file and data file together, as the two lines read them.
  * A shape this build does not know, or a data file that is missing or broken,
  * costs the parts that read it, never the whole line.
@@ -1018,7 +1029,7 @@ export function normalize(raw: unknown, data?: unknown): DeadhdState | null {
     current: running ?? (now > 0 ? summaryStep : null),
     next: nextStep(steps, running),
     stuck: steps.find(step => step.state === 'blocked') ?? (now === 0 && blocked > 0 ? summaryStep : null),
-    eta: typeof summary.eta === 'string' ? summary.eta : null,
+    eta: etaOf(summary),
     updatedAt: dataAt ?? (typeof source.updatedAt === 'string' ? source.updatedAt : null),
     since: typeof source.since === 'string' ? source.since : null,
     background: Array.isArray(source.backgroundTasks) ? source.backgroundTasks.length : 0,
@@ -1342,11 +1353,15 @@ export const register: Register = on => {
     const folded = await read($, collapsed)
     const now = await $.clock.now()
     const words = WORDS[state.lang]
-    // The button and the space before it are drawn beside the text, so their
-    // cells come off the budget the line's own pieces are cut to. The width is
-    // the surface's own, which PromptHint's props do not carry.
+    // The two buttons and the space before each are drawn beside the text, so
+    // their cells come off the budget the line's own pieces are cut to. The
+    // width is the surface's own, which PromptHint's props do not carry.
     const cols = e.viewport?.columns ?? STATUS_COLS
-    const room = Math.max(0, cols - HINT_INSET - (1 + buttonCols(words.open)))
+    const toggle = folded ? words.expand : words.collapse
+    const room = Math.max(
+      0,
+      cols - HINT_INSET - (1 + buttonCols(words.open)) - (1 + buttonCols(toggle)),
+    )
 
     if (room > 0) {
       widths.status = room
@@ -1379,6 +1394,11 @@ export const register: Register = on => {
             )
           })}
           <Button key="open" label={words.open} variant="primary" onPress={open} />
+          {folded ? (
+            <Button key="expand" label={words.expand} onPress={() => update($, collapsed, () => false)} />
+          ) : (
+            <Button key="collapse" label={words.collapse} onPress={() => update($, collapsed, () => true)} />
+          )}
         </Box>
         {hint}
       </Box>
