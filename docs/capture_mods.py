@@ -896,9 +896,9 @@ def main(argv):
             'foldedCap': '접힌 밴드: /deadhd-band 로 접었을 때',
             'statusCap': '상태줄: 입력칸 아래, 엔진 힌트 다음 줄',
             'hudCap': '세션 HUD(상태줄): /deadhd 를 실행하기 전. 세션 상태와 마지막 도구, 지켜본 압축 '
-                      '횟수가 보이고 열 페이지가 없어 열기 버튼도 없다.',
+                      '횟수가 보이고, 열 페이지가 없어 열기 대신 켜기 버튼이 있다.',
             'hudBandCap': '세션 HUD(밴드): /deadhd 를 실행하기 전. 세션 상태와 마지막 도구가 보이고 '
-                          '열 페이지가 없어 열기 버튼도 없다.',
+                          '열 페이지가 없어 열기 대신 켜기 버튼이 있다.',
         },
         'en': {
             'call': 'Bash(python3 -m unittest skills/deadhd/test_render.py)',
@@ -909,9 +909,9 @@ def main(argv):
             'foldedCap': 'Folded band: after /deadhd-band',
             'statusCap': 'Status line: under the input, on the row after the engine hint',
             'hudCap': 'Session HUD (status line): before /deadhd runs. The session state, the last '
-                      'tool and the compactions it watched, with no page and so no Open button.',
+                      'tool and the compactions it watched, with no page yet, so Enable stands where Open does.',
             'hudBandCap': 'Session HUD (band): before /deadhd runs. The session state and the last '
-                          'tool, with no page and so no Open button.',
+                          'tool, with no page yet, so Enable stands where Open does.',
         },
     }[lang]
 
