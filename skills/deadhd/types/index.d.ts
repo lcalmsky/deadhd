@@ -137,6 +137,8 @@ declare module 'claude-code' {
       view: DeadhdView
       /** What the mod watched of the session itself, drawn with no state file. */
       hud: DeadhdHud
+      /** Whether the config asks for the HUD; an unset or unknown `hud` value reads as on. */
+      'hud-on': boolean
     }
   }
 }
