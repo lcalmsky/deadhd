@@ -223,6 +223,7 @@ details summary {
       bucketWorking: '작업 중',
       bucketUntracked: '훅 없음',
       bucketDone: '완료',
+      bucketOff: '꺼짐',
       bucketEnded: '종료',
       bucketStale: '지난',
       empty: '아직 세션이 없어요. 작업 중인 세션에서 /deadhd 를 실행하면 여기 모여요.',
@@ -243,6 +244,7 @@ details summary {
       stale: t => '지난 세션 · ' + t,
       doneBadge: t => '완료 · 갱신 ' + t,
       untrackedBadge: t => '훅 없음 · 갱신 ' + t,
+      offBadge: t => '갱신 끔 ' + t,
       liveBackground: n => '백그라운드 작업 ' + n,
       tomorrow: '내일 ',
       date: (m, d, hm) => m + '.' + d + ' ' + hm,
@@ -280,6 +282,7 @@ details summary {
       bucketWorking: 'working',
       bucketUntracked: 'no hooks',
       bucketDone: 'done',
+      bucketOff: 'off',
       bucketEnded: 'ended',
       bucketStale: 'past',
       empty: 'No sessions yet. Run /deadhd in a working session and it shows up here.',
@@ -295,6 +298,7 @@ details summary {
       stale: t => 'Past session · ' + t,
       doneBadge: t => 'Done · updated ' + t,
       untrackedBadge: t => 'No hooks · updated ' + t,
+      offBadge: t => 'Off ' + t,
       liveBackground: n => n + ' background task' + (n === 1 ? '' : 's'),
       tomorrow: 'Tomorrow ',
       date: (m, d, hm) => m + '/' + d + ' ' + hm,
@@ -416,11 +420,11 @@ details summary {
   sessions = Array.isArray(data.sessions) ? data.sessions : [];
   renderedAt = data.renderedAt ? toDate(data.renderedAt) : null;
 
-  const groups = { wait: [], stall: [], idle: [], working: [], untracked: [], done: [], ended: [], stale: [] };
+  const groups = { wait: [], stall: [], idle: [], working: [], untracked: [], done: [], off: [], ended: [], stale: [] };
   sessions.forEach(s => { if (groups[s.bucket]) groups[s.bucket].push(s); });
   const waiting = groups.wait.concat(groups.stall, groups.idle);
   const working = groups.working.concat(groups.untracked);
-  const ended = groups.ended.concat(groups.stale);
+  const ended = groups.off.concat(groups.ended, groups.stale);
 
   $('eyebrowText').textContent = L.eyebrow;
   $('h1').textContent = L.count(sessions.length, waiting.length);
@@ -430,7 +434,7 @@ details summary {
   parts.push(L.refreshed);
   [['wait', L.bucketWait], ['stall', L.bucketStall], ['idle', L.bucketIdle],
    ['working', L.bucketWorking], ['untracked', L.bucketUntracked], ['done', L.bucketDone],
-   ['ended', L.bucketEnded], ['stale', L.bucketStale]].forEach(([k, label]) => {
+   ['off', L.bucketOff], ['ended', L.bucketEnded], ['stale', L.bucketStale]].forEach(([k, label]) => {
     if (groups[k].length) parts.push(label + ' ' + groups[k].length);
   });
   $('sub').textContent = parts.join(' · ');
@@ -539,7 +543,12 @@ details summary {
     const li = el('li');
     li.appendChild(el('span', 'e-title', sum.title == null ? '' : String(sum.title)));
     if (sum.key) li.appendChild(el('span', 'e-key mono', sum.key));
-    if (session.updatedAt) li.appendChild(el('span', 'e-upd', fmtClock(toDate(session.updatedAt), viewNow)));
+    // 꺼진 세션은 훅이 상태 파일을 계속 갱신해 updatedAt 이 늘 최신이라, 끈 시각을 대신 보여 준다.
+    if (session.bucket === 'off' && session.offAt) {
+      li.appendChild(el('span', 'e-upd', L.offBadge(fmtClock(toDate(session.offAt), viewNow))));
+    } else if (session.updatedAt) {
+      li.appendChild(el('span', 'e-upd', fmtClock(toDate(session.updatedAt), viewNow)));
+    }
     return li;
   }
 

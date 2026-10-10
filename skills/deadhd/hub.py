@@ -10,13 +10,13 @@ from html import escape
 HERE = os.path.dirname(os.path.abspath(__file__))
 HUB_TEMPLATE = os.path.join(HERE, 'hub.html')
 DEFAULT_HUB = '/tmp/deadhd-hub.html'
-BUCKETS = ('wait', 'stall', 'idle', 'working', 'untracked', 'done', 'ended', 'stale')
+BUCKETS = ('wait', 'stall', 'idle', 'working', 'untracked', 'done', 'off', 'ended', 'stale')
 BUCKET_RANK = {name: i for i, name in enumerate(BUCKETS)}
 # 이보다 오래 갱신되지 않은 세션은 지난 세션으로 접는다.
 STALE_SECONDS = 24 * 3600
 STALL_SECONDS = 10 * 60
 TITLES = {'ko': 'deadhd 허브', 'en': 'deadhd hub'}
-USAGE = '사용법: hub.py [--theme <테마>] [--font <프리셋>] [<out.html>]'
+USAGE = '사용법: hub.py [--clean] [--theme <테마>] [--font <프리셋>] [<out.html>]'
 
 sys.path.insert(0, HERE)
 sys.dont_write_bytecode = True
@@ -52,6 +52,8 @@ def bucket(session, now):
     summary = session.get('summary') or {}
     if session.get('status') == 'ended':
         return 'ended'
+    if session.get('offAt'):
+        return 'off'
     updated = render.parse_when(session.get('updatedAt'))
     if updated is None or (now - updated).total_seconds() > STALE_SECONDS:
         return 'stale'
@@ -78,6 +80,44 @@ def order_key(session):
     return (BUCKET_RANK[session['bucket']], since is None, since or EPOCH, session['sessionId'])
 
 
+def read_state_file(state_dir, name):
+    """상태 파일 하나를 허브가 읽는 모양으로. 허브가 건너뛰는 파일이면 None."""
+    try:
+        with open(os.path.join(state_dir, name), encoding='utf-8') as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get('summary'), dict):
+        return None
+    out = data.get('out')
+    out = out if isinstance(out, str) and os.path.isabs(out) else None
+    # 아직 페이지를 쓰지 않은 세션에는 링크를 걸지 않는다. 깨진 링크가 되기 때문이다.
+    href = page_href(out) if out and os.path.exists(out) else None
+    view = data.get('view')
+    # 페이지가 없는 세션은 view 로 어디를 보고 있는지 알린다. html 세션은 페이지 파일이
+    # 사라진 경우라 이름 대신 「페이지 없음」으로 드러난다.
+    view = view if href is None and view in ('html', 'band', 'statusline') else None
+    tasks = data.get('backgroundTasks')
+    compactions = data.get('compactions')
+    tool = data.get('lastTool')
+    return {
+        'sessionId': data.get('sessionId') if isinstance(data.get('sessionId'), str) else name[:-5],
+        'out': out,
+        'href': href,
+        'view': view,
+        'status': data.get('status') if isinstance(data.get('status'), str) else None,
+        'since': data.get('since') if isinstance(data.get('since'), str) else None,
+        'message': data.get('message') if isinstance(data.get('message'), str) else None,
+        'lastTool': tool if isinstance(tool, dict) else None,
+        'backgroundTasks': tasks if isinstance(tasks, list) else [],
+        'compactions': compactions if isinstance(compactions, dict) else {},
+        'updatedAt': data.get('updatedAt') if isinstance(data.get('updatedAt'), str) else None,
+        'offAt': data.get('offAt') if isinstance(data.get('offAt'), str) else None,
+        'cwd': data.get('cwd') if isinstance(data.get('cwd'), str) else None,
+        'summary': data['summary'],
+    }
+
+
 def collect(state_dir):
     try:
         names = os.listdir(state_dir)
@@ -87,40 +127,36 @@ def collect(state_dir):
     for name in sorted(names):
         if not name.endswith('.json'):
             continue
-        try:
-            with open(os.path.join(state_dir, name), encoding='utf-8') as f:
-                data = json.load(f)
-        except (OSError, ValueError):
-            continue
-        if not isinstance(data, dict) or not isinstance(data.get('summary'), dict):
-            continue
-        out = data.get('out')
-        out = out if isinstance(out, str) and os.path.isabs(out) else None
-        # 아직 페이지를 쓰지 않은 세션에는 링크를 걸지 않는다. 깨진 링크가 되기 때문이다.
-        href = page_href(out) if out and os.path.exists(out) else None
-        view = data.get('view')
-        # 페이지가 없는 세션은 view 로 어디를 보고 있는지 알린다. html 세션은 페이지 파일이
-        # 사라진 경우라 이름 대신 「페이지 없음」으로 드러난다.
-        view = view if href is None and view in ('html', 'band', 'statusline') else None
-        tasks = data.get('backgroundTasks')
-        compactions = data.get('compactions')
-        tool = data.get('lastTool')
-        sessions.append({
-            'sessionId': data.get('sessionId') if isinstance(data.get('sessionId'), str) else name[:-5],
-            'out': out,
-            'href': href,
-            'view': view,
-            'status': data.get('status') if isinstance(data.get('status'), str) else None,
-            'since': data.get('since') if isinstance(data.get('since'), str) else None,
-            'message': data.get('message') if isinstance(data.get('message'), str) else None,
-            'lastTool': tool if isinstance(tool, dict) else None,
-            'backgroundTasks': tasks if isinstance(tasks, list) else [],
-            'compactions': compactions if isinstance(compactions, dict) else {},
-            'updatedAt': data.get('updatedAt') if isinstance(data.get('updatedAt'), str) else None,
-            'cwd': data.get('cwd') if isinstance(data.get('cwd'), str) else None,
-            'summary': data['summary'],
-        })
+        session = read_state_file(state_dir, name)
+        if session is not None:
+            sessions.append(session)
     return sessions
+
+
+def clean_states(now=None):
+    """꺼짐·종료·지난 세션의 상태 파일만 지운다. 데이터 JSON 과 페이지 HTML 은 남긴다.
+
+    지울 파일 이름은 디렉터리 목록에서 온다. 세션의 `sessionId` 는 파일 이름과 다를 수 있다.
+    """
+    directory = state.state_dir()
+    current = now or render.current_time()
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return 0
+    removed = 0
+    for name in names:
+        if not name.endswith('.json'):
+            continue
+        session = read_state_file(directory, name)
+        if session is None or bucket(session, current) not in ('off', 'ended', 'stale'):
+            continue
+        try:
+            os.unlink(os.path.join(directory, name))
+            removed += 1
+        except OSError:
+            continue
+    return removed
 
 
 def write_hub(theme=None, font=None, now=None, out=None):
@@ -184,9 +220,16 @@ def main(argv):
     theme = None
     font = None
     out = None
+    clean = False
     rest = argv[1:]
-    while rest[:1] in (['--theme'], ['--font']):
+    while rest[:1] in (['--clean'], ['--theme'], ['--font']):
         flag = rest[0]
+        if flag == '--clean':
+            if clean:
+                die(USAGE)
+            clean = True
+            rest = rest[1:]
+            continue
         if len(rest) < 2:
             die(USAGE)
         if flag == '--theme':
@@ -206,6 +249,8 @@ def main(argv):
         die('알 수 없는 테마: %s (%s 중 하나)' % (theme, '/'.join(render.THEMES)))
     if font is not None and font not in render.FONTS:
         die('알 수 없는 글꼴: %s (%s 중 하나)' % (font, '/'.join(render.FONTS)))
+    if clean:
+        print('cleaned: %d' % clean_states())
     try:
         path = write_hub(theme=theme, font=font, out=out)
     except Exception as e:

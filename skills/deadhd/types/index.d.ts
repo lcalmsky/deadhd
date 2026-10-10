@@ -98,6 +98,8 @@ export type DeadhdState = {
   data: string | null
   /** The absolute path of the rendered page, or null before one is rendered. */
   out: string | null
+  /** Whether `state.py --off` has turned this session off. */
+  off: boolean
 }
 
 /**

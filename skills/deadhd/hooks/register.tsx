@@ -1157,6 +1157,7 @@ export function normalize(raw: unknown, data?: unknown): DeadhdState | null {
     view: asView(source.view),
     data: path(source.data),
     out: path(source.out),
+    off: path(source.offAt) !== null,
   }
 }
 
@@ -1380,14 +1381,19 @@ async function askToEnable($: EngineInterface, state: DeadhdState | null): Promi
 async function refresh($: EngineInterface): Promise<void> {
   try {
     const fresh = await load($)
+    // The view stays the state file's even when the session is off, so a session
+    // the person turned off keeps drawing in the line it was drawn in.
     const view = await viewOf($, fresh)
+    // A session turned off draws like one with no state file at all: the checklist
+    // drops out and the button standing where `열기` does asks to turn it back on.
+    const drawn = fresh !== null && fresh.off ? null : fresh
     const previous = await read($, live)
     const previousView = await read($, shown)
     const watching = await configHud($)
     const previousHud = await read($, hudOn)
 
-    if (JSON.stringify(previous) !== JSON.stringify(fresh)) {
-      await update($, live, () => fresh)
+    if (JSON.stringify(previous) !== JSON.stringify(drawn)) {
+      await update($, live, () => drawn)
     }
 
     // The view and the HUD are re-read every interval, so a change in the config
@@ -1401,7 +1407,7 @@ async function refresh($: EngineInterface): Promise<void> {
       await update($, hudOn, () => watching)
     }
 
-    if (fresh !== null && previous !== null && needsAttention(fresh, previous)) {
+    if (drawn !== null && previous !== null && needsAttention(drawn, previous)) {
       await update($, collapsed, () => false)
     }
 
@@ -1418,9 +1424,9 @@ async function refresh($: EngineInterface): Promise<void> {
     // the checklist; once it is there the line draws from the state file's own
     // values, with the watched pieces left out.
     const line =
-      fresh === null && !watching
+      drawn === null && !watching
         ? ''
-        : paintText(fresh, watching ? await read($, seen) : EMPTY_HUD, now, folded, view)
+        : paintText(drawn, watching ? await read($, seen) : EMPTY_HUD, now, folded, view)
     const before = painted[mode]
 
     painted[mode] = line
@@ -1558,7 +1564,9 @@ export const register: Register = on => {
   }).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'deadhd-open' }, async $ => {
-    const state = await read($, live)
+    // The `live` atom folds a turned-off session to null; this command still opens
+    // its page, so it reads the state file itself rather than the atom.
+    const state = await load($)
 
     return { text: await openText($, state) }
   })

@@ -236,7 +236,7 @@ cp -r deadhd/skills/deadhd ~/.claude/skills/
 | `/deadhd --view <표시 방식>` | 이번 실행만 다른 표시 방식으로 그립니다 |
 | `/deadhd --theme <테마>` | 이번 실행만 다른 테마로 렌더합니다 |
 | `/deadhd --font <프리셋>` | 이번 실행만 다른 제목 글꼴로 렌더합니다 |
-| `/deadhd off` | 페이지 갱신을 중지합니다 |
+| `/deadhd off` | 체크리스트 갱신을 끄고 밴드·상태줄에서 떼어 냅니다. 다시 `/deadhd` 를 실행하면 켜집니다 |
 
 Claude Code 에서 밴드나 상태줄로 보고 있으면 다음 명령도 씁니다.
 

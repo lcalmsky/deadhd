@@ -35,6 +35,9 @@ const SESSION: SessionStartInput = { cwd: '/work', surface: 'terminal', isIntera
 /** Four minutes after the sample's current step started, and two after its last write. */
 const NOW = Date.parse('2026-10-09T15:38:53+09:00')
 
+/** What `state.py --off` writes into the state file when the person turns a session off. */
+const OFF_MARK = '2026-10-09T15:35:30.123+09:00'
+
 const BAND: RenderPropsOf['AbovePrompt'] = {
   hasSurvey: false,
   isWorking: false,
@@ -421,6 +424,42 @@ describe('the band', () => {
     expect(drawn).not.toContain('열기')
     expect(drawn).toContain('켜기')
     expect(drawn).toContain('접기')
+
+    await ui.unmount()
+  })
+
+  test('draws a session turned off like one with no state file', async ($, on) => {
+    // /deadhd off 뒤다. 상태 파일은 남아 있지만 체크리스트는 더 갱신되지 않는다.
+    const files = { ...configOf('band'), ...filesOf(stateOf({ offAt: OFF_MARK })) }
+    const { clock } = worldOf(on, files, START)
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+    const drawn = textOf(await ui.drawn())
+
+    expect(drawn).toContain(`${STATUS_MARK} · ${RUNNING}`)
+    // 체크리스트가 빠지고 열기 자리에 켜기 버튼이 선다. 상태 파일이 없는 세션과 같다.
+    expect(drawn).not.toContain('막힘')
+    expect(drawn).not.toContain('실제 화면 확인')
+    expect(drawn).not.toContain('열기')
+    expect(drawn).toContain('켜기')
+    expect(drawn).toContain('접기')
+
+    await ui.unmount()
+  })
+
+  test('a session turned off keeps the view its state file names', async ($, on) => {
+    // 설정이 html 을 고른 세션도 상태 파일이 밴드를 고르면 밴드로 그린다.
+    const files = { ...configOf('html'), ...filesOf(stateOf({ offAt: OFF_MARK })) }
+    const { clock } = worldOf(on, files, START)
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+    const drawn = textOf(await ui.drawn())
+
+    expect(drawn).toContain('켜기')
 
     await ui.unmount()
   })
@@ -2201,7 +2240,14 @@ describe('normalize', () => {
       view: null,
       data: null,
       out: null,
+      off: false,
     })
+  })
+
+  test('marks a session the skill turned off', () => {
+    expect(normalize(stateOf({ offAt: OFF_MARK }))?.off).toBe(true)
+    expect(normalize(stateOf({ offAt: '' }))?.off).toBe(false)
+    expect(STATE?.off).toBe(false)
   })
 
   test('is null for what is not a state file at all', () => {

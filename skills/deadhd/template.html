@@ -867,7 +867,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
 .status-working .status-dot { background: var(--done); box-shadow: 0 0 8px var(--done); animation: blink 1.6s ease-in-out infinite; }
 .status-stall .status-dot { background: var(--blocked); animation: none; }
 .status-stall .status-title { color: var(--blocked-2); }
-.status-ended { opacity: .6; }
+.status-ended, .status-off { opacity: .6; }
 [data-theme="ink"] .status-waiting_permission { background-image: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--ink) 7%, transparent) 0 6px, transparent 6px 12px); box-shadow: none; border-color: var(--ink); }
 [data-theme="ink"] .status-waiting_permission .status-main { display: inline-flex; padding: 4px 10px; margin-left: -10px; border-radius: 8px; background: var(--bg); }
 </style>
@@ -1009,6 +1009,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       liveWorking: '작업 중',
       liveStall: d => '신호 없음 · ' + d,
       liveEnded: t => '세션 종료 ' + t,
+      liveOff: t => '갱신을 껐어요 · ' + t,
       liveLastTool: (n, a) => '마지막 도구 ' + n + ' · ' + a,
       liveBackground: n => '백그라운드 작업 ' + n,
       liveCompact: (n, t) => '압축 ' + n + '회 · ' + t + ' 데이터 재주입',
@@ -1097,6 +1098,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       liveWorking: 'Working',
       liveStall: d => 'No signal · ' + d,
       liveEnded: t => 'Session ended ' + t,
+      liveOff: t => 'Updates off · ' + t,
       liveLastTool: (n, a) => 'Last tool ' + n + ' · ' + a,
       liveBackground: n => n + ' background task' + (n === 1 ? '' : 's'),
       liveCompact: (n, t) => 'Compacted ' + n + '× · data re-injected ' + t,
@@ -1396,18 +1398,25 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     const lastToolAt = lv.lastTool && lv.lastTool.at ? toDate(lv.lastTool.at) : null;
     const stalled = lv.status === 'working' && lastToolAt != null
       && viewNow.getTime() - lastToolAt.getTime() > stallMs;
-    band.className = 'status status-' + lv.status + (stalled ? ' status-stall' : '');
+    const off = lv.status !== 'ended' && !!lv.offAt;
+    band.className = off
+      ? 'status status-off'
+      : 'status status-' + lv.status + (stalled ? ' status-stall' : '');
     band.hidden = false;
 
     const main = el('div', 'status-main');
     main.appendChild(el('i', 'status-dot'));
     let title = L.liveWorking;
-    if (lv.status === 'waiting_permission') title = L.liveWait(L.forDur(relDur(lv.since)));
+    // ended 는 off 보다 우선이고, off 는 신호 없음보다 우선이다. 꺼진 세션의 마지막 도구가
+    // 오래됐어도 띠는 꺼짐을 말한다.
+    if (off) title = L.liveOff(fmtClock(toDate(lv.offAt), viewNow));
+    else if (lv.status === 'waiting_permission') title = L.liveWait(L.forDur(relDur(lv.since)));
     else if (lv.status === 'idle') title = L.liveIdle(L.forDur(relDur(lv.since)));
     else if (lv.status === 'working' && stalled) title = L.liveStall(L.forDur(relDur(lv.lastTool.at)));
     else if (lv.status === 'ended') title = L.liveEnded(fmtClock(toDate(lv.since), viewNow));
     main.appendChild(el('b', 'status-title', title));
-    const what = lv.status === 'waiting_permission' ? L.permMsg(lv.message)
+    const what = off ? ''
+      : lv.status === 'waiting_permission' ? L.permMsg(lv.message)
       : lv.status === 'working' && lv.lastTool ? lv.lastTool.name : '';
     if (what) main.appendChild(el('span', 'status-what mono', what));
     band.appendChild(main);

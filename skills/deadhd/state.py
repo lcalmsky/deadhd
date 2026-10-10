@@ -38,6 +38,11 @@ def now_iso():
     return datetime.now().astimezone().isoformat(timespec='seconds')
 
 
+def now_iso_ms():
+    """꺼진 시각. render.py 가 데이터 파일 시각과 견주므로 밀리초까지 남긴다."""
+    return datetime.now().astimezone().isoformat(timespec='milliseconds')
+
+
 def load_state(session_id):
     try:
         with open(state_path(session_id), encoding='utf-8') as f:
@@ -248,6 +253,9 @@ def apply_event(state, payload):
             state['compactions'] = compactions
         compactions['count'] = int(compactions.get('count') or 0) + 1
         compactions['lastAt'] = now
+        if isinstance(state.get('offAt'), str):
+            # 꺼진 세션에 갱신 지시를 다시 넣으면 모델이 데이터를 다시 써 off 가 풀린다.
+            return (False, None)
         return (False, compaction_note(state))
     if event == 'SessionEnd':
         state['status'] = 'ended'
@@ -256,7 +264,44 @@ def apply_event(state, payload):
     return None
 
 
+def turn_off(argv):
+    """`state.py --off [--session <id>]`: 이 세션의 갱신을 꺼진 것으로 기록한다.
+
+    `offAt` 은 `status` 밖의 최상위 필드라, 뒤이어 오는 훅 이벤트의 `apply_event` 가
+    `status` 를 덮어써도 남는다. 그 상태로 페이지·요약·허브를 다시 그린다.
+    """
+    rest = argv[2:]
+    session_id = None
+    if rest[:1] == ['--session']:
+        if len(rest) < 2:
+            sys.stderr.write('state.py: 사용법: state.py --off [--session <id>]\n')
+            return 1
+        session_id = rest[1]
+        rest = rest[2:]
+    if rest:
+        sys.stderr.write('state.py: 사용법: state.py --off [--session <id>]\n')
+        return 1
+    if session_id is None:
+        session_id = os.environ.get('CLAUDE_CODE_SESSION_ID')
+    if not valid_session_id(session_id):
+        sys.stderr.write('state.py: 세션 id 가 없어 끌 수 없다\n')
+        return 1
+
+    state = load_state(session_id)
+    if not state:
+        sys.stdout.write('off: none\n')
+        return 0
+    if not isinstance(state.get('offAt'), str) or not state['offAt']:
+        state['offAt'] = now_iso_ms()
+    save_state(session_id, state)
+    refresh(state, session_id)
+    sys.stdout.write('off: ' + session_id + '\n')
+    return 0
+
+
 def main():
+    if sys.argv[1:2] == ['--off']:
+        return turn_off(sys.argv)
     payload = read_payload()
     if payload is None:
         return 0
@@ -295,5 +340,10 @@ def main():
 if __name__ == '__main__':
     try:
         sys.exit(main())
-    except Exception:
+    except Exception as e:
+        # 훅 경로는 어떤 실패에도 조용히 0 으로 끝나야 한다. --off 는 사람이 부른
+        # 명령이라 실패를 삼키면 껐는지 알 수 없으므로 이유를 내고 1 로 끝낸다.
+        if sys.argv[1:2] == ['--off']:
+            sys.stderr.write('state.py: 끄지 못했다: %s\n' % e)
+            sys.exit(1)
         sys.exit(0)

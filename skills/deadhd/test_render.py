@@ -78,6 +78,18 @@ def run_state(payload, state_dir, env_extra=None, raw=None):
     return subprocess.run([sys.executable, STATE], input=text, capture_output=True, text=True, env=env)
 
 
+def run_off(state_dir, args=(), env_extra=None):
+    env = dict(os.environ)
+    env['DEADHD_CONFIG'] = MISSING_CONFIG
+    env.pop('XDG_CONFIG_HOME', None)
+    env.pop('CLAUDE_CODE_SESSION_ID', None)
+    env['DEADHD_STATE_DIR'] = state_dir
+    env['DEADHD_HUB'] = TEST_HUB
+    if env_extra:
+        env.update(env_extra)
+    return subprocess.run([sys.executable, STATE, '--off', *args], capture_output=True, text=True, env=env)
+
+
 def load_valid_session_id():
     """state.py 를 import 하면 sys.path 와 __pycache__ 를 건드려야 해서 소스만 실행해 꺼낸다."""
     namespace = {'__name__': 'state_under_test', '__file__': STATE}
@@ -697,7 +709,8 @@ def hub_data_block(html):
     return m.group(1)
 
 
-def run_hub(state_dir, hub_path=None, theme=None, font=None, out=None, env_extra=None):
+def run_hub(state_dir, hub_path=None, theme=None, font=None, out=None, env_extra=None,
+            clean=False):
     env = dict(os.environ)
     env['DEADHD_CONFIG'] = MISSING_CONFIG
     env.pop('XDG_CONFIG_HOME', None)
@@ -706,6 +719,8 @@ def run_hub(state_dir, hub_path=None, theme=None, font=None, out=None, env_extra
     if env_extra:
         env.update(env_extra)
     cmd = [sys.executable, HUB]
+    if clean:
+        cmd.append('--clean')
     if theme is not None:
         cmd += ['--theme', theme]
     if font is not None:
@@ -3101,6 +3116,60 @@ class StateScriptTest(unittest.TestCase):
             self.assertEqual(f.read(), '{"x": 1}')
         self.assertEqual(sorted(os.listdir(self.state_dir)), ['s1.json'])
 
+    def test_off_marks_the_state_and_prints_the_session(self):
+        self.render_session()
+        r = run_off(self.state_dir, ['--session', 's1'])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, 'off: s1\n')
+        off_at = self.read_state()['offAt']
+        self.assertIsInstance(off_at, str)
+        self.assertIsNotNone(datetime.fromisoformat(off_at))
+        self.assertEqual(self.out_payload()['live']['offAt'], off_at)
+
+    def test_off_keeps_the_off_at_it_already_has(self):
+        self.seed_session(offAt='2026-10-03T09:48:00.123+09:00')
+        # 데이터 파일이 꺼진 시각보다 앞서야 재렌더가 그 표시를 지우지 않는다.
+        old = datetime.fromisoformat('2026-10-03T09:00:00+09:00').timestamp()
+        os.utime(self.data, (old, old))
+        r = run_off(self.state_dir, ['--session', 's1'])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.read_state()['offAt'], '2026-10-03T09:48:00.123+09:00')
+
+    def test_off_without_a_state_file_prints_none(self):
+        r = run_off(self.state_dir, ['--session', 'ghost'])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, 'off: none\n')
+
+    def test_off_takes_the_session_from_the_environment(self):
+        self.render_session()
+        r = run_off(self.state_dir, env_extra={'CLAUDE_CODE_SESSION_ID': 's1'})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, 'off: s1\n')
+        self.assertIn('offAt', self.read_state())
+
+    def test_off_without_a_session_id_exits_1(self):
+        r = run_off(self.state_dir)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('세션 id', r.stderr)
+
+    def test_off_survives_the_hook_events_that_follow(self):
+        """`offAt` 은 status 밖에 있어, 뒤이은 이벤트의 apply_event 가 덮어쓰지 않는다."""
+        self.render_session()
+        run_off(self.state_dir, ['--session', 's1'])
+        off_at = self.read_state()['offAt']
+        events = (
+            {'hook_event_name': 'UserPromptSubmit', 'prompt': 'hi'},
+            {'hook_event_name': 'PostToolUse', 'tool_name': 'Bash', 'duration_ms': 1200},
+            {'hook_event_name': 'Stop', 'background_tasks': []},
+            {'hook_event_name': 'Notification', 'notification_type': 'idle_prompt'},
+            {'hook_event_name': 'SessionEnd', 'reason': 'exit'},
+        )
+        for payload in events:
+            with self.subTest(event=payload['hook_event_name']):
+                r = self.event(payload)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(self.read_state()['offAt'], off_at)
+
     def test_the_same_event_twice_leaves_the_same_state(self):
         """플러그인 훅과 settings.json 훅이 함께 있으면 같은 이벤트가 두 번 들어온다."""
         self.render_session()
@@ -3144,6 +3213,18 @@ class StateScriptTest(unittest.TestCase):
         self.event(compact)
         self.assertEqual(self.read_state()['compactions']['count'], 2)
 
+    def test_compact_in_an_off_session_carries_no_context(self):
+        """꺼진 세션에 갱신 지시를 넣으면 모델이 데이터를 다시 써 off 가 풀린다."""
+        self.render_session()
+        run_off(self.state_dir, ['--session', 's1'])
+        off_at = self.read_state()['offAt']
+        r = self.event({'hook_event_name': 'SessionStart', 'source': 'compact'})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn('additionalContext', r.stdout)
+        state = self.read_state()
+        self.assertEqual(state['compactions']['count'], 1)
+        self.assertEqual(state['offAt'], off_at)
+
 
 class HubTest(unittest.TestCase):
     """hub.py 가 상태 파일을 버킷으로 나눠 허브 페이지를 쓰는지 확인한다."""
@@ -3156,7 +3237,7 @@ class HubTest(unittest.TestCase):
         self.hub = os.path.join(self.tmp, 'hub.html')
 
     def write_state(self, session, status, since, updated, lang='ko', out=None,
-                    hooked=True, all_done=False, view=None, page=None):
+                    hooked=True, all_done=False, view=None, page=None, off_at=None):
         path = out or os.path.join(self.tmp, session + '.html')
         # 페이지 링크는 파일이 실제로 있을 때만 걸린다. page=False 는 아직 쓰지 않은 세션이다.
         if page is None:
@@ -3184,6 +3265,8 @@ class HubTest(unittest.TestCase):
                 'hooked': hooked, 'allDone': all_done,
             },
         }
+        if off_at is not None:
+            state['offAt'] = off_at
         with open(os.path.join(self.state_dir, session + '.json'), 'w', encoding='utf-8') as f:
             json.dump(state, f, ensure_ascii=False)
 
@@ -3324,6 +3407,73 @@ class HubTest(unittest.TestCase):
         self.write_state('e', 'ended', '2026-10-03T09:30:00+09:00', FIXED_NOW)
         self.assertEqual([s['bucket'] for s in self.sessions()], ['untracked', 'done', 'ended'])
 
+    def test_an_off_session_buckets_as_off(self):
+        self.write_state('a', 'idle', '2026-10-03T09:50:00+09:00', FIXED_NOW,
+                         off_at='2026-10-03T09:55:00+09:00')
+        sessions = self.sessions()
+        self.assertEqual([s['bucket'] for s in sessions], ['off'])
+        self.assertEqual(sessions[0]['offAt'], '2026-10-03T09:55:00+09:00')
+
+    def test_ended_beats_off(self):
+        self.write_state('a', 'ended', '2026-10-03T09:50:00+09:00', FIXED_NOW,
+                         off_at='2026-10-03T09:55:00+09:00')
+        self.assertEqual([s['bucket'] for s in self.sessions()], ['ended'])
+
+    def test_off_sorts_between_done_and_ended(self):
+        self.write_state('d', 'working', '2026-10-03T09:50:00+09:00', FIXED_NOW,
+                         hooked=False, all_done=True)
+        self.write_state('o', 'working', '2026-10-03T09:40:00+09:00', FIXED_NOW,
+                         off_at='2026-10-03T09:45:00+09:00')
+        self.write_state('x', 'ended', '2026-10-03T09:30:00+09:00', FIXED_NOW)
+        self.write_state('s', 'idle', '2026-10-03T09:10:00+09:00', '2026-10-01T10:00:00+09:00')
+        self.assertEqual([s['bucket'] for s in self.sessions()], ['done', 'off', 'ended', 'stale'])
+
+    def clean(self, **kwargs):
+        extra = {'DEADHD_NOW': FIXED_NOW}
+        extra.update(kwargs.pop('env_extra', {}) or {})
+        return run_hub(self.state_dir, self.hub, env_extra=extra, clean=True, **kwargs)
+
+    def test_clean_removes_only_the_state_files_it_folds_away(self):
+        self.write_state('o', 'idle', '2026-10-03T09:50:00+09:00', FIXED_NOW,
+                         off_at='2026-10-03T09:55:00+09:00')
+        self.write_state('e', 'ended', '2026-10-03T09:40:00+09:00', FIXED_NOW)
+        self.write_state('s', 'idle', '2026-10-03T09:10:00+09:00', '2026-10-01T10:00:00+09:00')
+        self.write_state('w', 'working', '2026-10-03T09:30:00+09:00', FIXED_NOW)
+        self.write_state('i', 'idle', '2026-10-03T09:20:00+09:00', FIXED_NOW)
+        self.write_state('d', 'working', '2026-10-03T09:00:00+09:00', FIXED_NOW,
+                         hooked=False, all_done=True)
+        self.write_raw('f', '{}')
+        self.write_raw('g', '{not json')
+
+        r = self.clean()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.splitlines(), ['cleaned: 3', 'rendered: ' + self.hub])
+        self.assertEqual(sorted(os.listdir(self.state_dir)),
+                         ['d.json', 'f.json', 'g.json', 'i.json', 'w.json'])
+        # 지운 세션의 데이터 JSON 과 페이지 HTML 은 남는다.
+        for name in ('o', 'e', 's'):
+            self.assertTrue(os.path.exists(os.path.join(self.tmp, name + '.html')), name)
+
+    def test_clean_keeps_the_hub_and_honours_the_other_flags(self):
+        self.write_state('e', 'ended', '2026-10-03T09:40:00+09:00', FIXED_NOW)
+        out = os.path.join(self.tmp, 'other.html')
+        r = self.clean(theme='ink', out=out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.splitlines(), ['cleaned: 1', 'rendered: ' + out])
+        html = open(out, encoding='utf-8').read()
+        self.assertEqual(html_tag(html), '<html lang="ko" data-theme="ink">')
+
+    def test_a_cleaned_session_does_not_come_back_from_its_hooks(self):
+        self.write_state('e', 'ended', '2026-10-03T09:40:00+09:00', FIXED_NOW)
+        self.clean()
+        path = os.path.join(self.state_dir, 'e.json')
+        self.assertFalse(os.path.exists(path))
+        r = run_state({'session_id': 'e', 'hook_event_name': 'UserPromptSubmit', 'prompt': 'hi'},
+                      self.state_dir)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(os.path.exists(path))
+        self.assertEqual(os.listdir(self.state_dir), [])
+
     def test_unknown_theme_exits_1(self):
         r = self.run_hub(theme='nope')
         self.assertEqual(r.returncode, 1)
@@ -3344,7 +3494,8 @@ class HubPageTest(unittest.TestCase):
 
     def write_state(self, session, status, since, title, lang='ko', tool_at=None,
                     key_href='https://x.test/SHOP-1', hooked=True, all_done=False,
-                    view=None, page=True, states=('done', 'done', 'done', 'now', 'left'), message=None):
+                    view=None, page=True, states=('done', 'done', 'done', 'now', 'left'), message=None,
+                    off_at=None):
         path = os.path.join(self.tmp, session + '.html')
         if page:
             with open(path, 'w', encoding='utf-8') as f:
@@ -3370,6 +3521,8 @@ class HubPageTest(unittest.TestCase):
                 'renderedAt': FIXED_NOW, 'hooked': hooked, 'allDone': all_done,
             },
         }
+        if off_at is not None:
+            state['offAt'] = off_at
         with open(os.path.join(self.state_dir, session + '.json'), 'w', encoding='utf-8') as f:
             json.dump(state, f, ensure_ascii=False)
 
@@ -3491,6 +3644,25 @@ class HubPageTest(unittest.TestCase):
         self.assertIn('완료 1', nodes['sub']['text'])
         self.assertIn('훅 없음 1', nodes['sub']['text'])
         self.assertEqual(nodes['h1']['text'], '세션 2 · 나를 기다리는 세션 0')
+
+    def test_off_session_folds_into_the_ended_list(self):
+        self.write_state('o', 'working', '2026-10-03T09:30:00+09:00', '꺼진 세션',
+                         off_at='2026-10-03T09:55:00+09:00')
+        nodes = self.dom()
+        self.assertEqual(self.texts(nodes['endedList'], 'e-title'), ['꺼진 세션'])
+        self.assertTrue(self.texts(nodes['endedList'], 'e-upd')[0].startswith('갱신 끔 '))
+        self.assertEqual(self.tiles(nodes, 'workGrid'), [])
+        self.assertIn('꺼짐 1', nodes['sub']['text'])
+        self.assertNotIn('hidden', nodes['sec-ended'])
+
+    def test_ended_session_with_an_off_mark_is_listed_as_ended(self):
+        self.write_state('x', 'ended', '2026-10-03T09:30:00+09:00', '끝난 세션',
+                         off_at='2026-10-03T09:55:00+09:00')
+        nodes = self.dom()
+        self.assertEqual(self.texts(nodes['endedList'], 'e-title'), ['끝난 세션'])
+        self.assertFalse(self.texts(nodes['endedList'], 'e-upd')[0].startswith('갱신 끔 '))
+        self.assertIn('종료 1', nodes['sub']['text'])
+        self.assertNotIn('꺼짐', nodes['sub']['text'])
 
     def test_sections_without_sessions_are_hidden(self):
         self.write_state('k', 'working', '2026-10-03T09:30:00+09:00', '작업 중 세션')
@@ -4009,6 +4181,12 @@ class CalibrationTest(unittest.TestCase):
         self.assertEqual(self.entries(), [])
 
 
+# 꺼짐 표시를 다루는 테스트가 쓰는 시각과, 그 표시보다 앞서거나 뒤진 데이터 파일 시각.
+OFF_AT = '2026-10-03T09:48:00.123+09:00'
+DATA_BEFORE_OFF = '2026-10-03T09:00:00+09:00'
+DATA_AFTER_OFF = '2026-10-03T10:30:00+09:00'
+
+
 class LiveBandTest(unittest.TestCase):
     """템플릿 스크립트가 live 상태를 띠로 그리는지 확인한다."""
 
@@ -4030,7 +4208,7 @@ class LiveBandTest(unittest.TestCase):
     def band(self):
         return self.harness()['nodes']['status']
 
-    def render_with_state(self, state, lang=None):
+    def render_with_state(self, state, lang=None, data_at=None):
         os.makedirs(self.state_dir, exist_ok=True)
         with open(os.path.join(self.state_dir, 's1.json'), 'w', encoding='utf-8') as f:
             json.dump(state, f, ensure_ascii=False)
@@ -4039,6 +4217,10 @@ class LiveBandTest(unittest.TestCase):
             data['lang'] = lang
         with open(self.data, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False)
+        # 꺼짐 표시는 데이터 파일 시각과 견주므로, 그 시각을 정하는 테스트가 있다.
+        if data_at is not None:
+            stamp = datetime.fromisoformat(data_at).timestamp()
+            os.utime(self.data, (stamp, stamp))
         r = run_render(self.data, self.out, session='s1', env_extra={
             'DEADHD_STATE_DIR': self.state_dir,
             'DEADHD_HISTORY': os.path.join(self.tmp, 'history.jsonl'),
@@ -4046,8 +4228,12 @@ class LiveBandTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         return self.harness()
 
-    def band_with_state(self, state, lang=None):
-        return self.render_with_state(state, lang)['nodes']['status']
+    def band_with_state(self, state, lang=None, data_at=None):
+        return self.render_with_state(state, lang, data_at)['nodes']['status']
+
+    def saved_state(self):
+        with open(os.path.join(self.state_dir, 's1.json'), encoding='utf-8') as f:
+            return json.load(f)
 
     def texts(self, node, cls):
         return [n['text'] for n in iter_nodes(node) if cls in (n.get('cls') or '').split()]
@@ -4109,6 +4295,59 @@ class LiveBandTest(unittest.TestCase):
                                      'since': '2026-10-03T09:30:00+09:00'})
         self.assertIn('status-ended', node['cls'].split())
         self.assertTrue(self.texts(node, 'status-title')[0].startswith('세션 종료 '))
+
+    def test_off_band(self):
+        node = self.band_with_state({'hooked': True, 'status': 'working',
+                                     'since': '2026-10-03T09:30:00+09:00',
+                                     'offAt': OFF_AT},
+                                    data_at=DATA_BEFORE_OFF)
+        self.assertIn('status-off', node['cls'].split())
+        self.assertEqual(self.texts(node, 'status-title'), ['갱신을 껐어요 · 09:48'])
+        self.assertEqual(self.texts(node, 'status-what'), [])
+
+    def test_off_band_in_english(self):
+        node = self.band_with_state({'hooked': True, 'status': 'working',
+                                     'since': '2026-10-03T09:30:00+09:00',
+                                     'offAt': OFF_AT},
+                                    lang='en', data_at=DATA_BEFORE_OFF)
+        self.assertIn('status-off', node['cls'].split())
+        self.assertEqual(self.texts(node, 'status-title'), ['Updates off · 09:48'])
+
+    def test_off_band_beats_a_stalled_tool(self):
+        """꺼진 뒤 마지막 도구가 오래돼도 띠는 신호 없음이 아니라 꺼짐을 말한다."""
+        node = self.band_with_state({
+            'hooked': True, 'status': 'working',
+            'since': '2026-10-03T09:00:00+09:00',
+            'lastTool': {'name': 'Bash', 'at': '2026-10-03T09:49:00+09:00', 'durationMs': 1200},
+            'offAt': OFF_AT,
+        }, data_at=DATA_BEFORE_OFF)
+        self.assertIn('status-off', node['cls'].split())
+        self.assertEqual(self.texts(node, 'status-title'), ['갱신을 껐어요 · 09:48'])
+
+    def test_ended_band_beats_the_off_mark(self):
+        node = self.band_with_state({'hooked': True, 'status': 'ended',
+                                     'since': '2026-10-03T09:30:00+09:00',
+                                     'offAt': OFF_AT},
+                                    data_at=DATA_BEFORE_OFF)
+        self.assertIn('status-ended', node['cls'].split())
+        self.assertTrue(self.texts(node, 'status-title')[0].startswith('세션 종료 '))
+
+    def test_the_off_mark_survives_a_rerender_over_an_older_data_file(self):
+        """훅의 재렌더와 mod 의 --page 는 데이터 파일을 건드리지 않는다."""
+        result = self.render_with_state({'hooked': True, 'offAt': OFF_AT},
+                                        data_at=DATA_BEFORE_OFF)
+        self.assertIn('status-off', result['nodes']['status']['cls'].split())
+        self.assertEqual(self.saved_state()['offAt'], OFF_AT)
+
+    def test_a_later_data_file_clears_the_off_mark(self):
+        result = self.render_with_state({'offAt': OFF_AT}, data_at=DATA_AFTER_OFF)
+        self.assertNotIn('offAt', self.saved_state())
+        self.assertNotIn('status', result['nodes'])
+
+    def test_the_off_mark_alone_puts_the_band_in_the_payload(self):
+        """훅이 아직 안 돈 세션도 꺼짐은 보여야 한다."""
+        result = self.render_with_state({'offAt': OFF_AT}, data_at=DATA_BEFORE_OFF)
+        self.assertIn('status-off', result['nodes']['status']['cls'].split())
 
     def test_english_permission_band(self):
         node = self.band_with_state(

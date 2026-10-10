@@ -342,6 +342,7 @@ def live_payload(session_state, at):
     count = compactions.get('count')
     if not isinstance(count, int) or isinstance(count, bool):
         count = 0
+    off_at = session_state.get('offAt')
     return {
         'status': session_state['status'],
         'since': session_state['since'],
@@ -349,6 +350,7 @@ def live_payload(session_state, at):
         'lastTool': last_tool if isinstance(last_tool, dict) else None,
         'backgroundTasks': background if isinstance(background, list) else [],
         'compactions': {'count': count, 'lastAt': compactions.get('lastAt')},
+        'offAt': off_at if isinstance(off_at, str) and off_at else None,
     }
 
 
@@ -723,6 +725,11 @@ def main(argv):
     total_minutes = pending_minutes(items)
 
     if session_state is not None:
+        off_at = parse_when(session_state.get('offAt'))
+        if off_at is not None and data_at > off_at:
+            # 꺼진 뒤에 데이터 파일이 다시 쓰였다. 모델이 낸 새 렌더가 세션을 다시 켠다.
+            # 훅의 재렌더와 mod 의 --page 는 데이터 파일을 건드리지 않아 여기 걸리지 않는다.
+            session_state.pop('offAt', None)
         session_state['sessionId'] = session
         session_state['data'] = os.path.abspath(data_path)
         session_state['out'] = os.path.abspath(out_path)
@@ -751,7 +758,8 @@ def main(argv):
         live = live_payload(session_state, now_text)
         hooked = bool(session_state.get('hooked'))
         # 훅이 돌지 않은 설치에서는 띠를 붙이지 않는다. live 키 자체를 넣지 않는다.
-        if hooked:
+        # 꺼진 세션은 훅이 아직 안 돌았어도 띠가 꺼짐을 보여야 한다.
+        if hooked or live['offAt']:
             payload_data['live'] = live
         # 허브는 상태 파일의 이 요약만 읽는다. 데이터 JSON 은 다시 읽지 않는다.
         session_state['summary'] = session_summary(data, items, lang, payload_data, now_text, hooked)
