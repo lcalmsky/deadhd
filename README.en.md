@@ -205,10 +205,10 @@ Because `skills/deadhd/.claude-plugin/` is copied along, the folder is auto-load
 
 ### Install from Orca
 
-If you use [Orca](https://onorca.dev), open the [share link](https://share.onorca.dev/skills/share/shr_fff4656cd0eb2b802d3826cd234e8637705e641a15c81eec) and press `Open in Orca`. Orca lets you review the included files and choose where to install.
+If you use [Orca](https://onorca.dev), open the [share link](https://share.onorca.dev/skills/share/shr_81c96def8d934d1f5bd027bce6c76b7b4df071cc46048c07) and press `Open in Orca`. Orca lets you review the included files and choose where to install.
 
 > [!NOTE]
-> An Orca share link is a frozen bundle of the files uploaded at publish time. The current link contains v1.12.0, and releases after that are not reflected. For the latest version, install via the plugin or the skill folder.
+> An Orca share link is a frozen bundle of the files uploaded at publish time. The current link contains v1.13.0, and releases after that are not reflected. For the latest version, install via the plugin or the skill folder.
 
 ### Update
 
