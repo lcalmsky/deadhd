@@ -255,6 +255,8 @@ function serialize(n) {
   if (n.className) o.cls = n.className;
   if (n.href != null) o.href = n.href;
   if (n.sel) o.sel = n.sel;
+  if (n.hidden) o.hidden = true;
+  if (n.innerHTML != null) o.html = n.innerHTML;
   if (n.scrollLeft) o.scrollLeft = n.scrollLeft;
   if (n.dataset && Object.keys(n.dataset).length) o.data = Object.assign({}, n.dataset);
   if (n.attrs && Object.keys(n.attrs).length) o.attrs = Object.assign({}, n.attrs);
@@ -288,8 +290,16 @@ function fixClock(iso) {
 const fixedNow = process.argv[5] || '';
 if (fixedNow) fixClock(fixedNow);
 
+// 갱신 루프를 돌리려면 location·fetch·setTimeout 을 갈아 끼워야 한다. 스크립트는 이 셋을 전역 식별자로만 부른다.
+const realSetTimeout = setTimeout;
+const cases = process.argv[4] ? JSON.parse(fs.readFileSync(process.argv[4], 'utf8')) : null;
+const refresh = (cases && cases.refresh) || null;
+
 const doc = makeDocument(rawData);
 if (process.argv[6]) doc.getElementById('flow').clientWidth = Number(process.argv[6]);
+// ownCode 는 지금 돌리는 스크립트의 원본이다. 이게 있어야 「템플릿이 바뀌면 재로드」 분기가 산다.
+if (refresh && refresh.currentScript) doc.currentScript = { textContent: code0 };
+if (refresh && refresh.hidden) doc.hidden = true;
 const ss = {
   _m: {},
   getItem: function (k) { return Object.prototype.hasOwnProperty.call(this._m, k) ? this._m[k] : null; },
@@ -297,8 +307,28 @@ const ss = {
 };
 const seed = process.argv[7] ? JSON.parse(fs.readFileSync(process.argv[7], 'utf8')) : null;
 if (seed) Object.assign(ss._m, seed);
-const run = new Function('document', 'matchMedia', 'sessionStorage', code);
-run(doc, function () { return { matches: false, addEventListener: function () {} }; }, ss);
+
+// 짧은 스파클 타이머도 여기 모인다. 갱신 타이머(15초)만 골라 쓴다.
+const timers = [];
+const fakeSetTimeout = function (fn, ms) { timers.push({ fn: fn, ms: ms, done: false }); return timers.length; };
+const pendingTimers = () => timers.filter(t => t.ms === 15000 && !t.done).length;
+let reloads = 0;
+const fakeLocation = refresh && refresh.location
+  ? Object.assign({}, refresh.location, { reload: function () { reloads++; } })
+  : undefined;
+const fetched = [];
+const pages = (refresh && refresh.pages) || [];
+let pageIndex = 0;
+const fakeFetch = function (url, opts) {
+  fetched.push({ url: url, opts: opts || null });
+  const page = pages[pageIndex++];
+  if (page === null || page === undefined) return Promise.reject(new Error('offline'));
+  if (typeof page === 'object') return Promise.resolve({ ok: false, status: page.status, text: function () { return Promise.resolve(''); } });
+  return Promise.resolve({ ok: true, status: 200, text: function () { return Promise.resolve(String(page)); } });
+};
+const run = new Function('document', 'matchMedia', 'sessionStorage', 'location', 'fetch', 'setTimeout', code);
+run(doc, function () { return { matches: false, addEventListener: function () {} }; }, ss,
+    fakeLocation, fakeFetch, fakeSetTimeout);
 
 const probe = globalThis.__linkProbe;
 function info(h) { return probe.linkElInfo(h); }
@@ -308,8 +338,6 @@ for (const entry of doc._byId) {
   if (entry[0] === 'progress-data') continue;
   nodes[entry[0]] = serialize(entry[1]);
 }
-
-const cases = process.argv[4] ? JSON.parse(fs.readFileSync(process.argv[4], 'utf8')) : null;
 
 // 클릭 한 번으로 상태가 store 에 남는지 보려면 핸들러를 실제로 불러야 한다.
 function matchesClick(n, spec) {
@@ -358,29 +386,78 @@ const fmt = cases ? {
   dur: (cases.dur || []).map(m => probe.fmtDur(m))
 } : null;
 
-process.stdout.write(JSON.stringify({
-  fmt: fmt,
-  compact: cases && cases.compact ? probe.compactRender(cases.compact.v, cases.compact.oe, cases.compact.chip) : null,
-  probe: {
-    httpHref_javascript: probe.httpHref('javascript:alert(1)'),
-    httpHref_http: probe.httpHref('http://ok.test/x'),
-    httpHref_upper: probe.httpHref('HTTPS://OK.test/y'),
-    httpHref_null: probe.httpHref(null),
-    link_javascript: info('javascript:alert(1)'),
-    link_data: info('data:text/html,x'),
-    link_ftp: info('ftp://example.com/x'),
-    link_mailto: info('mailto:a@b.c'),
-    link_http: info('http://ok.test/x'),
-    link_upper: info('HTTPS://OK.test/y'),
-    link_null: info(null),
-    link_number: info(123),
-    i18nKeys: probe.i18nKeys
-  },
-  nodes: nodes,
-  nodesAfter: nodesAfter,
-  storage: ss._m,
-  queried: Array.from(doc._queries.keys())
-}));
+const sleep = ms => new Promise(resolve => realSetTimeout(resolve, ms));
+
+function snapshot() {
+  const now = {};
+  for (const entry of doc._byId) {
+    if (entry[0] === 'progress-data') continue;
+    now[entry[0]] = serialize(entry[1]);
+  }
+  const notice = doc.getElementById('notice');
+  const compact = doc.getElementById('compact');
+  return {
+    nodes: now,
+    storage: Object.assign({}, ss._m),
+    notice: { text: notice.textContent, hidden: !!notice.hidden },
+    reloads: reloads,
+    fetched: fetched.slice(),
+    pending: pendingTimers(),
+    compact: compact.innerHTML == null ? null : compact.innerHTML
+  };
+}
+
+// 갱신은 setTimeout 체인이라 가짜 타이머를 하나씩 돌려야 진행된다. fetch 프로미스 체인은 0ms 대기로 흘린다.
+(async () => {
+  const ticks = [];
+  if (refresh) {
+    for (const spec of (refresh.toggles || [])) {
+      doc.getElementById('compact')._on.toggle({ target: { dataset: { g: spec.g }, open: spec.open } });
+    }
+    if (refresh.flowScroll != null) doc.getElementById('flow').scrollLeft = refresh.flowScroll;
+    for (let i = 0; i < pages.length; i++) {
+      const timer = timers.filter(t => t.ms === 15000 && !t.done).pop();
+      if (!timer) { ticks.push({ scheduled: false, pending: pendingTimers(), fetched: fetched.slice(), reloads: reloads }); break; }
+      timer.done = true;
+      timer.fn();
+      await sleep(0);
+      await sleep(0);
+      ticks.push(snapshot());
+    }
+    if (refresh.visibility) {
+      doc.hidden = false;
+      const fn = doc._on && doc._on.visibilitychange;
+      if (fn) fn();
+      await sleep(0);
+      await sleep(0);
+      ticks.push(snapshot());
+    }
+  }
+  process.stdout.write(JSON.stringify({
+    fmt: fmt,
+    compact: cases && cases.compact ? probe.compactRender(cases.compact.v, cases.compact.oe, cases.compact.chip) : null,
+    probe: {
+      httpHref_javascript: probe.httpHref('javascript:alert(1)'),
+      httpHref_http: probe.httpHref('http://ok.test/x'),
+      httpHref_upper: probe.httpHref('HTTPS://OK.test/y'),
+      httpHref_null: probe.httpHref(null),
+      link_javascript: info('javascript:alert(1)'),
+      link_data: info('data:text/html,x'),
+      link_ftp: info('ftp://example.com/x'),
+      link_mailto: info('mailto:a@b.c'),
+      link_http: info('http://ok.test/x'),
+      link_upper: info('HTTPS://OK.test/y'),
+      link_null: info(null),
+      link_number: info(123),
+      i18nKeys: probe.i18nKeys
+    },
+    nodes: nodes,
+    nodesAfter: nodesAfter,
+    storage: ss._m,
+    queried: Array.from(doc._queries.keys()),
+    refresh: { ticks: ticks, reloads: reloads, fetched: fetched, pending: pendingTimers() }
+  }));
+})();
 '''
 
 
@@ -509,6 +586,10 @@ function fixClock(iso) {
 const fixedNow = process.argv[4] || '';
 if (fixedNow) fixClock(fixedNow);
 
+// 세션 페이지 하네스와 같은 방식으로 location·fetch·setTimeout 을 갈아 끼운다.
+const realSetTimeout = setTimeout;
+const refresh = process.argv[7] ? JSON.parse(fs.readFileSync(process.argv[7], 'utf8')) : null;
+
 const ss = {
   _m: {},
   getItem: function (k) { return Object.prototype.hasOwnProperty.call(this._m, k) ? this._m[k] : null; },
@@ -518,7 +599,27 @@ const seed = process.argv[5] ? JSON.parse(fs.readFileSync(process.argv[5], 'utf8
 if (seed) Object.assign(ss._m, seed);
 
 const doc = makeDocument(rawData);
-new Function('document', 'sessionStorage', code)(doc, ss);
+if (refresh && refresh.currentScript) doc.currentScript = { textContent: code };
+if (refresh && refresh.hidden) doc.hidden = true;
+const timers = [];
+const fakeSetTimeout = function (fn, ms) { timers.push({ fn: fn, ms: ms, done: false }); return timers.length; };
+const pendingTimers = () => timers.filter(t => t.ms === 15000 && !t.done).length;
+let reloads = 0;
+const fakeLocation = refresh && refresh.location
+  ? Object.assign({}, refresh.location, { reload: function () { reloads++; } })
+  : undefined;
+const fetched = [];
+const pages = (refresh && refresh.pages) || [];
+let pageIndex = 0;
+const fakeFetch = function (url, opts) {
+  fetched.push({ url: url, opts: opts || null });
+  const page = pages[pageIndex++];
+  if (page === null || page === undefined) return Promise.reject(new Error('offline'));
+  if (typeof page === 'object') return Promise.resolve({ ok: false, status: page.status, text: function () { return Promise.resolve(''); } });
+  return Promise.resolve({ ok: true, status: 200, text: function () { return Promise.resolve(String(page)); } });
+};
+new Function('document', 'sessionStorage', 'location', 'fetch', 'setTimeout', code)(
+  doc, ss, fakeLocation, fakeFetch, fakeSetTimeout);
 
 // 포커스가 들어온 것처럼 만들어 focusin 처리기가 남긴 기록을 본다.
 function findNode(cls, text) {
@@ -546,11 +647,47 @@ for (const entry of doc._byId) {
   if (entry[0] === 'hub-data') continue;
   nodes[entry[0]] = serialize(entry[1]);
 }
-process.stdout.write(JSON.stringify({
-  nodes: nodes,
-  storage: ss._m,
-  queried: Array.from(doc._queries.keys())
-}));
+
+const sleep = ms => new Promise(resolve => realSetTimeout(resolve, ms));
+
+function snapshot() {
+  const now = {};
+  for (const entry of doc._byId) {
+    if (entry[0] === 'hub-data') continue;
+    now[entry[0]] = serialize(entry[1]);
+  }
+  const notice = doc.getElementById('notice');
+  return {
+    nodes: now,
+    storage: Object.assign({}, ss._m),
+    notice: { text: notice.textContent, hidden: !!notice.hidden },
+    reloads: reloads,
+    fetched: fetched.slice(),
+    pending: pendingTimers()
+  };
+}
+
+// 세션 페이지 하네스와 같은 규칙으로 15초 타이머를 하나씩 돌린다.
+(async () => {
+  const ticks = [];
+  if (refresh) {
+    for (let i = 0; i < pages.length; i++) {
+      const timer = timers.filter(t => t.ms === 15000 && !t.done).pop();
+      if (!timer) { ticks.push({ scheduled: false, pending: pendingTimers(), fetched: fetched.slice(), reloads: reloads }); break; }
+      timer.done = true;
+      timer.fn();
+      await sleep(0);
+      await sleep(0);
+      ticks.push(snapshot());
+    }
+  }
+  process.stdout.write(JSON.stringify({
+    nodes: nodes,
+    storage: ss._m,
+    queried: Array.from(doc._queries.keys()),
+    refresh: { ticks: ticks, reloads: reloads, fetched: fetched, pending: pendingTimers() }
+  }));
+})();
 '''
 
 
@@ -578,7 +715,7 @@ def run_hub(state_dir, hub_path=None, theme=None, font=None, out=None, env_extra
     return subprocess.run(cmd, capture_output=True, text=True, env=env)
 
 
-def run_hub_harness(html, fixed_now=None, storage=None, focusin=None):
+def run_hub_harness(html, fixed_now=None, storage=None, focusin=None, refresh=None):
     with tempfile.TemporaryDirectory(prefix='progress-hub-') as d:
         for name, text in (('harness.js', HUB_HARNESS), ('script.js', script_block(html)),
                            ('data.txt', hub_data_block(html))):
@@ -595,6 +732,13 @@ def run_hub_harness(html, fixed_now=None, storage=None, focusin=None):
         else:
             cmd.append('')
         cmd.append(json.dumps(focusin, ensure_ascii=False) if focusin is not None else '')
+        if refresh is not None:
+            path = os.path.join(d, 'refresh.json')
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(refresh, f, ensure_ascii=False)
+            cmd.append(path)
+        else:
+            cmd.append('')
         r = subprocess.run(cmd, capture_output=True, text=True, cwd=d, env=env)
     assert r.returncode == 0, r.stderr
     return json.loads(r.stdout)
@@ -1471,12 +1615,14 @@ class RenderTest(unittest.TestCase):
         self.assertNotIn('hubHref', parse_block(data_block(html)))
         self.assertFalse(os.path.exists(hub))
 
-    def test_refresh_meta_present(self):
+    def test_page_refreshes_by_script_not_meta_reload(self):
+        # 문서 재로드는 펼침·스크롤·포커스를 되돌리고 aria-live 를 무력화한다. 갱신은 스크립트가 데이터만 받아 한다.
         out = self.out()
         self.assertEqual(run_render(EXAMPLE, out).returncode, 0)
         with open(out, encoding='utf-8') as f:
             html = f.read()
-        self.assertIn('<meta http-equiv="refresh" content="15">', html)
+        self.assertNotIn('http-equiv="refresh"', html)
+        self.assertIn('const REFRESH_MS = 15000;', script_block(html))
 
     def test_star_button_links_to_repo(self):
         out = self.out()
@@ -4644,6 +4790,260 @@ class BoardDomTest(unittest.TestCase):
         # 저장된 탭이 「작업자 × 시간」이면 단계 패널이 숨어 있어 복원하지 않는다.
         self.assertEqual(self.bd_scroll_left(result), 0)
         self.assertEqual(self.bd_scroll_left(result, after_clicks=True), 120)
+
+
+class RefreshTest(unittest.TestCase):
+    """세션 페이지가 문서를 다시 로드하지 않고 같은 주소의 데이터만 받아 다시 그리는지 확인한다."""
+
+    def setUp(self):
+        if NODE is None:
+            self.skipTest('node 가 없어 템플릿 스크립트를 실행할 수 없다')
+        self.tmp = tempfile.mkdtemp(prefix='progress-refresh-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.example = load_example()
+        self.key = 'progress:%s:%s' % (self.example['key'], self.example['title'])
+        self.html = self.render(self.example, 'first')
+        # 완료가 하나 늘어난 데이터. 갱신이 이 값을 화면에 옮기는지 본다.
+        self.next_html = self.render(self.done_version(), 'second')
+
+    def done_version(self):
+        data = load_example()
+        for item in data['items']:
+            if item['id'] == 's2d':
+                item['state'] = 'done'
+        return data
+
+    def render(self, data, name):
+        path = os.path.join(self.tmp, name + '.json')
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+        out = os.path.join(self.tmp, name + '.html')
+        r = run_render(path, out, env_extra={'DEADHD_NOW': FIXED_NOW})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding='utf-8') as f:
+            return f.read()
+
+    def loopback(self, href='http://127.0.0.1:47320/deadhd-x.html#top'):
+        return {'location': {'protocol': 'http:', 'hostname': '127.0.0.1', 'href': href},
+                'currentScript': False, 'hidden': False}
+
+    def refresh(self, cases, storage=None):
+        result = run_linkify_harness(self.html, {'refresh': cases}, fixed_now=FIXED_NOW, storage=storage)
+        return result['refresh']
+
+    def ticks(self, cases, storage=None):
+        return self.refresh(cases, storage)['ticks']
+
+    def test_http_loopback_fetches_and_redraws(self):
+        cases = self.loopback()
+        cases['pages'] = [self.next_html]
+        out = self.refresh(cases)
+        tick = out['ticks'][0]
+        self.assertEqual(tick['fetched'][0]['url'], 'http://127.0.0.1:47320/deadhd-x.html')
+        self.assertEqual(tick['fetched'][0]['opts']['cache'], 'no-store')
+        self.assertEqual(out['reloads'], 0)
+        self.assertEqual(tick['pending'], 1)
+        self.assertEqual(tick['nodes']['countB']['text'], '4/8')
+        self.assertEqual(json.loads(tick['storage'][self.key + ':states'])['s2d'], 'done')
+        self.assertTrue(tick['notice']['hidden'])
+
+    def test_user_view_state_survives_refresh(self):
+        cases = self.loopback()
+        cases.update({'pages': [self.next_html],
+                      'toggles': [{'g': 'done', 'open': False}], 'flowScroll': 120})
+        view = json.dumps({'v': 'a', 'o': 'land', 'chip': 'done'}, ensure_ascii=False)
+        tick = self.ticks(cases, storage={self.key + ':view': view})[0]
+        self.assertIn('<details data-g="done">', tick['compact'])
+        self.assertNotIn('<details data-g="done" open', tick['compact'])
+        self.assertIn('<details data-g="left" open', tick['compact'])
+        self.assertEqual(json.loads(tick['storage'][self.key + ':view'])['g'], {'done': False})
+        self.assertEqual(tick['nodes']['flow']['scrollLeft'], 120)
+
+    def test_fetch_failure_shows_notice_then_recovers(self):
+        cases = self.loopback()
+        cases['pages'] = [None, self.next_html]
+        first, second = self.ticks(cases)[:2]
+        self.assertFalse(first['notice']['hidden'])
+        self.assertIn('최신 상태를 불러오지 못하고 있어요', first['notice']['text'])
+        self.assertEqual(first['nodes']['countB']['text'], '3/8')
+        self.assertEqual(first['pending'], 1)
+        self.assertTrue(second['notice']['hidden'])
+
+    def test_http_error_counts_as_failure(self):
+        cases = self.loopback()
+        cases['pages'] = [{'status': 500}]
+        tick = self.ticks(cases)[0]
+        self.assertFalse(tick['notice']['hidden'])
+        self.assertIn('최신 상태를 불러오지 못하고 있어요', tick['notice']['text'])
+
+    def test_template_change_triggers_reload(self):
+        block = script_block(self.html)
+        changed = self.html.replace('<script>' + block + '</script>',
+                                    '<script>' + block + '/*changed*/</script>', 1)
+        self.assertNotEqual(changed, self.html)
+        cases = self.loopback()
+        cases.update({'pages': [changed], 'currentScript': True})
+        self.assertEqual(self.refresh(cases)['reloads'], 1)
+
+        same = self.loopback()
+        same.update({'pages': [self.next_html], 'currentScript': True})
+        result = self.refresh(same)
+        self.assertEqual(result['reloads'], 0)
+        self.assertEqual(result['ticks'][0]['nodes']['countB']['text'], '4/8')
+
+    def test_file_url_reloads_instead_of_fetching(self):
+        cases = {'location': {'protocol': 'file:', 'hostname': '', 'href': 'file:///tmp/deadhd-x.html'},
+                 'pages': [self.next_html], 'currentScript': False, 'hidden': False}
+        out = self.refresh(cases)
+        self.assertEqual(out['reloads'], 1)
+        self.assertEqual(out['fetched'], [])
+
+    def test_shared_copy_never_refreshes(self):
+        for host in ('share.onorca.dev', 'claude.ai'):
+            with self.subTest(host=host):
+                cases = {'location': {'protocol': 'https:', 'hostname': host,
+                                      'href': 'https://%s/a' % host},
+                         'pages': [self.next_html], 'currentScript': False, 'hidden': False}
+                out = self.refresh(cases)
+                self.assertEqual(out['pending'], 0)
+                self.assertEqual(out['fetched'], [])
+                self.assertEqual(out['reloads'], 0)
+                self.assertFalse(out['ticks'][0]['scheduled'])
+
+    def test_http_page_never_falls_back_to_reload(self):
+        cases = self.loopback()
+        cases.update({'pages': [self.next_html, None, self.next_html], 'currentScript': True})
+        out = self.refresh(cases)
+        self.assertEqual([t['reloads'] for t in out['ticks']], [0, 0, 0])
+        self.assertEqual(out['reloads'], 0)
+
+    def test_unreadable_data_shows_notice(self):
+        broken = self.html.replace(data_block(self.html), '{', 1)
+        notice = run_linkify_harness(broken, fixed_now=FIXED_NOW)['nodes']['notice']
+        self.assertEqual(notice['text'], '데이터를 읽지 못했어요')
+        self.assertNotIn('hidden', notice)
+
+    def test_script_text_in_data_does_not_trigger_reload(self):
+        # 데이터 블록이 코드 블록보다 앞에 있다. 본문의 script 태그 글자가 코드 블록으로 잡히면 매 틱 재로드된다.
+        data = self.done_version()
+        data['goal'] = 'XSS 점검: <script> 태그가 본문에 있어도 안전해야 한다'
+        cases = self.loopback()
+        cases.update({'pages': [self.render(data, 'scripty')], 'currentScript': True})
+        out = self.refresh(cases)
+        self.assertEqual(out['reloads'], 0)
+        self.assertEqual(out['ticks'][0]['nodes']['countB']['text'], '4/8')
+
+    def test_hidden_tab_skips_fetch_until_visible(self):
+        cases = self.loopback()
+        cases.update({'pages': [self.next_html], 'hidden': True, 'visibility': True})
+        ticks = self.ticks(cases)
+        self.assertEqual(ticks[0]['fetched'], [])
+        self.assertEqual(ticks[0]['pending'], 0)
+        self.assertEqual(len(ticks[1]['fetched']), 1)
+        self.assertEqual(ticks[1]['pending'], 1)
+
+
+class HubRefreshTest(unittest.TestCase):
+    """허브도 세션 페이지와 같은 규칙으로 갱신하는지 확인한다."""
+
+    def setUp(self):
+        if NODE is None:
+            self.skipTest('node 가 없어 템플릿 스크립트를 실행할 수 없다')
+        self.tmp = tempfile.mkdtemp(prefix='progress-hub-refresh-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.one = self.state_dir('one', ('a',))
+        self.two = self.state_dir('two', ('a', 'b'))
+        self.html = self.render(self.one, 'hub-one.html')
+        self.next_html = self.render(self.two, 'hub-two.html')
+
+    def state_dir(self, name, sessions):
+        path = os.path.join(self.tmp, name)
+        os.makedirs(path)
+        for i, session in enumerate(sessions):
+            page = os.path.join(self.tmp, name + '-' + session + '.html')
+            with open(page, 'w', encoding='utf-8') as f:
+                f.write('<html></html>')
+            state = {
+                'sessionId': session,
+                'out': page,
+                'view': None,
+                'status': 'idle',
+                'since': '2026-10-03T09:%02d:00+09:00' % (50 - i * 10),
+                'updatedAt': FIXED_NOW,
+                'message': None,
+                'lastTool': None,
+                'backgroundTasks': [],
+                'compactions': {'count': 0, 'lastAt': None},
+                'cwd': '/tmp',
+                'summary': {
+                    'title': session + ' 제목', 'key': session.upper(), 'keyHref': None, 'lang': 'ko',
+                    'updated': None, 'counts': {'done': 1, 'now': 0, 'side': 0, 'left': 1, 'blocked': 0},
+                    'total': 2, 'states': ['done', 'left'], 'nowLabel': None,
+                    'eta': None, 'etaCalibrated': None, 'renderedAt': FIXED_NOW,
+                    'hooked': True, 'allDone': False,
+                },
+            }
+            with open(os.path.join(path, session + '.json'), 'w', encoding='utf-8') as f:
+                json.dump(state, f, ensure_ascii=False)
+        return path
+
+    def render(self, state_dir, name):
+        out = os.path.join(self.tmp, name)
+        r = run_hub(state_dir, out=out, env_extra={'DEADHD_NOW': FIXED_NOW})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding='utf-8') as f:
+            return f.read()
+
+    def loopback(self):
+        return {'protocol': 'http:', 'hostname': '127.0.0.1',
+                'href': 'http://127.0.0.1:47320/deadhd-hub.html'}
+
+    def refresh(self, cases):
+        result = run_hub_harness(self.html, fixed_now=FIXED_NOW, refresh=cases)
+        return result['refresh']
+
+    def test_hub_script_text_in_data_does_not_trigger_reload(self):
+        # 세션 제목에 script 태그 글자가 있어도 코드 블록 비교가 데이터 블록 안에서 걸리면 안 된다.
+        scripty = self.state_dir('scripty', ('a', 'b'))
+        state_path = os.path.join(scripty, 'b.json')
+        with open(state_path, encoding='utf-8') as f:
+            state = json.load(f)
+        state['summary']['title'] = 'XSS <script> 점검'
+        with open(state_path, 'w', encoding='utf-8') as f:
+            json.dump(state, f, ensure_ascii=False)
+        cases = {'location': self.loopback(), 'pages': [self.render(scripty, 'hub-scripty.html')],
+                 'currentScript': True, 'hidden': False}
+        out = self.refresh(cases)
+        self.assertEqual(out['reloads'], 0)
+        self.assertIn('세션 2', out['ticks'][0]['nodes']['h1']['text'])
+
+    def test_hub_fetches_and_redraws(self):
+        out = self.refresh({'location': self.loopback(), 'pages': [self.next_html]})
+        tick = out['ticks'][0]
+        self.assertEqual(tick['nodes']['h1']['text'], '세션 2 · 나를 기다리는 세션 2')
+        self.assertEqual(tick['pending'], 1)
+        self.assertEqual(out['reloads'], 0)
+
+    def test_hub_fetch_failure_shows_notice(self):
+        out = self.refresh({'location': self.loopback(), 'pages': [None]})
+        tick = out['ticks'][0]
+        self.assertFalse(tick['notice']['hidden'])
+        self.assertIn('최신 상태를 불러오지 못하고 있어요', tick['notice']['text'])
+
+    def test_hub_file_url_reloads(self):
+        out = self.refresh({'location': {'protocol': 'file:', 'hostname': '',
+                                         'href': 'file:///tmp/deadhd-hub.html'},
+                            'pages': [self.next_html]})
+        self.assertEqual(out['reloads'], 1)
+        self.assertEqual(out['fetched'], [])
+
+    def test_hub_shared_copy_never_refreshes(self):
+        out = self.refresh({'location': {'protocol': 'https:', 'hostname': 'claude.ai',
+                                         'href': 'https://claude.ai/a'},
+                            'pages': [self.next_html]})
+        self.assertEqual(out['pending'], 0)
+        self.assertEqual(out['fetched'], [])
+        self.assertEqual(out['reloads'], 0)
 
 
 if __name__ == '__main__':

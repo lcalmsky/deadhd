@@ -3,7 +3,6 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="refresh" content="15">
 <title>__PROGRESS_TITLE__</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -849,6 +848,8 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
 
 /* ---------- 입력 대기 띠 ---------- */
 .status { margin: 22px 0 0; padding: 14px 18px; border-radius: 14px; background: var(--card); border: 1px solid var(--card-line); backdrop-filter: blur(16px); }
+.notice { position: fixed; left: 50%; bottom: 18px; z-index: 5; transform: translateX(-50%); margin: 0; padding: 8px 14px; border-radius: 999px; font-size: 12.5px; white-space: nowrap; color: var(--blocked-2); background: var(--card); border: 1px solid color-mix(in srgb, var(--blocked) 45%, transparent); backdrop-filter: blur(16px); }
+.eta-col { display: contents; }
 .status-main { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ink-3); }
 .status-title { font-family: var(--f-head); font-weight: 700; font-size: 20px; line-height: 1.2; }
@@ -912,6 +913,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
   </a>
 </div>
 <div id="compact" hidden></div>
+<p class="notice" id="notice" hidden role="status"></p>
 
 <main>
   <span class="eyebrow" id="eyebrow"><span class="dot"></span><span id="eyebrowText"></span></span>
@@ -924,6 +926,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     <div class="bar"><div class="fill"></div><div class="tip"></div></div>
     <div class="count-col" id="countCol">
       <div class="count"><b id="countB">0/0</b> <span id="countLabel">완료</span></div>
+      <div class="eta-col" id="etaCol"></div>
     </div>
   </div>
   <div class="tally" id="tally"></div>
@@ -957,6 +960,8 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       countDone: '완료',
       stepFlow: '단계 흐름',
       updated: t => '마지막 갱신 ' + t,
+      loadFail: '데이터를 읽지 못했어요',
+      refreshFail: d => '최신 상태를 불러오지 못하고 있어요 · ' + d,
       goal: '목표',
       doneWhen: '완료 조건',
       eta: '완료 예상 ',
@@ -1048,6 +1053,8 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       countDone: 'done',
       stepFlow: 'Step flow',
       updated: t => 'Updated ' + t,
+      loadFail: 'Could not read the data',
+      refreshFail: d => 'Could not fetch the latest state · ' + d,
       goal: 'Goal',
       doneWhen: 'Done when',
       eta: 'ETA ',
@@ -1205,17 +1212,85 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     return frag;
   }
 
-  let data;
-  try {
-    // render.py 는 script 태그가 조기에 닫히지 않게 데이터의 `<!--` 를 `<\!--` 로 바꿔 넣는다.
-    // JSON 에서 유효한 이스케이프가 아니므로 여기서 되돌린다.
-    data = JSON.parse($('progress-data').textContent.replace(/<\\!/g, '<!'));
-  } catch (err) {
-    console.error('progress: 데이터를 읽지 못했다', err);
-    return;
+  // render.py 는 script 태그가 조기에 닫히지 않게 데이터의 HTML 주석 시작 기호를 `<\!--` 로 바꿔 넣는다.
+  // JSON 에서 유효한 이스케이프가 아니므로 여기서 되돌린다. 이 스크립트 안에는 그 기호를 그대로 적지 않는다.
+  // 적으면 HTML 파서가 escaped 상태로 들어가 아래 정규식의 script 글자를 보고 닫는 자리를 잘못 잡는다.
+  const parseData = raw => JSON.parse(String(raw).replace(/<\\!/g, '<!'));
+  // 태그 글자를 나눠 적는다. 이어 적으면 HTML 파서가 스크립트 안의 태그로 읽을 수 있고, 이 파일에 데이터 태그가 둘 있는 것처럼 보인다.
+  const DATA_RE = new RegExp('<scr' + 'ipt id="progress-data"[^>]*>([\\s\\S]*?)</scr' + 'ipt>');
+  const CODE_RE = new RegExp('<scr' + 'ipt>([\\s\\S]*?)</scr' + 'ipt>');
+  const REFRESH_MS = 15000;
+  const ownCode = document.currentScript ? document.currentScript.textContent : null;
+  const docLang = document.documentElement ? document.documentElement.lang : '';
+
+  const store = {
+    get(k) { try { const v = sessionStorage.getItem(k); return v == null ? null : JSON.parse(v); } catch (e) { return null; } },
+    set(k, v) { try { sessionStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* 저장 불가 환경에서는 매번 처음 보는 것으로 취급한다 */ } }
+  };
+  const plusMinutes = (base, mins) => new Date(base.getTime() + mins * 60000);
+
+  const notice = $('notice');
+  const showNotice = text => { notice.textContent = text; notice.hidden = false; };
+  const hideNotice = () => { notice.hidden = true; notice.textContent = ''; };
+
+  // 바뀐 것이 없으면 DOM 을 건드리지 않는다. 같은 내용을 다시 넣으면 aria-live 띠가 또 읽고 선택과 포커스가 풀린다.
+  // cloneNode 가 없는 환경(테스트 하네스)에서는 늘 다시 채운다.
+  function swap(target, fill) {
+    if (typeof target.cloneNode !== 'function') {
+      target.textContent = '';
+      fill(target);
+      return true;
+    }
+    const next = target.cloneNode(false);
+    fill(next);
+    if (target.isEqualNode(next)) return false;
+    Array.from(target.attributes).forEach(a => { if (!next.hasAttribute(a.name)) target.removeAttribute(a.name); });
+    Array.from(next.attributes).forEach(a => target.setAttribute(a.name, a.value));
+    target.textContent = '';
+    while (next.firstChild) target.appendChild(next.firstChild);
+    return true;
   }
 
-  const L = I18N[data.lang] || I18N.ko;
+  function focusKeyOf(node) {
+    for (let n = node; n && n.nodeType === 1; n = n.parentNode) {
+      if (n.dataset && n.dataset.focusKey) return n.dataset.focusKey;
+      if (n.id) return 'id:' + n.id;
+    }
+    return null;
+  }
+  // 키에 따옴표가 섞여도 선택자가 깨지지 않게 이스케이프한다.
+  const attrValue = k => String(k).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  function focusTo(key) {
+    try {
+      const attr = attrValue(key.replace(/^id:/, ''));
+      const node = document.querySelector(key.indexOf('id:') === 0
+        ? '[id="' + attr + '"]' : '[data-focus-key="' + attr + '"]');
+      if (node) node.focus({ preventScroll: true });
+    } catch (err) { /* 요소가 사라졌거나 포커스를 못 걸면 처음 상태로 둔다 */ }
+  }
+
+  // 렌더마다 다시 정해지는 값. render() 안의 helper 와 보기 코드, 갱신 루프가 같이 본다.
+  let data = null, L = I18N[docLang] || I18N.ko;
+  let LINKS = {}, LINK_RE = /(?!)/g, KEY = '';
+  let items = [], renderedAt = null, dataAt = null, viewNow = new Date();
+  let RENDER = null, vst = { v: 'full', o: 'auto', chip: 'done' }, vstKey = null;
+  let prevStates = null, statusSec = null, boardSec = null;
+  const box = $('compact');
+  const built = {};
+  const saveView = () => store.set(KEY + ':view', vst);
+  // 스트립 보기의 펼침은 사용자가 건드린 것을 우선하고, 아니면 가로 배치에서만 연다.
+  const gOpen = (k, dflt) => (vst.g && typeof vst.g[k] === 'boolean') ? vst.g[k] : dflt;
+  const relDur = v => {
+    const s = Math.max(0, Math.round((viewNow.getTime() - toDate(v).getTime()) / 1000));
+    return s < 60 ? L.sec(s) : fmtDur(s / 60);
+  };
+
+  // 받은 데이터로 화면 전체를 다시 그린다. 처음 로드와 15초마다의 갱신이 같은 길을 지난다.
+  function render(next) {
+  data = next;
+  L = I18N[data.lang] || I18N.ko;
+  viewNow = new Date();
+  const focusKey = focusKeyOf(document.activeElement || null);
   $('countLabel').textContent = L.countDone;
   $('flow').setAttribute('aria-label', L.stepFlow);
 
@@ -1226,20 +1301,16 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     hubBtn.hidden = false;
   }
 
-  const LINKS = (data.links && typeof data.links === 'object' && !Array.isArray(data.links)) ? data.links : {};
+  LINKS = (data.links && typeof data.links === 'object' && !Array.isArray(data.links)) ? data.links : {};
   const escapeRe = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const KEY_PAT = Object.keys(LINKS).sort((a, b) => b.length - a.length).map(escapeRe).join('|');
   // 키는 앞뒤가 영숫자·_·- 가 아닌 경계에서만 잡는다 (SHOP-13 이 SHOP-130 안에서 걸리지 않게).
   const KEY_GROUP = KEY_PAT ? '(?<![A-Za-z0-9_-])(?:' + KEY_PAT + ')(?![A-Za-z0-9_-])' : null;
-  const LINK_RE = new RegExp('(' + (KEY_GROUP || '(?!)') + ')|(https?://[^\\s<>"\')\\]]+)', 'g');
+  LINK_RE = new RegExp('(' + (KEY_GROUP || '(?!)') + ')|(https?://[^\\s<>"\')\\]]+)', 'g');
 
-  const KEY = 'progress:' + (data.key || '') + ':' + (data.title || '');
-  const store = {
-    get(k) { try { const v = sessionStorage.getItem(k); return v == null ? null : JSON.parse(v); } catch (e) { return null; } },
-    set(k, v) { try { sessionStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* 저장 불가 환경에서는 매번 처음 보는 것으로 취급한다 */ } }
-  };
+  KEY = 'progress:' + (data.key || '') + ':' + (data.title || '');
 
-  const items = (data.items || []).map(it => Object.assign({}, it));
+  items = (data.items || []).map(it => Object.assign({}, it));
   const nextCol = {};
   items.forEach(it => {
     it.lane = Number.isFinite(it.lane) ? it.lane : 0;
@@ -1247,11 +1318,9 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     if (it.col == null) it.col = base;
     nextCol[it.lane] = Math.max(base, it.col) + 1;
   });
-  const renderedAt = data.renderedAt ? toDate(data.renderedAt) : null;
+  renderedAt = data.renderedAt ? toDate(data.renderedAt) : null;
   // 완료 예상의 기준은 렌더 시각이 아니라 데이터가 마지막으로 바뀐 시각이다.
-  const dataAt = data.dataAt ? toDate(data.dataAt) : renderedAt;
-  const viewNow = new Date();
-  const plusMinutes = (base, mins) => new Date(base.getTime() + mins * 60000);
+  dataAt = data.dataAt ? toDate(data.dataAt) : renderedAt;
 
   const byState = st => items.filter(i => i.state === st);
   const doneList = byState('done'), nowList = byState('now'), blockedList = byState('blocked');
@@ -1275,21 +1344,24 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
 
   // ---- 배경 ----
   const stars = $('stars');
-  for (let i = 0; i < 60; i++) {
-    const st = document.createElement('b');
-    st.style.left = Math.random() * 100 + '%';
-    st.style.top = Math.random() * 100 + '%';
-    stars.appendChild(st);
+  if (!stars.children.length) {
+    for (let i = 0; i < 60; i++) {
+      const st = document.createElement('b');
+      st.style.left = Math.random() * 100 + '%';
+      st.style.top = Math.random() * 100 + '%';
+      stars.appendChild(st);
+    }
   }
 
   // ---- 머리말 ----
   const eyebrow = $('eyebrow');
+  eyebrow.hidden = false;
   if (nowList.length) $('eyebrowText').textContent = L.eyebrowNow(nowList[0].label);
   else if (blockedList.length) $('eyebrowText').textContent = L.eyebrowBlocked(blockedList[0].label);
   else if (total && doneList.length === total) $('eyebrowText').textContent = L.allDone;
   else eyebrow.hidden = true;
 
-  const h1 = $('h1');
+  swap($('h1'), h1 => {
   if (data.key) {
     const k = el('span', 'key');
     k.appendChild(data.keyHref ? linkEl(data.keyHref, document.createTextNode(data.key)) : document.createTextNode(data.key));
@@ -1297,8 +1369,9 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     h1.appendChild(document.createTextNode(' '));
   }
   h1.appendChild(el('span', 'shine', data.title || ''));
+  });
 
-  const meta = $('meta');
+  swap($('meta'), meta => {
   if (data.updated) meta.appendChild(el('span', null, L.updated(data.updated)));
   (data.meta || []).forEach(m => {
     const obj = (m && typeof m === 'object' && !Array.isArray(m)) ? m : null;
@@ -1310,20 +1383,19 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     chip.appendChild(linkify(obj ? obj.text : m));
     meta.appendChild(chip);
   });
-  if (!meta.children.length) meta.hidden = true;
+  meta.hidden = !meta.children.length;
+  });
 
   // ---- 입력 대기 띠 (훅이 유지하는 상태) ----
-  const relDur = v => {
-    const s = Math.max(0, Math.round((viewNow.getTime() - toDate(v).getTime()) / 1000));
-    return s < 60 ? L.sec(s) : fmtDur(s / 60);
-  };
+  // 띠는 aria-live 라 내용이 바뀔 때만 갈아 끼운다. 훅이 없는 설치에서는 요소를 건드리지 않는다.
   if (data.live) {
+    if (!statusSec) statusSec = $('status');
+    swap(statusSec, band => {
     const lv = data.live;
     const stallMs = 10 * 60 * 1000;
     const lastToolAt = lv.lastTool && lv.lastTool.at ? toDate(lv.lastTool.at) : null;
     const stalled = lv.status === 'working' && lastToolAt != null
       && viewNow.getTime() - lastToolAt.getTime() > stallMs;
-    const band = $('status');
     band.className = 'status status-' + lv.status + (stalled ? ' status-stall' : '');
     band.hidden = false;
 
@@ -1354,9 +1426,13 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       sub.appendChild(el('span', null, L.liveCompact(comp.count, fmtClock(toDate(comp.lastAt), viewNow))));
     }
     if (sub.children.length) band.appendChild(sub);
+    });
+  } else if (statusSec) {
+    statusSec.hidden = true;
+    statusSec.textContent = '';
   }
 
-  const goal = $('goal');
+  swap($('goal'), goal => {
   const goalRow = (tag, tagCls, text) => {
     const row = el('div', 'goal-row');
     row.appendChild(el('span', tagCls ? 'goal-tag ' + tagCls : 'goal-tag', tag));
@@ -1367,7 +1443,8 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
   };
   if (data.goal) goalRow(L.goal, null, data.goal);
   if (data.doneWhen) goalRow(L.doneWhen, 'end', data.doneWhen);
-  if (!goal.children.length) goal.hidden = true;
+  goal.hidden = !goal.children.length;
+  });
 
   // ---- 진행 바와 집계 ----
   const pct = total ? (doneList.length / total * 100) : 0;
@@ -1375,6 +1452,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
   document.querySelector('.bar .tip').style.left = pct.toFixed(2) + '%';
   $('countB').textContent = doneList.length + '/' + total;
 
+  swap($('etaCol'), col => {
   if (data.eta) {
     const rawAt = toDate(data.eta);
     const calAt = data.etaCalibrated ? toDate(data.etaCalibrated) : null;
@@ -1385,15 +1463,16 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     if (calAt) line.appendChild(el('s', 'raw', fmtClock(rawAt, viewNow)));
     line.appendChild(el('b', null, fmtClock(etaAt, viewNow)));
     if (past) line.appendChild(document.createTextNode(L.overdue));
-    $('countCol').appendChild(line);
+    col.appendChild(line);
     if (calAt && data.calibration) {
       const { factor, samples } = data.calibration;
       const note = factor < 1 ? L.calFast(factor, samples) : L.calSlow(factor, samples);
-      $('countCol').appendChild(el('div', 'cal-note', note));
+      col.appendChild(el('div', 'cal-note', note));
     }
   }
+  });
 
-  const tally = $('tally');
+  swap($('tally'), tally => {
   [['done', L.tally.done], ['now', L.tally.now], ['blocked', L.tally.blocked], ['side', L.tally.side], ['left', L.tally.left]].forEach(([k, t]) => {
     const c = byState(k).length;
     if (!c) return;
@@ -1404,9 +1483,10 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     s.appendChild(document.createTextNode(t + ' ' + c));
     tally.appendChild(s);
   });
+  });
 
   // ---- 막힌 작업 ----
-  const blockedWrap = $('blocked');
+  swap($('blocked'), blockedWrap => {
   if (blockedList.length) {
     const h = el('h2', 'blocked');
     h.appendChild(el('span', 'ic', '⚠'));
@@ -1414,6 +1494,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     blockedWrap.appendChild(h);
     blockedList.forEach(it => blockedWrap.appendChild(cardEl(it, it.state)));
   }
+  });
 
   // ---- 흐름도 ----
   const cols = items.reduce((m, i) => Math.max(m, i.col), 0) + 1;
@@ -1425,7 +1506,10 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
   const LANEH = (items.some(it => nodeWhen(it)) ? 184 : 150) + LABEL_DY;
   const canvasEl = $('canvas');
   const pos = {};
+  // 캔버스를 비우면 폭이 0 이 되어 스크롤이 처음으로 가므로 위치를 받아 두었다가 되돌린다.
+  const keepScroll = prevStates == null ? store.get(KEY + ':scroll') : flow.scrollLeft;
 
+  swap(canvasEl, canvas => {
   Array.from({ length: laneCount }, (_, i) => lanes[i] || '').forEach((name, i) => {
     const inLane = items.filter(it => it.lane === i);
     const cls = inLane.some(it => it.state === 'blocked') ? 'blocked'
@@ -1435,13 +1519,13 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     band.style.top = (i * LANEH + 4) + 'px';
     band.style.height = (LANEH - 8) + 'px';
     if (name) band.appendChild(el('span', 'lane-label', name));
-    canvasEl.appendChild(band);
+    canvas.appendChild(band);
   });
 
   const W = PADX * 2 + (cols - 1) * COLW;
   const H = laneCount * LANEH;
-  canvasEl.style.width = W + 'px';
-  canvasEl.style.height = H + 'px';
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
   items.forEach(it => { pos[it.id] = { x: PADX + it.col * COLW, y: it.lane * LANEH + NODE_DY }; });
 
   const svg = document.createElementNS(NS, 'svg');
@@ -1484,7 +1568,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       svg.appendChild(flow);
     }
   });
-  canvasEl.appendChild(svg);
+  canvas.appendChild(svg);
 
   let doneIndex = 0;
   items.forEach(it => {
@@ -1501,11 +1585,13 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     node.appendChild(el('div', 'sub', it.sub || ''));
     const when = nodeWhen(it);
     if (when) node.appendChild(el('div', when.pending ? 'when when-now' + (when.past ? ' when-past' : '') : 'when', when.text));
-    canvasEl.appendChild(node);
+    canvas.appendChild(node);
   });
+  });
+  if (typeof keepScroll === 'number') flow.scrollLeft = keepScroll;
 
   // ---- 카드 ----
-  const cards = $('cards');
+  swap($('cards'), cards => {
   function section(headCls, glyph, title, list, cardCls) {
     const h = el('h2', headCls);
     h.appendChild(el('span', 'ic', glyph));
@@ -1538,15 +1624,19 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       cards.appendChild(card);
     });
   }
+  });
 
-  const footer = $('footer');
+  swap($('footer'), footer => {
   if (data.footer) footer.appendChild(linkify(data.footer));
-  else footer.hidden = true;
+  footer.hidden = !data.footer;
+  });
 
   // ---- 레인 보드 ----
-  // 정체 판정은 여기서 한다. 페이지는 15초마다 다시 로드되므로 모델이 갱신을 멈춰도
+  // 정체 판정은 여기서 한다. 페이지는 15초마다 다시 그려지므로 모델이 갱신을 멈춰도
   // 마지막 신호가 stallAfter 를 넘긴 now 레인은 정체로 드러난다.
+  let restoreBoardScroll = () => {};
   if (data.board && Array.isArray(data.board.lanes) && data.board.lanes.length) {
+    if (!boardSec) boardSec = $('board');
     const board = data.board;
     const bdLanes = board.lanes;
     const bdStages = Array.isArray(board.stages) && board.stages.length ? board.stages : null;
@@ -1555,6 +1645,9 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     const bdSaved = store.get(bdStateKey);
     const bdState = (bdSaved && typeof bdSaved === 'object' && !Array.isArray(bdSaved)) ? bdSaved : {};
     const bdSave = () => store.set(bdStateKey, bdState);
+    // 가로 스크롤은 200ms 늦게 저장되므로 다시 그리기 직전의 위치를 먼저 받아 둔다.
+    const liveScroll = boardSec.querySelector('.bd-scroll');
+    if (liveScroll) bdState.scrollLeft = liveScroll.scrollLeft;
     const bdOpen = new Set(Array.isArray(bdState.open) ? bdState.open : []);
     const laneSignalAt = lane => {
       const raw = lane.lastSignal || lane.startedAt;
@@ -1588,11 +1681,11 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       action();
     });
 
-    const sec = $('board');
-    sec.hidden = false;
-    sec.setAttribute('aria-label', L.boardTitle);
     // 컴팩트 보기에서도 이 섹션만 남겨 보이게 하는 표시 (template 의 [data-board] 규칙)
     body.dataset.board = '';
+    const boardChanged = swap(boardSec, sec => {
+    sec.hidden = false;
+    sec.setAttribute('aria-label', L.boardTitle);
 
     const sum = el('div', 'bd-sum');
     const big = el('div', 'bd-big', bdDone.length + ' / ' + bdLanes.length);
@@ -1916,7 +2009,13 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       recent.appendChild(feed);
       sec.appendChild(recent);
     }
-    restoreBdScroll();
+    restoreBoardScroll = restoreBdScroll;
+    });
+    if (boardChanged) restoreBoardScroll();
+  } else if (boardSec) {
+    boardSec.hidden = true;
+    boardSec.textContent = '';
+    delete body.dataset.board;
   }
 
   function cardEl(it, cls) {
@@ -2100,18 +2199,10 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     for (let i = 0; i < 8; i++) setTimeout(() => sparkleOn(node), i * 60);
   }
 
-  // ---- 새로고침 대응 ----
-  const saved = store.get(KEY + ':states');
-  if (saved) body.classList.add('no-entrance');
-
-  const scrollLeft = store.get(KEY + ':scroll');
-  const flow = $('flow');
-  if (typeof scrollLeft === 'number') flow.scrollLeft = scrollLeft;
-  let scrollTimer = null;
-  flow.addEventListener('scroll', () => {
-    clearTimeout(scrollTimer);
-    scrollTimer = setTimeout(() => store.set(KEY + ':scroll', flow.scrollLeft), 200);
-  });
+  // ---- 완료 효과 ----
+  // 직전 렌더와 견줘 새로 done 이 된 노드에 효과를 낸다. 재로드 뒤 첫 렌더는 sessionStorage 의 기록과 견준다.
+  const saved = prevStates != null ? prevStates : store.get(KEY + ':states');
+  if (saved && prevStates == null) body.classList.add('no-entrance');
 
   if (saved && !reduce) {
     items.filter(it => it.state === 'done' && saved[it.id] !== 'done').forEach(it => {
@@ -2123,15 +2214,16 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
   const states = Object.assign({}, saved || {});
   items.forEach(it => { states[it.id] = it.state; });
   store.set(KEY + ':states', states);
+  prevStates = states;
 
   // ---- 컴팩트 보기 ----
   // 좁은 탭에서 쓰는 보기 3종은 버튼을 누른 순간 이미 받은 데이터로 그 보기 하나만 그린다.
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const viewStoreKey = KEY + ':view';
-  const vst = Object.assign({ v: 'full', o: 'auto', chip: 'done' }, store.get(viewStoreKey) || {});
-  const saveView = () => store.set(viewStoreKey, vst);
+  if (vstKey !== KEY) {
+    vst = Object.assign({ v: 'full', o: 'auto', chip: 'done' }, store.get(KEY + ':view') || {});
+    vstKey = KEY;
+  }
 
-  const box = $('compact');
   const vNow = nowList[0] || blockedList[0] || null;
 
   const VIEW_LABEL = { full: L.viewFull, a: L.viewStrip, b: L.viewTimeline, c: L.viewTile };
@@ -2161,10 +2253,10 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       ${Array.isArray(vNow.evidence) && vNow.evidence.length ? `<div class="cx-ev">${vNow.evidence.map(e => { const eh = httpHref(e.href), mono = e.mono ? ' class="mono"' : ''; return eh ? `<a href="${esc(eh)}" target="_blank" rel="noopener"${mono}>${esc(e.text)}</a>` : `<span${mono}>${esc(e.text)}</span>`; }).join('')}</div>` : ''}
     </div>`;
 
-  const RENDER = {
+  RENDER = {
     a() {
       const strip = items.filter(i => i.state !== 'side');
-      const group = (label, list, cls, open) => !list.length ? '' : `<details${open ? ' open' : ''}><summary><span class="cx-dot ${cls}"></span>${label} ${list.length}</summary><ul>${list.map(i => `<li>${esc(i.title)}${i.doneAt ? ` <span class="cx-muted">· ${fmtClock(toDate(i.doneAt), viewNow)}</span>` : i.estimate != null ? ` <span class="cx-muted">· ${fmtDur(i.estimate)}</span>` : ''}</li>`).join('')}</ul></details>`;
+      const group = (label, list, cls, open) => !list.length ? '' : `<details data-g="${cls}"${gOpen(cls, open) ? ' open' : ''}><summary><span class="cx-dot ${cls}"></span>${label} ${list.length}</summary><ul>${list.map(i => `<li>${esc(i.title)}${i.doneAt ? ` <span class="cx-muted">· ${fmtClock(toDate(i.doneAt), viewNow)}</span>` : i.estimate != null ? ` <span class="cx-muted">· ${fmtDur(i.estimate)}</span>` : ''}</li>`).join('')}</ul></details>`;
       const land = vst.oe === 'land';
       return `<div class="cx-head"><div>${pill}<div class="cx-title">${keyHtml} ${esc(data.title)}</div></div><div class="cx-count"><b>${doneList.length}/${total}</b>${L.countDone}${data.eta ? `<br>${etaHtml}` : ''}</div></div>
         <div class="ca-strip">${strip.map(i => `<div class="st ${i.state}"><span class="nd">${i.state === 'done' || i.state === 'blocked' ? NODE_ICON[i.state] : ''}</span><small>${esc(i.label)}</small></div>`).join('')}</div>
@@ -2213,54 +2305,117 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
     }
   };
 
+  apply();
+
+  // 다시 그리면서 포커스가 있던 요소가 사라졌으면 같은 키의 새 요소로 되돌린다.
+  if (focusKey && (!document.activeElement || document.activeElement === body)) focusTo(focusKey);
+  }
+  // ---- render() 끝 ----
+
   // 가로·세로는 창 비율로 정하고, 버튼으로 고정할 수 있다
   const landMq = matchMedia('(min-aspect-ratio: 5/4) and (min-width: 760px)');
-  const built = {};
   function apply() {
     document.body.dataset.view = vst.v;
     ['full', 'a', 'b', 'c'].forEach(v => { const b = $('v-' + v); if (b) b.setAttribute('aria-pressed', String(v === vst.v)); });
     ['auto', 'land', 'port'].forEach(o => { const b = $('o-' + o); if (b) b.setAttribute('aria-pressed', String(o === vst.o)); });
-    if (vst.v === 'full') { box.hidden = true; delete $('viewbar').dataset.o; return; }
+    if (vst.v === 'full' || !RENDER) { box.hidden = true; delete $('viewbar').dataset.o; return; }
     vst.oe = vst.o === 'auto' ? (landMq.matches ? 'land' : 'port') : vst.o;
-    const sig = vst.v + vst.oe + vst.chip;
     box.dataset.o = vst.oe;
     $('viewbar').dataset.o = vst.oe;
-    if (built.sig !== sig) { box.innerHTML = RENDER[vst.v](); built.sig = sig; }
+    // 같은 문자열이면 다시 넣지 않는다. 넣으면 펼침과 선택이 풀린다.
+    const html = RENDER[vst.v]();
+    if (html !== built.html) { box.innerHTML = html; built.html = html; }
     box.hidden = false;
   }
   $('views').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; vst.v = b.dataset.v; saveView(); apply(); scrollTo(0, 0); });
   $('orient').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; vst.o = b.dataset.o; saveView(); apply(); });
   box.addEventListener('click', e => { const b = e.target.closest('.cc-chips button'); if (!b) return; vst.chip = b.dataset.k; saveView(); apply(); });
+  // toggle 은 버블링하지 않으므로 캡처 단계에서 받는다. 사용자가 펼치거나 접은 것을 기억해 다시 그려도 유지한다.
+  box.addEventListener('toggle', e => {
+    const d = e.target;
+    if (!d || !d.dataset || !d.dataset.g) return;
+    vst.g = Object.assign({}, vst.g || {});
+    vst.g[d.dataset.g] = !!d.open;
+    saveView();
+  }, true);
   landMq.addEventListener('change', () => { if (vst.o === 'auto') apply(); });
-  apply();
+
+  const flow = $('flow');
+  let scrollTimer = null;
+  flow.addEventListener('scroll', () => {
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(() => store.set(KEY + ':scroll', flow.scrollLeft), 200);
+  });
 
   // ---- 키보드 포커스 복원 ----
-  // meta refresh 로 15초마다 새로 그려지면 포커스가 문서 처음으로 돌아간다. 포커스된 요소의
+  // 재로드(file:// 경로, 템플릿 교체)로 새로 그려지면 포커스가 문서 처음으로 돌아간다. 포커스된 요소의
   // 안정적인 키를 남겨 두고, 렌더가 끝난 뒤 방금 남긴 기록이면 그 요소로 되돌린다.
-  const FOCUS_KEY = KEY + ':focus';
   const FOCUS_TTL_MS = 30 * 1000;
-  const focusKeyOf = node => {
-    for (let n = node; n && n.nodeType === 1; n = n.parentNode) {
-      if (n.dataset && n.dataset.focusKey) return n.dataset.focusKey;
-      if (n.id) return 'id:' + n.id;
-    }
-    return null;
-  };
-  // 키에 따옴표가 섞여도 선택자가 깨지지 않게 이스케이프한다.
-  const attrValue = k => String(k).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   document.addEventListener('focusin', e => {
     const key = focusKeyOf(e.target);
-    if (key) store.set(FOCUS_KEY, { key: key, at: Date.now() });
+    if (key) store.set(KEY + ':focus', { key: key, at: Date.now() });
   });
-  const focusRec = store.get(FOCUS_KEY);
-  if (focusRec && typeof focusRec.key === 'string' && typeof focusRec.at === 'number'
-      && Date.now() - focusRec.at <= FOCUS_TTL_MS) {
-    try {
-      const attr = attrValue(focusRec.key.replace(/^id:/, ''));
-      const node = document.querySelector(focusRec.key.indexOf('id:') === 0
-        ? '[id="' + attr + '"]' : '[data-focus-key="' + attr + '"]');
-      if (node) node.focus({ preventScroll: true });
-    } catch (err) { /* 요소가 사라졌거나 포커스를 못 걸면 처음 상태로 둔다 */ }
+
+  // ---- 첫 그리기 ----
+  let initial = null;
+  try {
+    initial = parseData($('progress-data').textContent);
+  } catch (err) {
+    console.error('progress: 데이터를 읽지 못했다', err);
+    showNotice(L.loadFail);
+  }
+  if (initial) {
+    render(initial);
+    const focusRec = store.get(KEY + ':focus');
+    if (focusRec && typeof focusRec.key === 'string' && typeof focusRec.at === 'number'
+        && Date.now() - focusRec.at <= FOCUS_TTL_MS) focusTo(focusRec.key);
+  }
+
+  // ---- 자동 갱신 ----
+  // 문서를 다시 로드하지 않고 같은 주소의 HTML 을 받아 데이터 블록만 꺼내 다시 그린다. 그래야 펼친 상태·스크롤·
+  // 포커스가 남고 aria-live 띠가 바뀐 부분만 읽는다. 그렇게 할 수 있는 것은 serve.py 가 http 로 준 페이지뿐이다.
+  // file:// 는 fetch 가 막히므로 예전처럼 재로드하고, 공유된 사본(Orca·Claude 아티팩트)은 갱신하지 않는다.
+  const loc = typeof location === 'object' && location ? location : null;
+  const LOOPBACK = ['127.0.0.1', 'localhost', '[::1]'];
+  const refreshMode = !loc ? 'static'
+    : (loc.protocol === 'http:' || loc.protocol === 'https:') && LOOPBACK.includes(loc.hostname) ? 'fetch'
+    : loc.protocol === 'file:' ? 'reload' : 'static';
+  let lastOkAt = Date.now();
+  let timer = null, inflight = false;
+  const schedule = () => { timer = setTimeout(() => { timer = null; tick(); }, REFRESH_MS); };
+  const applyPage = html => {
+    const block = DATA_RE.exec(html);
+    if (!block) throw new Error('데이터 블록이 없다');
+    // 코드 블록은 데이터 블록 뒤에서 찾는다. 데이터 본문에 script 태그 글자가 있으면 그 안에서 먼저 걸린다.
+    const code = CODE_RE.exec(html.slice(block.index + block[0].length));
+    // 템플릿(스킬)이 바뀌었으면 새 코드가 돌게 재로드한다. 보기 상태는 sessionStorage 에 남아 있다.
+    if (ownCode != null && code && code[1] !== ownCode) { loc.reload(); return false; }
+    render(parseData(block[1]));
+    return true;
+  };
+  const tick = () => {
+    // 안 보이는 탭은 받지 않는다. 보이게 되면 visibilitychange 가 바로 부른다.
+    if (document.hidden) return;
+    inflight = true;
+    body.classList.add('no-entrance');
+    fetch(loc.href.split('#')[0], { cache: 'no-store', credentials: 'same-origin' })
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+      .then(html => { if (applyPage(html)) { lastOkAt = Date.now(); hideNotice(); } })
+      .catch(err => {
+        console.error('progress: 최신 상태를 받지 못했다', err);
+        // 마지막으로 받은 데이터로 상대 시각만이라도 흐르게 한다.
+        try { if (data) render(data); } catch (e) { /* 그려지지 않는 데이터면 화면은 그대로 둔다 */ }
+        showNotice(L.refreshFail(L.forDur(relDur(lastOkAt))));
+      })
+      .then(() => { inflight = false; schedule(); });
+  };
+  if (refreshMode === 'fetch') {
+    schedule();
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && !timer && !inflight) tick();
+    });
+  } else if (refreshMode === 'reload') {
+    setTimeout(() => loc.reload(), REFRESH_MS);
   }
 })();
 </script>
