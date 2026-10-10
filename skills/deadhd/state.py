@@ -16,7 +16,14 @@ DEFAULT_DIR = '/tmp/deadhd-state'
 STALE_SECONDS = 7 * 24 * 3600
 RENDER_SKIP_SECONDS = 10
 REPEAT_SECONDS = 5
+REPLY_TAIL_CHARS = 120
 SESSION_ID = re.compile(r'[A-Za-z0-9._-]{1,128}')
+FENCE = re.compile(r'^(```|~~~)')
+HEADING = re.compile(r'^#{1,6}\s+')
+QUOTE = re.compile(r'^>\s*')
+BULLET = re.compile(r'^(?:[-*+]\s+|\d+[.)]\s+)')
+MD_LINK = re.compile(r'\[([^\]]*)\]\([^)]*\)')
+SPACES = re.compile(r'\s+')
 
 
 def state_dir():
@@ -201,6 +208,47 @@ def compaction_note(state):
             'do not start a new data file.' % (data, out))
 
 
+def markdown_plain(line):
+    """마크다운 표지를 걷어낸 한 줄."""
+    line = HEADING.sub('', line)
+    line = QUOTE.sub('', line)
+    line = BULLET.sub('', line)
+    line = MD_LINK.sub(r'\1', line)
+    line = line.replace('**', '').replace('__', '').replace('`', '')
+    return SPACES.sub(' ', line).strip()
+
+
+def reply_tail(text):
+    """마지막 응답의 끝부분.
+
+    코드 블록과 빈 줄을 걷어낸 마지막 줄에서 표지를 지우고 끝 120자만 쓴다. 그래서
+    모델이 질문을 응답의 마지막 줄에 두면 띠와 허브에 그대로 드러난다.
+    """
+    if not isinstance(text, str):
+        return None
+    kept = []
+    fenced = False
+    for raw in text.splitlines():
+        line = raw.strip()
+        if FENCE.match(line):
+            fenced = not fenced
+            continue
+        if fenced or not line:
+            continue
+        kept.append(line)
+    if not kept:
+        return None
+    line = markdown_plain(kept[-1])
+    if len(line) > REPLY_TAIL_CHARS:
+        tail = line[-REPLY_TAIL_CHARS:]
+        # 잘린 자리가 낱말 중간이면 읽기 어렵다. 앞 20자 안의 첫 공백 뒤부터 쓴다.
+        gap = tail[:20].find(' ')
+        if gap >= 0:
+            tail = tail[gap + 1:]
+        line = '…' + tail
+    return line or None
+
+
 def apply_event(state, payload):
     """이벤트를 상태에 반영한다. 무시할 이벤트면 None, 아니면 (렌더 건너뜀, 추가 컨텍스트)."""
     event = payload.get('hook_event_name')
@@ -224,6 +272,8 @@ def apply_event(state, payload):
         state['status'] = 'working'
         state['since'] = now
         state['message'] = None
+        # pop 으로 지운다. 이 키가 없던 상태 파일에 새 키를 만들지 않기 위해서다.
+        state.pop('replyTail', None)
         return (False, None)
     if event == 'PostToolUse':
         name = payload.get('tool_name')
@@ -237,12 +287,15 @@ def apply_event(state, payload):
         if state.get('status') != 'working':
             state['status'] = 'working'
             state['since'] = now
+        # 다시 도구를 쓰기 시작한 세션은 지난 응답을 기다리는 게 아니다.
+        state.pop('replyTail', None)
         return (True, None)
     if event == 'Stop':
         state['status'] = 'idle'
         state['since'] = now
         state['message'] = None
         state['backgroundTasks'] = background_tasks(payload)
+        state['replyTail'] = reply_tail(payload.get('last_assistant_message'))
         return (False, None)
     if event == 'SessionStart':
         if payload.get('source') != 'compact':

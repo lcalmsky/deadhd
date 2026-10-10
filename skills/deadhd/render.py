@@ -343,6 +343,7 @@ def live_payload(session_state, at):
     if not isinstance(count, int) or isinstance(count, bool):
         count = 0
     off_at = session_state.get('offAt')
+    reply = session_state.get('replyTail')
     return {
         'status': session_state['status'],
         'since': session_state['since'],
@@ -351,6 +352,9 @@ def live_payload(session_state, at):
         'backgroundTasks': background if isinstance(background, list) else [],
         'compactions': {'count': count, 'lastAt': compactions.get('lastAt')},
         'offAt': off_at if isinstance(off_at, str) and off_at else None,
+        # idle 일 때만 싣는다. 다시 일하는 세션의 지난 응답은 기다리는 질문이 아니다.
+        'replyTail': reply if session_state['status'] == 'idle'
+        and isinstance(reply, str) and reply else None,
     }
 
 

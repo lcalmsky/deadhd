@@ -80,6 +80,99 @@ def order_key(session):
     return (BUCKET_RANK[session['bucket']], since is None, since or EPOCH, session['sessionId'])
 
 
+def read_text(path, limit=None):
+    """작은 파일 하나를 읽는다. 없거나 못 읽으면 None."""
+    try:
+        with open(path, encoding='utf-8') as f:
+            return f.read(limit) if limit else f.read()
+    except (OSError, ValueError):
+        return None
+
+
+def read_head_branch(git_dir):
+    """HEAD 가 가리키는 브랜치. 분리된 HEAD 거나 못 읽으면 None."""
+    head = read_text(os.path.join(git_dir, 'HEAD'), limit=256)
+    if head is None:
+        return None
+    head = head.strip()
+    prefix = 'ref: refs/heads/'
+    return head[len(prefix):] if head.startswith(prefix) else None
+
+
+def git_root(cwd):
+    """cwd 에서 위로 올라가며 .git(파일이든 디렉터리든)이 있는 첫 디렉터리."""
+    path = cwd
+    while True:
+        if os.path.exists(os.path.join(path, '.git')):
+            return path
+        parent = os.path.dirname(path)
+        if parent == path:
+            return None
+        path = parent
+
+
+def linked_gitdir(root):
+    """연결된 워크트리의 .git 파일이 가리키는 git 디렉터리. 상대 경로면 root 기준."""
+    text = read_text(os.path.join(root, '.git'))
+    lines = text.splitlines() if text else []
+    first = lines[0].strip() if lines else ''
+    prefix = 'gitdir:'
+    if not first.startswith(prefix):
+        return None
+    target = first[len(prefix):].strip()
+    if not target:
+        return None
+    return target if os.path.isabs(target) else os.path.normpath(os.path.join(root, target))
+
+
+def main_checkout(git_dir):
+    """워크트리가 딸린 본 체크아웃. commondir 로 공통 git 디렉터리를 찾는다."""
+    text = read_text(os.path.join(git_dir, 'commondir'))
+    target = text.strip() if text else ''
+    if target:
+        common = target if os.path.isabs(target) else os.path.normpath(os.path.join(git_dir, target))
+    else:
+        common = os.path.dirname(os.path.dirname(git_dir))
+    return os.path.dirname(common) if os.path.basename(common) == '.git' else None
+
+
+def worktree_label(root, git_dir):
+    """워크트리를 부르는 이름.
+
+    본 체크아웃 옆에 만든 워크트리는 저장소 이름이 곧 이름이지만, 그 밖에 만든 것은
+    어느 저장소의 워크트리인지까지 붙여야 어디서 도는지 알 수 있다.
+    """
+    main_root = main_checkout(git_dir)
+    if main_root is not None and os.path.dirname(root) == os.path.dirname(main_root):
+        return os.path.basename(root)
+    parent = os.path.dirname(root)
+    if os.path.basename(parent) == 'worktrees' and os.path.basename(os.path.dirname(parent)) == '.claude':
+        return os.path.basename(os.path.dirname(os.path.dirname(parent))) + '/' + os.path.basename(root)
+    return os.path.basename(parent) + '/' + os.path.basename(root)
+
+
+def place_of(cwd):
+    """세션이 돌고 있는 저장소·워크트리.
+
+    허브를 그릴 때마다 세션 수만큼 불리므로 git 을 부르지 않고 .git 과 HEAD 만 읽는다.
+    """
+    if not isinstance(cwd, str) or not os.path.isabs(cwd):
+        return None
+    home = os.path.expanduser('~')
+    shown = '~' + cwd[len(home):] if cwd == home or cwd.startswith(home + os.sep) else cwd
+    root = git_root(cwd)
+    if root is None:
+        return {'label': os.path.basename(cwd) or cwd, 'branch': None, 'path': shown}
+    if os.path.isdir(os.path.join(root, '.git')):
+        return {'label': os.path.basename(root), 'branch': read_head_branch(os.path.join(root, '.git')),
+                'path': shown}
+    git_dir = linked_gitdir(root)
+    if git_dir is None:
+        return {'label': os.path.basename(root), 'branch': None, 'path': shown}
+    return {'label': worktree_label(root, git_dir), 'branch': read_head_branch(git_dir),
+            'path': shown}
+
+
 def read_state_file(state_dir, name):
     """상태 파일 하나를 허브가 읽는 모양으로. 허브가 건너뛰는 파일이면 None."""
     try:
@@ -100,6 +193,8 @@ def read_state_file(state_dir, name):
     tasks = data.get('backgroundTasks')
     compactions = data.get('compactions')
     tool = data.get('lastTool')
+    cwd = data.get('cwd') if isinstance(data.get('cwd'), str) else None
+    reply = data.get('replyTail')
     return {
         'sessionId': data.get('sessionId') if isinstance(data.get('sessionId'), str) else name[:-5],
         'out': out,
@@ -113,7 +208,9 @@ def read_state_file(state_dir, name):
         'compactions': compactions if isinstance(compactions, dict) else {},
         'updatedAt': data.get('updatedAt') if isinstance(data.get('updatedAt'), str) else None,
         'offAt': data.get('offAt') if isinstance(data.get('offAt'), str) else None,
-        'cwd': data.get('cwd') if isinstance(data.get('cwd'), str) else None,
+        'cwd': cwd,
+        'place': place_of(cwd),
+        'replyTail': reply if isinstance(reply, str) else None,
         'summary': data['summary'],
     }
 

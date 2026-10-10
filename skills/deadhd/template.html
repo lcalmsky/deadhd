@@ -860,6 +860,8 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
 .status-title { font-family: var(--f-head); font-weight: 700; font-size: 20px; line-height: 1.2; }
 .status-what { font-size: 12.5px; padding: 3px 9px; border: 1px solid var(--card-line); border-radius: 6px; color: var(--ink-2); }
 .status-sub { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; font-size: 12.5px; color: var(--ink-3); }
+.status-ask { margin: 8px 0 0; font-size: 14px; line-height: 1.5; color: var(--ink); overflow-wrap: anywhere; }
+.status-ask b { margin-right: 8px; font-size: 12.5px; font-weight: 600; color: var(--ink-3); }
 .status-waiting_permission { border-color: color-mix(in srgb, var(--now) 45%, transparent); box-shadow: 0 0 40px -8px color-mix(in srgb, var(--now) 50%, transparent); }
 .status-waiting_permission .status-dot { background: var(--now); box-shadow: 0 0 10px var(--now); animation: blink 1.2s ease-in-out infinite; }
 .status-waiting_permission .status-title { color: var(--now-2); }
@@ -1013,6 +1015,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
         return hit ? hit[1] + ' 사용 승인 요청' : String(m);
       },
       liveIdle: d => '입력 대기 · ' + d,
+      liveReply: '마지막 응답',
       liveWorking: '작업 중',
       liveStall: d => '신호 없음 · ' + d,
       liveEnded: t => '세션 종료 ' + t,
@@ -1104,6 +1107,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       liveWait: d => 'Waiting for permission · ' + d,
       permMsg: m => (m == null ? '' : String(m)),
       liveIdle: d => 'Waiting for your input · ' + d,
+      liveReply: 'Last reply',
       liveWorking: 'Working',
       liveStall: d => 'No signal · ' + d,
       liveEnded: t => 'Session ended ' + t,
@@ -1444,6 +1448,13 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       : lv.status === 'working' && lv.lastTool ? lv.lastTool.name : '';
     if (what) main.appendChild(el('span', 'status-what mono', what));
     band.appendChild(main);
+
+    if (!off && lv.status === 'idle' && typeof lv.replyTail === 'string' && lv.replyTail) {
+      const ask = el('p', 'status-ask');
+      ask.appendChild(el('b', null, L.liveReply));
+      ask.appendChild(document.createTextNode(lv.replyTail));
+      band.appendChild(ask);
+    }
 
     const sub = el('div', 'status-sub');
     if (lv.lastTool && lv.lastTool.name) {

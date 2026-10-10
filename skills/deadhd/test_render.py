@@ -90,15 +90,31 @@ def run_off(state_dir, args=(), env_extra=None):
     return subprocess.run([sys.executable, STATE, '--off', *args], capture_output=True, text=True, env=env)
 
 
-def load_valid_session_id():
+def load_state_symbol(name):
     """state.py 를 import 하면 sys.path 와 __pycache__ 를 건드려야 해서 소스만 실행해 꺼낸다."""
     namespace = {'__name__': 'state_under_test', '__file__': STATE}
     with open(STATE, encoding='utf-8') as f:
         exec(compile(f.read(), STATE, 'exec'), namespace)
-    return namespace['valid_session_id']
+    return namespace[name]
 
 
-VALID_SESSION_ID = load_valid_session_id()
+VALID_SESSION_ID = load_state_symbol('valid_session_id')
+REPLY_TAIL = load_state_symbol('reply_tail')
+REPLY_TAIL_CHARS = load_state_symbol('REPLY_TAIL_CHARS')
+
+
+def run_place_of(cwd, env_extra=None):
+    """hub.py 를 import 하면 이 테스트 프로세스의 sys.path 와 sys.modules 를 건드려 따로 띄운다."""
+    env = dict(os.environ)
+    # hub.py 자체의 .pyc 는 import 하는 쪽이 먼저 쓰므로 스킬 폴더에 남지 않게 막는다.
+    env['PYTHONDONTWRITEBYTECODE'] = '1'
+    if env_extra:
+        env.update(env_extra)
+    code = ('import json, sys; sys.path.insert(0, %r); import hub; '
+            'print(json.dumps(hub.place_of(%r), ensure_ascii=False))' % (HERE, cwd))
+    r = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, env=env)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)
 
 
 def load_example():
@@ -474,7 +490,10 @@ function snapshot() {
 
 
 def script_block(html):
-    blocks = re.findall(r'<script>(.*?)</script>', html, re.S)
+    # 데이터 블록 안에 script 태그 글자가 들어 있으면 그것까지 블록으로 세게 된다. 브라우저는
+    # 그 글자를 데이터로만 읽으므로, 데이터 요소를 걷어낸 뒤 본문 블록을 찾는다.
+    body = re.sub(r'<script id="[^"]*" type="application/json">.*?</script>', '', html, flags=re.S)
+    blocks = re.findall(r'<script>(.*?)</script>', body, re.S)
     assert len(blocks) == 1, '본문 script 블록이 정확히 하나가 아니다: %d개' % len(blocks)
     return blocks[0]
 
@@ -2994,6 +3013,52 @@ class SkillDocTest(unittest.TestCase):
                 self.assertNotIn(needle, text)
 
 
+class ReplyTailTest(unittest.TestCase):
+    """state.reply_tail 이 마지막 응답에서 마지막 줄만 골라 다듬는지 확인한다."""
+
+    def test_the_last_line_after_a_code_block_wins(self):
+        self.assertEqual(
+            REPLY_TAIL('정리하면 이렇습니다.\n\n```python\nprint("hi")\n```\n\n마지막 줄입니다.'),
+            '마지막 줄입니다.')
+        self.assertEqual(REPLY_TAIL('설명\n\n~~~\n코드\n~~~\n\n맨 끝 줄'), '맨 끝 줄')
+
+    def test_markdown_marks_and_links_are_stripped(self):
+        cases = (
+            ('## 물어볼 것', '물어볼 것'),
+            ('> 인용문', '인용문'),
+            ('- 목록 항목', '목록 항목'),
+            ('* 별표 항목', '별표 항목'),
+            ('1. 첫 항목', '첫 항목'),
+            ('2) 둘째 항목', '둘째 항목'),
+            ('**굵게** 그리고 `코드`', '굵게 그리고 코드'),
+            ('__밑줄__', '밑줄'),
+            ('[링크 글자](https://x.test/a)', '링크 글자'),
+            ('여러   칸   공백', '여러 칸 공백'),
+        )
+        for text, expected in cases:
+            with self.subTest(text=text):
+                self.assertEqual(REPLY_TAIL(text), expected)
+
+    def test_a_long_line_keeps_its_end_without_cutting_a_word(self):
+        line = ' '.join('낱말%02d' % i for i in range(40)) + ' 마지막 질문입니다'
+        tail = REPLY_TAIL(line)
+        self.assertTrue(tail.startswith('…'), tail)
+        self.assertFalse(tail.startswith('… '), tail)
+        self.assertTrue(tail.endswith('마지막 질문입니다'), tail)
+        self.assertLessEqual(len(tail), REPLY_TAIL_CHARS + 1)
+
+    def test_a_short_line_is_kept_whole(self):
+        self.assertEqual(REPLY_TAIL('이대로 진행할까요?'), '이대로 진행할까요?')
+
+    def test_nothing_to_show_gives_none(self):
+        for value in (None, 7, {'a': 1}, ['x'], '', '\n\n', '   ', '**'):
+            with self.subTest(value=value):
+                self.assertIsNone(REPLY_TAIL(value))
+
+    def test_a_reply_that_is_only_a_code_block_gives_none(self):
+        self.assertIsNone(REPLY_TAIL('```\n코드만\n```'))
+
+
 class StateScriptTest(unittest.TestCase):
     """state.py 가 훅 이벤트를 상태 파일과 재렌더로 옮기는지 확인한다."""
 
@@ -3140,6 +3205,47 @@ class StateScriptTest(unittest.TestCase):
                     'background_tasks': [{'type': 'shell', 'description': 'x'}]})
         self.event({'hook_event_name': 'Stop'})
         self.assertEqual(self.read_state()['backgroundTasks'], [])
+
+    def test_stop_keeps_the_tail_of_the_last_reply(self):
+        self.render_session()
+        r = self.event({'hook_event_name': 'Stop',
+                        'last_assistant_message': '정리하면 이렇습니다.\n\n## 물어볼 것\n'
+                                                  '**이대로** 진행할까요?'})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.read_state()['replyTail'], '이대로 진행할까요?')
+
+    def test_a_non_string_last_message_leaves_no_tail(self):
+        self.render_session()
+        for value in (7, {'a': 1}, None):
+            with self.subTest(value=value):
+                r = self.event({'hook_event_name': 'Stop', 'last_assistant_message': value})
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertIsNone(self.read_state()['replyTail'])
+
+    def test_the_idle_prompt_notification_keeps_the_last_reply(self):
+        """Stop 뒤에 오는 idle_prompt 알림이 값을 지우면 띠와 허브가 묻는 말을 잃는다."""
+        self.render_session()
+        self.event({'hook_event_name': 'Stop', 'last_assistant_message': '이대로 진행할까요?'})
+        self.event({'hook_event_name': 'Notification', 'notification_type': 'idle_prompt'})
+        self.assertEqual(self.read_state()['replyTail'], '이대로 진행할까요?')
+
+    def test_a_new_prompt_drops_the_last_reply(self):
+        self.render_session()
+        self.event({'hook_event_name': 'Stop', 'last_assistant_message': '이대로 진행할까요?'})
+        self.event({'hook_event_name': 'UserPromptSubmit', 'prompt': '응 진행해'})
+        self.assertNotIn('replyTail', self.read_state())
+
+    def test_a_tool_use_drops_the_last_reply(self):
+        self.render_session()
+        self.event({'hook_event_name': 'Stop', 'last_assistant_message': '이대로 진행할까요?'})
+        r = self.event({'hook_event_name': 'PostToolUse', 'tool_name': 'Bash'})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn('replyTail', self.read_state())
+
+    def test_a_prompt_on_a_state_file_without_the_key_does_not_add_it(self):
+        self.seed_session()
+        self.event({'hook_event_name': 'UserPromptSubmit', 'prompt': 'hi'})
+        self.assertNotIn('replyTail', self.read_state())
 
     def test_compact_counts_and_returns_context(self):
         self.render_session()
@@ -3301,6 +3407,107 @@ class StateScriptTest(unittest.TestCase):
         state = self.read_state()
         self.assertEqual(state['compactions']['count'], 1)
         self.assertEqual(state['offAt'], off_at)
+
+
+class PlaceOfTest(unittest.TestCase):
+    """hub.place_of 가 .git 과 HEAD 만 읽어 저장소·워크트리를 알아내는지 확인한다."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='progress-place-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def checkout(self, path, head='ref: refs/heads/main'):
+        """본 체크아웃 하나. .git 디렉터리와 HEAD 만 둔다."""
+        os.makedirs(os.path.join(path, '.git'), exist_ok=True)
+        with open(os.path.join(path, '.git', 'HEAD'), 'w', encoding='utf-8') as f:
+            f.write(head + '\n')
+        return path
+
+    def worktree(self, path, git_dir, head='ref: refs/heads/feat/CAS-123', commondir='../..'):
+        """연결된 워크트리 하나. .git 파일이 gitdir 를 가리킨다."""
+        os.makedirs(path, exist_ok=True)
+        os.makedirs(git_dir, exist_ok=True)
+        with open(os.path.join(path, '.git'), 'w', encoding='utf-8') as f:
+            f.write('gitdir: ' + git_dir + '\n')
+        with open(os.path.join(git_dir, 'HEAD'), 'w', encoding='utf-8') as f:
+            f.write(head + '\n')
+        with open(os.path.join(git_dir, 'commondir'), 'w', encoding='utf-8') as f:
+            f.write(commondir + '\n')
+        return path
+
+    def test_a_checkout_uses_its_own_directory_name_and_branch(self):
+        repo = self.checkout(os.path.join(self.tmp, 'shop-api'))
+        self.assertEqual(run_place_of(repo),
+                         {'label': 'shop-api', 'branch': 'main', 'path': repo})
+
+    def test_a_subdirectory_finds_the_checkout_above_it(self):
+        repo = self.checkout(os.path.join(self.tmp, 'shop-api'))
+        sub = os.path.join(repo, 'src', 'deep')
+        os.makedirs(sub)
+        self.assertEqual(run_place_of(sub)['label'], 'shop-api')
+
+    def test_a_worktree_beside_the_checkout_is_named_after_itself(self):
+        main = self.checkout(os.path.join(self.tmp, 'msa'))
+        wt = self.worktree(os.path.join(self.tmp, 'msa-CAS-123'),
+                           os.path.join(main, '.git', 'worktrees', 'msa-CAS-123'))
+        self.assertEqual(run_place_of(wt),
+                         {'label': 'msa-CAS-123', 'branch': 'feat/CAS-123', 'path': wt})
+
+    def test_a_worktree_elsewhere_names_the_one_it_came_from(self):
+        main = self.checkout(os.path.join(self.tmp, 'msa'))
+        wt = self.worktree(os.path.join(self.tmp, 'workspaces', 'msa-cconsole', 'CAS-998'),
+                           os.path.join(main, '.git', 'worktrees', 'CAS-998'))
+        self.assertEqual(run_place_of(wt)['label'], 'msa-cconsole/CAS-998')
+
+    def test_a_claude_worktree_names_the_repository_too(self):
+        main = self.checkout(os.path.join(self.tmp, 'shop-api'))
+        wt = self.worktree(os.path.join(main, '.claude', 'worktrees', 'calm-waves'),
+                           os.path.join(main, '.git', 'worktrees', 'calm-waves'))
+        self.assertEqual(run_place_of(wt)['label'], 'shop-api/calm-waves')
+
+    def test_a_detached_head_has_no_branch(self):
+        repo = self.checkout(os.path.join(self.tmp, 'shop-api'), head='9a1b2c3d4e5f')
+        self.assertEqual(run_place_of(repo),
+                         {'label': 'shop-api', 'branch': None, 'path': repo})
+
+    def test_a_relative_gitdir_is_read_from_the_worktree(self):
+        main = self.checkout(os.path.join(self.tmp, 'msa'))
+        wt = self.worktree(os.path.join(self.tmp, 'msa-CAS-123'),
+                           os.path.join(main, '.git', 'worktrees', 'msa-CAS-123'))
+        with open(os.path.join(wt, '.git'), 'w', encoding='utf-8') as f:
+            f.write('gitdir: ../msa/.git/worktrees/msa-CAS-123\n')
+        self.assertEqual(run_place_of(wt)['label'], 'msa-CAS-123')
+
+    def test_a_broken_git_file_falls_back_to_the_directory_name(self):
+        root = os.path.join(self.tmp, 'broken')
+        os.makedirs(root)
+        with open(os.path.join(root, '.git'), 'w', encoding='utf-8') as f:
+            f.write('nonsense\n')
+        self.assertEqual(run_place_of(root),
+                         {'label': 'broken', 'branch': None, 'path': root})
+
+    def test_a_path_without_git_uses_its_own_directory_name(self):
+        plain = os.path.join(self.tmp, 'plain')
+        os.makedirs(plain)
+        self.assertEqual(run_place_of(plain),
+                         {'label': 'plain', 'branch': None, 'path': plain})
+
+    def test_a_missing_path_still_names_what_it_would_be(self):
+        gone = os.path.join(self.tmp, 'gone', 'deep')
+        self.assertEqual(run_place_of(gone),
+                         {'label': 'deep', 'branch': None, 'path': gone})
+
+    def test_a_path_under_home_is_shortened(self):
+        home = os.path.join(self.tmp, 'me')
+        repo = self.checkout(os.path.join(home, 'shop-api'))
+        place = run_place_of(repo, env_extra={'HOME': home})
+        self.assertEqual(place['path'], '~/shop-api')
+        self.assertEqual(place['label'], 'shop-api')
+
+    def test_a_relative_or_missing_cwd_gives_nothing(self):
+        for value in ('src/app', '', None, 7):
+            with self.subTest(value=value):
+                self.assertIsNone(run_place_of(value))
 
 
 class HubTest(unittest.TestCase):
@@ -3572,7 +3779,7 @@ class HubPageTest(unittest.TestCase):
     def write_state(self, session, status, since, title, lang='ko', tool_at=None,
                     key_href='https://x.test/SHOP-1', hooked=True, all_done=False,
                     view=None, page=True, states=('done', 'done', 'done', 'now', 'left'), message=None,
-                    off_at=None):
+                    off_at=None, cwd=None, reply_tail=None):
         path = os.path.join(self.tmp, session + '.html')
         if page:
             with open(path, 'w', encoding='utf-8') as f:
@@ -3589,7 +3796,7 @@ class HubPageTest(unittest.TestCase):
             'lastTool': {'name': 'Bash', 'at': tool_at, 'durationMs': None} if tool_at else None,
             'backgroundTasks': [],
             'compactions': {'count': 0, 'lastAt': None},
-            'cwd': '/tmp',
+            'cwd': cwd,
             'summary': {
                 'title': title, 'key': 'SHOP-1', 'keyHref': key_href, 'lang': lang,
                 'updated': None, 'counts': {'done': 3, 'now': 1, 'side': 0, 'left': 1, 'blocked': 0},
@@ -3600,6 +3807,8 @@ class HubPageTest(unittest.TestCase):
         }
         if off_at is not None:
             state['offAt'] = off_at
+        if reply_tail is not None:
+            state['replyTail'] = reply_tail
         with open(os.path.join(self.state_dir, session + '.json'), 'w', encoding='utf-8') as f:
             json.dump(state, f, ensure_ascii=False)
 
@@ -3801,6 +4010,80 @@ class HubPageTest(unittest.TestCase):
         self.assertEqual(self.texts(tile, 'tile-key'), ['SHOP-1'])
         self.assertEqual(self.key_links(tile), [])
 
+    def checkout(self, name, head='ref: refs/heads/main'):
+        """place 가 붙는 세션을 만들려면 cwd 아래에 .git 이 있어야 한다."""
+        root = os.path.join(self.tmp, name)
+        os.makedirs(os.path.join(root, '.git'))
+        with open(os.path.join(root, '.git', 'HEAD'), 'w', encoding='utf-8') as f:
+            f.write(head + '\n')
+        return root
+
+    def chips(self, node, cls):
+        return [n for n in iter_nodes(node) if cls in (n.get('cls') or '').split()]
+
+    def test_tile_names_the_place_and_branch(self):
+        repo = self.checkout('shop-api')
+        self.write_state('k', 'working', '2026-10-03T09:30:00+09:00', '작업 중 세션', cwd=repo)
+        tile = self.tiles(self.dom(), 'workGrid')[0]
+        self.assertEqual(self.texts(tile, 'tile-place'), ['shop-api · main'])
+        self.assertEqual(self.chips(tile, 'tile-place')[0]['attrs']['title'], repo)
+
+    def test_tile_place_without_a_branch_has_no_separator(self):
+        repo = self.checkout('shop-api', head='9a1b2c3d4e5f')
+        self.write_state('k', 'working', '2026-10-03T09:30:00+09:00', '작업 중 세션', cwd=repo)
+        self.assertEqual(self.texts(self.tiles(self.dom(), 'workGrid')[0], 'tile-place'),
+                         ['shop-api'])
+
+    def test_a_session_without_a_place_has_no_chip(self):
+        self.write_state('k', 'working', '2026-10-03T09:30:00+09:00', '작업 중 세션')
+        self.assertEqual(self.texts(self.tiles(self.dom(), 'workGrid')[0], 'tile-place'), [])
+
+    def test_ended_row_names_the_place_too(self):
+        repo = self.checkout('shop-api')
+        self.write_state('x', 'ended', '2026-10-03T09:20:00+09:00', '끝난 세션', cwd=repo)
+        row = self.dom()['endedList']
+        self.assertEqual(self.texts(row, 'e-place'), ['shop-api · main'])
+        self.assertEqual(self.chips(row, 'e-place')[0]['attrs']['title'], repo)
+
+    def test_idle_tile_quotes_the_tail_of_the_last_reply(self):
+        self.write_state('i', 'idle', '2026-10-03T09:50:00+09:00', '입력 대기 세션',
+                         reply_tail='이대로 진행할까요?')
+        tile = self.tiles(self.dom(), 'waitGrid')[0]
+        self.assertEqual(self.texts(tile, 'tile-ask'), ['“이대로 진행할까요?”'])
+
+    def test_a_working_tile_shows_no_last_reply(self):
+        self.write_state('k', 'working', '2026-10-03T09:30:00+09:00', '작업 중 세션',
+                         reply_tail='이대로 진행할까요?')
+        self.assertEqual(self.texts(self.tiles(self.dom(), 'workGrid')[0], 'tile-ask'), [])
+
+    def test_an_idle_tile_without_a_tail_shows_no_last_reply(self):
+        self.write_state('i', 'idle', '2026-10-03T09:50:00+09:00', '입력 대기 세션')
+        self.assertEqual(self.texts(self.tiles(self.dom(), 'waitGrid')[0], 'tile-ask'), [])
+
+    def test_the_new_elements_land_in_their_places(self):
+        repo = self.checkout('shop-api')
+        self.write_state('i', 'idle', '2026-10-03T09:50:00+09:00', '입력 대기 세션',
+                         cwd=repo, reply_tail='이대로 진행할까요?')
+        tile = self.tiles(self.dom(), 'waitGrid')[0]
+        classes = [k.get('cls') for k in tile['kids']]
+        self.assertLess(classes.index('tile-title'), classes.index('tile-place mono'))
+        self.assertLess(classes.index('tile-place mono'), classes.index('tile-key mono'))
+        self.assertLess(classes.index('tile-main'), classes.index('tile-ask'))
+
+    def test_a_session_with_neither_place_nor_tail_gets_no_new_element(self):
+        self.write_state('k', 'working', '2026-10-03T09:30:00+09:00', '작업 중 세션',
+                         tool_at='2026-10-03T09:58:00+09:00')
+        tile = self.tiles(self.dom(), 'workGrid')[0]
+        self.assertEqual([k.get('cls') for k in tile['kids']],
+                         ['tile-top', 'tile-title', 'tile-key mono', 'strip', 'tile-main',
+                          'tile-sub mono'])
+
+    def test_a_reply_tail_with_markup_stays_text(self):
+        self.write_state('i', 'idle', '2026-10-03T09:50:00+09:00', '입력 대기 세션',
+                         reply_tail='<script>alert(1)</script> 끝')
+        tile = self.tiles(self.dom(), 'waitGrid')[0]
+        self.assertEqual(self.texts(tile, 'tile-ask'), ['“<script>alert(1)</script> 끝”'])
+
     def test_tile_opens_in_the_same_tab(self):
         self.write_state('w', 'waiting_permission', '2026-10-03T09:48:00+09:00', '기다리는 세션')
         nodes = self.dom()
@@ -3896,6 +4179,24 @@ class RenderSessionTest(unittest.TestCase):
         self.assertEqual(self.render(session='abc').returncode, 0)
         self.assertEqual(self.payload()['live']['status'], 'working')
         self.assertTrue(self.read_state()['hooked'])
+
+    def test_an_idle_session_publishes_the_tail_of_its_last_reply(self):
+        self.seed_state('abc', status='idle', since=FIXED_NOW, replyTail='이대로 진행할까요?')
+        self.assertEqual(self.render(session='abc').returncode, 0)
+        self.assertEqual(self.payload()['live']['replyTail'], '이대로 진행할까요?')
+
+    def test_only_an_idle_session_publishes_a_reply_tail(self):
+        for status in ('working', 'waiting_permission', 'ended'):
+            with self.subTest(status=status):
+                self.seed_state('abc', status=status, since=FIXED_NOW, replyTail='이대로 진행할까요?')
+                self.assertEqual(self.render(session='abc').returncode, 0)
+                self.assertIsNone(self.payload()['live']['replyTail'])
+
+    def test_a_session_without_a_reply_tail_publishes_none_and_keeps_the_key_out(self):
+        self.seed_state('abc', status='idle', since=FIXED_NOW)
+        self.assertEqual(self.render(session='abc').returncode, 0)
+        self.assertIsNone(self.payload()['live']['replyTail'])
+        self.assertNotIn('replyTail', self.read_state())
 
     def test_hook_event_turns_the_live_band_on(self):
         self.assertEqual(self.render(session='abc').returncode, 0)
@@ -4366,6 +4667,45 @@ class LiveBandTest(unittest.TestCase):
                                      'since': '2026-10-03T09:48:00+09:00'})
         self.assertIn('status-idle', node['cls'].split())
         self.assertEqual(self.texts(node, 'status-title'), ['입력 대기 · 12분째'])
+
+    def test_idle_band_shows_the_tail_of_the_last_reply(self):
+        node = self.band_with_state({'hooked': True, 'status': 'idle',
+                                     'since': '2026-10-03T09:48:00+09:00',
+                                     'replyTail': '이대로 진행할까요?'})
+        self.assertEqual(self.texts(node, 'status-ask'), ['마지막 응답이대로 진행할까요?'])
+
+    def test_english_band_labels_the_last_reply(self):
+        node = self.band_with_state({'hooked': True, 'status': 'idle',
+                                     'since': '2026-10-03T09:48:00+09:00',
+                                     'replyTail': 'Shall I go ahead?'}, lang='en')
+        self.assertEqual(self.texts(node, 'status-ask'), ['Last replyShall I go ahead?'])
+
+    def test_a_working_band_shows_no_last_reply(self):
+        node = self.band_with_state({'hooked': True, 'status': 'working',
+                                     'since': '2026-10-03T09:48:00+09:00',
+                                     'replyTail': '이대로 진행할까요?'})
+        self.assertEqual(self.texts(node, 'status-ask'), [])
+
+    def test_an_idle_band_without_a_tail_has_no_ask(self):
+        node = self.band_with_state({'hooked': True, 'status': 'idle',
+                                     'since': '2026-10-03T09:48:00+09:00'})
+        self.assertEqual(self.texts(node, 'status-ask'), [])
+
+    def test_an_off_band_hides_the_last_reply(self):
+        """status 는 idle 로 남으므로 꺼짐 표시가 띠에서 이겨야 한다."""
+        node = self.band_with_state({'hooked': True, 'status': 'idle',
+                                     'since': '2026-10-03T09:48:00+09:00',
+                                     'replyTail': '이대로 진행할까요?', 'offAt': OFF_AT},
+                                    data_at=DATA_BEFORE_OFF)
+        self.assertIn('status-off', node['cls'].split())
+        self.assertEqual(self.texts(node, 'status-ask'), [])
+
+    def test_a_reply_tail_with_markup_stays_text(self):
+        node = self.band_with_state({'hooked': True, 'status': 'idle',
+                                     'since': '2026-10-03T09:48:00+09:00',
+                                     'replyTail': '<script>alert(1)</script> 끝'})
+        self.assertEqual(self.texts(node, 'status-ask'),
+                         ['마지막 응답<script>alert(1)</script> 끝'])
 
     def test_ended_band(self):
         node = self.band_with_state({'hooked': True, 'status': 'ended',

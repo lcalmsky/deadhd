@@ -98,6 +98,7 @@ h1 {
   font-size: 11.5px; color: var(--ink-3); white-space: nowrap;
 }
 .tile-key a { color: inherit; text-decoration: none; }
+.tile-place { display: inline-block; margin: 4px 8px 0 0; font-size: 11.5px; color: var(--ink-3); overflow-wrap: anywhere; }
 .strip { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 10px; }
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
 .dot.done { background: var(--done); }
@@ -115,6 +116,7 @@ h1 {
 .tile-eta b { font-family: var(--f-mono); color: var(--ink); font-weight: 600; }
 .tile-eta .raw { opacity: .6; margin-right: 5px; font-weight: 400; }
 .tile-sub { margin-top: 6px; font-size: 11.5px; color: var(--ink-3); }
+.tile-ask { margin: 8px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); overflow-wrap: anywhere; }
 
 .tile-wait { border-color: color-mix(in srgb, var(--now) 45%, transparent); box-shadow: 0 0 40px -8px color-mix(in srgb, var(--now) 50%, transparent); }
 .tile-wait .badge { color: var(--now); background: color-mix(in srgb, var(--now) 14%, transparent); }
@@ -153,6 +155,7 @@ details summary {
 .ended-list li { display: flex; gap: 10px; align-items: baseline; padding: 6px 2px; border-top: 1px solid var(--card-line); font-size: 12.5px; color: var(--ink-3); }
 .ended-list .e-title { color: var(--ink-2); }
 .ended-list .e-key { font-family: var(--f-mono); font-size: 11px; }
+.ended-list .e-place { font-size: 11px; }
 .ended-list .e-upd { margin-left: auto; font-family: var(--f-mono); font-size: 11px; white-space: nowrap; }
 #empty { margin-top: 40px; color: var(--ink-3); }
 
@@ -241,6 +244,7 @@ details summary {
         return hit ? hit[1] + ' 사용 승인 요청' : String(m);
       },
       liveIdle: d => '입력 대기 · ' + d,
+      replyQuote: t => '“' + t + '”',
       liveWorking: '작업 중',
       liveStall: d => '신호 없음 · ' + d,
       ended: t => '종료 ' + t,
@@ -296,6 +300,7 @@ details summary {
       liveWait: d => 'Waiting for permission · ' + d,
       permMsg: m => (m == null ? '' : String(m)),
       liveIdle: d => 'Waiting for your input · ' + d,
+      replyQuote: t => '“' + t + '”',
       liveWorking: 'Working',
       liveStall: d => 'No signal · ' + d,
       ended: t => 'Ended ' + t,
@@ -476,6 +481,17 @@ details summary {
     return badge;
   }
 
+  // 위치 칩은 타일과 종료 행이 같은 모양을 쓰고 클래스만 다르다.
+  function placeEl(session, cls) {
+    const place = session.place;
+    if (!place || typeof place.label !== 'string' || !place.label) return null;
+    const text = typeof place.branch === 'string' && place.branch
+      ? place.label + ' · ' + place.branch : place.label;
+    const node = el('span', cls + ' mono', text);
+    if (typeof place.path === 'string' && place.path) node.setAttribute('title', place.path);
+    return node;
+  }
+
   function tile(session) {
     const sum = session.summary || {};
     const a = el('a', 'tile tile-' + session.bucket);
@@ -507,6 +523,8 @@ details summary {
     a.appendChild(top);
 
     a.appendChild(el('h2', 'tile-title', sum.title == null ? '' : String(sum.title)));
+    const place = placeEl(session, 'tile-place');
+    if (place) a.appendChild(place);
     if (sum.key) {
       const chip = el('span', 'tile-key mono');
       // 상태 파일의 keyHref 는 손으로 넣은 값일 수 있다. http(s) 만 링크로 만든다.
@@ -545,6 +563,11 @@ details summary {
     }
     a.appendChild(main);
 
+    if (session.status === 'idle' && typeof session.replyTail === 'string' && session.replyTail
+        && !session.offAt) {
+      a.appendChild(el('p', 'tile-ask', L.replyQuote(session.replyTail)));
+    }
+
     const line = [];
     if (session.status === 'waiting_permission' && session.message) line.push(L.permMsg(session.message));
     if (session.status === 'working' && session.lastTool && session.lastTool.name) line.push(session.lastTool.name);
@@ -558,6 +581,8 @@ details summary {
     const sum = session.summary || {};
     const li = el('li');
     li.appendChild(el('span', 'e-title', sum.title == null ? '' : String(sum.title)));
+    const place = placeEl(session, 'e-place');
+    if (place) li.appendChild(place);
     if (sum.key) li.appendChild(el('span', 'e-key mono', sum.key));
     // 꺼진 세션은 훅이 상태 파일을 계속 갱신해 updatedAt 이 늘 최신이라, 끈 시각을 대신 보여 준다.
     if (session.bucket === 'off' && session.offAt) {
