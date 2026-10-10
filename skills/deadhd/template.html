@@ -122,6 +122,7 @@ h1 .key a { color: inherit; text-decoration: none; }
 .meta .chip {
   padding: 2px 10px; border-radius: 6px; background: var(--track); color: var(--ink-2);
 }
+.meta .stale { color: var(--blocked); font-weight: 700; }
 
 /* ---------- 진행 바 ---------- */
 .progress { display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: center; margin: 32px 0 12px; }
@@ -952,6 +953,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
   const NODE_ICON = { done: '✓', now: '▶', side: '◐', left: '○', blocked: '!' };
   const ANIM_KEY = { done: 'sub-s ok', now: 'sub-s run', blocked: 'sub-s blocked' };
   const ANIM_GLYPH = { done: '✓', now: '▶', side: '◐', blocked: '!' };
+  const STALE_MS = 30 * 60 * 1000;
 
   // 템플릿이 스스로 그리는 고정 문구만 담는다. 카드 내용은 데이터가 이미 사용자 언어로 갖고 있다.
   // ko/en 은 같은 키를 가진다 (test_render.py 가 대조한다).
@@ -1016,6 +1018,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       liveSource: '훅',
       forDur: d => d + '째',
       ago: d => d + ' 전',
+      staleTag: '낡음',
       sec: s => s + '초',
       etaRaw: '원래 예상 ',
       calibrated: '보정 ',
@@ -1105,6 +1108,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       liveSource: 'hook',
       forDur: d => 'for ' + d,
       ago: d => d + ' ago',
+      staleTag: 'stale',
       sec: s => s + 's',
       etaRaw: 'Raw ETA ',
       calibrated: 'Calibrated ',
@@ -1374,7 +1378,21 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
   });
 
   swap($('meta'), meta => {
-  if (data.updated) meta.appendChild(el('span', null, L.updated(data.updated)));
+  if (data.dataAt) {
+    const upd = el('span', null, L.updated(L.ago(relDur(data.dataAt))));
+    upd.setAttribute('title', fmtClock(toDate(data.dataAt), viewNow));
+    meta.appendChild(upd);
+    // 낡음은 체크리스트가 오래된 채 작업이 이어질 때만 붙인다. 꺼짐·종료·입력 대기
+    // 세션과 다 끝난 체크리스트에는 붙이지 않는다.
+    const lv = data.live;
+    const busy = !!lv && lv.status === 'working' && !lv.offAt;
+    if (busy && !(total > 0 && doneList.length === total)
+        && viewNow.getTime() - toDate(data.dataAt).getTime() > STALE_MS) {
+      meta.appendChild(el('span', 'stale', L.staleTag));
+    }
+  } else if (data.updated) {
+    meta.appendChild(el('span', null, L.updated(data.updated)));
+  }
   (data.meta || []).forEach(m => {
     const obj = (m && typeof m === 'object' && !Array.isArray(m)) ? m : null;
     if (obj && obj.href) {

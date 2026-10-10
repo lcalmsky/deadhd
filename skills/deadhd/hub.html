@@ -78,6 +78,7 @@ h1 {
 }
 .tile-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; }
 .tile-upd { margin-left: auto; color: var(--ink-3); white-space: nowrap; }
+.tile-upd.stale { color: var(--blocked); font-weight: 700; }
 .tile-view {
   padding: 1px 6px; border-radius: 6px; border: 1px solid var(--card-line);
   color: var(--ink-3); white-space: nowrap;
@@ -203,6 +204,8 @@ details summary {
     if (text != null) n.textContent = String(text);
     return n;
   };
+  // hub.py 가 24시간으로 접는 「지난」 묶음과 다른, 타일 위의 신선도 문턱이다.
+  const STALE_MS = 30 * 60 * 1000;
 
   // 템플릿이 스스로 그리는 고정 문구만 담는다. ko/en 은 같은 키를 가진다.
   const I18N = {
@@ -255,6 +258,7 @@ details summary {
       dayHour: (d, r) => d + '일 ' + r + '시간',
       forDur: d => d + '째',
       ago: d => d + ' 전',
+      staleTag: '낡음',
       sec: s => s + '초',
       viewBand: '밴드',
       viewStatusline: '상태줄',
@@ -309,6 +313,7 @@ details summary {
       dayHour: (d, r) => d + 'd ' + r + 'h',
       forDur: d => 'for ' + d,
       ago: d => d + ' ago',
+      staleTag: 'stale',
       sec: s => s + 's',
       viewBand: 'band',
       viewStatusline: 'status line',
@@ -485,7 +490,18 @@ details summary {
       const names = { band: L.viewBand, statusline: L.viewStatusline, html: L.viewPageNone };
       top.appendChild(el('span', 'tile-view mono', names[session.view] || String(session.view)));
     }
-    if (session.updatedAt) {
+    if (sum.dataAt) {
+      const upd = el('span', 'tile-upd mono', L.updated(L.ago(relDur(sum.dataAt))));
+      upd.setAttribute('title', fmtClock(toDate(sum.dataAt), viewNow));
+      // 낡음은 체크리스트가 오래된 채 작업이 이어지는 세션에만 붙인다.
+      const stale = (session.bucket === 'working' || session.bucket === 'stall') && !sum.allDone
+        && !session.offAt && viewNow.getTime() - toDate(sum.dataAt).getTime() > STALE_MS;
+      if (stale) {
+        upd.classList.add('stale');
+        upd.appendChild(document.createTextNode(' · ' + L.staleTag));
+      }
+      top.appendChild(upd);
+    } else if (session.updatedAt) {
       top.appendChild(el('span', 'tile-upd mono', L.updated(fmtClock(toDate(session.updatedAt), viewNow))));
     }
     a.appendChild(top);

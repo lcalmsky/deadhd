@@ -40,13 +40,13 @@ WORDS = {
         'blocked': '막힘', 'left': '남음', 'allDone': '완료', 'next': '다음', 'eta': '예상',
         'background': '백그라운드', 'compacted': '압축', 'collapse': '접기', 'expand': '펼치기',
         'open': '열기', 'enable': '켜기', 'permission': '권한 승인 대기', 'input': '입력 대기',
-        'running': '작업 중', 'toolRunning': '실행 중',
+        'running': '작업 중', 'stale': '낡음', 'toolRunning': '실행 중',
     },
     'en': {
         'blocked': 'blocked', 'left': 'left', 'allDone': 'all done', 'next': 'next', 'eta': 'ETA',
         'background': 'background', 'compacted': 'compacted', 'collapse': 'Collapse',
         'expand': 'Expand', 'open': 'Open', 'enable': 'Enable', 'permission': 'waiting for permission',
-        'input': 'waiting for input', 'running': 'working', 'toolRunning': 'running',
+        'input': 'waiting for input', 'running': 'working', 'stale': 'stale', 'toolRunning': 'running',
     },
 }
 
@@ -94,17 +94,24 @@ def as_index(value):
 
 
 def cut(label, room):
+    """숫자 중간에서 끊기면 그 숫자 덩어리를 통째로 버린다. `PR 1059 리뷰` 는 `PR …` 이 된다."""
     if cell_width(label) <= room:
         return label
     if room <= 1:
         return '…'
-    kept, used = '', 0
-    for code in label:
-        wide = cell_width(code)
+    codes = list(label)
+    kept, used, at = '', 0, 0
+    while at < len(codes):
+        wide = cell_width(codes[at])
         if used + wide > room - 1:
             break
-        kept += code
+        kept += codes[at]
         used += wide
+        at += 1
+    if re.search(r'[0-9][0-9.,:]*$', kept) and at < len(codes) and re.fullmatch(r'[0-9]', codes[at]):
+        body = re.sub(r'[0-9.,:]+$', '', kept)
+        spaced = body.rstrip() + ' ' if re.search(r'\s$', body) else body
+        return '…' if spaced == '' else spaced + '…'
     return kept.rstrip() + '…'
 
 
@@ -149,10 +156,14 @@ def step_mark(state, running):
 
 
 def step_field(step, lang, now, running):
+    """단계 표시와 이름, 걸린 시간을 따로 낸다. 좁으면 이름만 깎이고 시간은 남는다."""
     mark, tone, bold = step_mark(step['state'], running)
     minutes = minutes_between(step['startedAt'], now)
     tail = '' if minutes is None else ' ' + since(minutes, lang)
-    return ('current', [('%s %s%s' % (mark, step['label'], tail), tone, bold)])
+    label = ('%s %s' % (mark, step['label']), tone, bold)
+    if tail == '':
+        return ('current', [label])
+    return ('current', [label, (tail, tone, bold)])
 
 
 def session_piece(mark, word, tone, frm, now, lang):
@@ -217,11 +228,20 @@ def mark_field():
 
 def band_fields(state, hud, now):
     lang = 'ko' if state is None else state['lang']
-    return (([mark_field()] if state is None else band_run(state, now))
+    return (([mark_field()] if state is None else band_run(state, hud, now))
             + hud_fields(state, hud, now, lang, False))
 
 
-def band_run(state, now):
+def busy_now(state, hud):
+    """끝나지 않은 체크리스트를 아직 작업 중인가. 낡음 표시는 이때만 붙는다."""
+    return (not state['allDone']
+            and state['status'] != 'waiting_permission'
+            and (hud['turnAt'] is not None
+                 or (hud['endedAt'] is None and hud['startedAt'] is None
+                     and state['status'] == 'working')))
+
+
+def band_run(state, hud, now):
     words = WORDS[state['lang']]
     fields = [mark_field()]
     if state['total'] > 0:
@@ -230,6 +250,10 @@ def band_run(state, now):
             ('%d/%d' % (state['done'], state['total']), 'success', True)]))
     if state['current'] is not None:
         fields.append(step_field(state['current'], state['lang'], now, '▶'))
+    behind = minutes_between(state['updatedAt'], now)
+    if behind is not None:
+        piece = update_piece(behind, state['lang'], busy_now(state, hud))
+        fields.append(('agoQuiet' if piece[1] == 'subtle' else 'ago', [piece]))
     if state['blocked'] > 0:
         fields.append(('stuck', [('%s %d' % (words['blocked'], state['blocked']), 'error', True)]))
     if state['left'] > 0:
@@ -288,11 +312,11 @@ def title_after_key(title, key):
 
 def status_fields(state, hud, now):
     lang = 'ko' if state is None else state['lang']
-    return (([mark_field()] if state is None else status_run(state, now))
+    return (([mark_field()] if state is None else status_run(state, hud, now))
             + hud_fields(state, hud, now, lang, True))
 
 
-def status_run(state, now):
+def status_run(state, hud, now):
     words = WORDS[state['lang']]
     fields = []
     if state['total'] > 0:
@@ -318,9 +342,9 @@ def status_run(state, now):
     eta = clock_of(state['eta'])
     if eta is not None:
         fields.append(('eta', [('⏱ %s %s' % (words['eta'], eta), 'planMode', False)]))
-    stale = minutes_between(state['updatedAt'], now)
-    if stale is not None:
-        fields.append(('ago', [update_piece(stale, state['lang'])]))
+    behind = minutes_between(state['updatedAt'], now)
+    if behind is not None:
+        fields.append(('ago', [update_piece(behind, state['lang'], busy_now(state, hud))]))
     if state['blocked'] > 0:
         parts = [('⛔ %s %d' % (words['blocked'], state['blocked']), 'error', True)]
         if state['stuck'] is not None:
@@ -334,11 +358,12 @@ def status_run(state, now):
     return fields
 
 
-def update_piece(minutes, lang):
+def update_piece(minutes, lang, busy):
+    """작업 중이 아닌 세션은 상태 파일이 아무리 낡아도 경고를 내지 않는다."""
     body = ago(minutes, lang)
-    if minutes > 30:
-        return '🛑 ' + body, 'error', False
-    if minutes > 10:
+    if busy and minutes > 30:
+        return '🛑 %s %s' % (WORDS[lang]['stale'], body), 'error', False
+    if busy and minutes > 10:
         return '⚠️ ' + body, 'warning', False
     return '🔄 ' + body, 'subtle', False
 
@@ -366,11 +391,29 @@ def cut_last(field, room):
     parts[-1] = (cut(last[0], left),) + last[1:]
 
 
+def cut_step_label(field, room):
+    """단계 이름만 깎고 걸린 시간 조각은 남긴다. 이름에 칸이 모자라면 손대지 않는다."""
+    parts = field[1]
+    if not parts:
+        return
+    label = parts[0]
+    tail = sum(cell_width(part[0]) for part in parts[1:])
+    left = room - tail
+    if left <= 1:
+        return
+    parts[0] = (cut(label[0], left),) + label[1:]
+
+
 def fit(fields, max_cols):
     def shrink(tag):
         field = next((f for f in fields if f[0] == tag), None)
         if field is not None:
             cut_last(field, max_cols - (line_width(fields) - field_width(field)))
+
+    def shrink_step(tag):
+        field = next((f for f in fields if f[0] == tag), None)
+        if field is not None:
+            cut_step_label(field, max_cols - (line_width(fields) - field_width(field)))
 
     def drop(tag):
         at = next((i for i, f in enumerate(fields) if f[0] == tag), -1)
@@ -399,8 +442,9 @@ def fit(fields, max_cols):
     whole = None if title is None else [tuple(part) for part in title[1]]
 
     for step, tag in ((shrink, 'title'), (drop, 'compacted'), (drop, 'background'),
-                      (drop, 'tool'), (drop, 'next'), (shrink, 'blocked'), (drop, 'blocked'),
-                      (shrink, 'current'), (drop, 'current'), (drop, 'ago'), (drop, 'eta'),
+                      (drop, 'tool'), (drop, 'next'), (drop, 'agoQuiet'),
+                      (shrink, 'blocked'), (drop, 'blocked'),
+                      (shrink_step, 'current'), (drop, 'current'), (drop, 'ago'), (drop, 'eta'),
                       (drop, 'left'), (drop, 'leftCount'), (drop, 'pr'), (shrink_bar, 'count'),
                       (shrink_bar, 'bar'), (drop, 'stuck'), (key_only, 'title'),
                       (drop, 'title')):
@@ -811,7 +855,7 @@ HUD_PIECES = '● 작업 중 4분째 · 🔧 Bash 12초 전'
 # 상태 파일 없이 지켜본 압축까지 있는 세션. 그 횟수는 상태 파일과 무관하게 나온다.
 WATCHED = dict(HUD, compactions=1)
 
-BAND_EXPECT = '◆ · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · 막힘 1 · 남음 2'
+BAND_EXPECT = '◆ · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · 🔄 2분 전 · 막힘 1 · 남음 2'
 ALERT_EXPECT = '⛔ 막힘: 배포 검증 (권한 대기)'
 CUT_EXPECT = '◆ · ▓▓▓░░░ 3/6 · 막힘 1'
 CUT_COLS = 31
@@ -826,7 +870,7 @@ LONG_ROW = ('◆ ✓ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회�
 LONG_ROW_HUD = '%s · %s' % (LONG_ROW, HUD_PIECES)
 # 위 기대 줄들은 테스트에서 조각을 이어 붙여 만들거나 표지를 템플릿으로 넣으므로,
 # 테스트 파일에는 조각으로 있는지 본다.
-TEST_FRAGMENTS = ('· ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · 막힘 1 · 남음 2',
+TEST_FRAGMENTS = ('· ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · 🔄 2분 전 · 막힘 1 · 남음 2',
                   '⛔ 막힘: 배포 검증 (권한 대기)',
                   '· ▓▓▓░░░ 3/6 · 막힘 1',
                   '✓ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · ',

@@ -101,6 +101,7 @@ const WORDS: Record<
     permission: string
     input: string
     running: string
+    stale: string
     toolRunning: string
     opened: string
     noPage: string
@@ -133,6 +134,7 @@ const WORDS: Record<
     permission: '권한 승인 대기',
     input: '입력 대기',
     running: '작업 중',
+    stale: '낡음',
     toolRunning: '실행 중',
     opened: 'HTML 페이지를 열었어요',
     noPage: '아직 HTML 페이지가 없어요',
@@ -164,6 +166,7 @@ const WORDS: Record<
     permission: 'waiting for permission',
     input: 'waiting for input',
     running: 'working',
+    stale: 'stale',
     toolRunning: 'running',
     opened: 'Opened the HTML.',
     noPage: 'No HTML page yet.',
@@ -379,7 +382,12 @@ const clockOf = (eta: string | null): string | null => {
 /** The first line of a command's stderr, trimmed; `''` when it wrote none. */
 const firstLine = (output: string): string => (output.split('\n')[0] ?? '').trim()
 
-/** `label` cut to `room` cells, its ellipsis counted, or `…` when not even one cell is left. */
+/**
+ * `label` cut to `room` cells, its ellipsis counted, or `…` when not even one
+ * cell is left. A cut that would land inside a number drops that whole run of
+ * digits first, so `PR 1059 리뷰` in 7 cells reads `PR …` rather than a number
+ * a reader would take for another one.
+ */
 const cut = (label: string, room: number): string => {
   if (cellWidth(label) <= room) {
     return label
@@ -389,10 +397,13 @@ const cut = (label: string, room: number): string => {
     return '…'
   }
 
+  const codes = [...label]
   let kept = ''
   let used = 0
+  let at = 0
 
-  for (const code of label) {
+  for (; at < codes.length; at++) {
+    const code = codes[at] ?? ''
     const wide = cellWidth(code)
 
     if (used + wide > room - 1) {
@@ -401,6 +412,13 @@ const cut = (label: string, room: number): string => {
 
     kept += code
     used += wide
+  }
+
+  if (/[0-9][0-9.,:]*$/.test(kept) && /^[0-9]$/.test(codes[at] ?? '')) {
+    const body = kept.replace(/[0-9.,:]+$/, '')
+    const spaced = /\s$/.test(body) ? body.trimEnd() + ' ' : body
+
+    return spaced === '' ? '…' : spaced + '…'
   }
 
   return `${kept.trimEnd()}…`
@@ -427,17 +445,21 @@ const stepMark = (state: string, running: string): Segment =>
     ? { text: '◐', tone: 'autoAccept' }
     : { text: running, tone: 'suggestion', bold: true }
 
-/** The piece for the step a line marks, colored and marked by that step's own state. */
+/**
+ * The piece for the step a line marks, colored and marked by that step's own
+ * state. The mark and the label are their own piece so a line too narrow for
+ * the whole step gives up the label's words, never the run of time drawn
+ * beside them: a duration cut in the middle of its digits reads as another one.
+ */
 const stepField = (step: DeadhdStep, lang: DeadhdLang, now: number, running: string): Field => {
   const mark = stepMark(step.state, running)
   const minutes = minutesBetween(step.startedAt, now)
   const tail = minutes === null ? '' : ` ${since(minutes, lang)}`
+  const label: Segment = { text: `${mark.text} ${step.label}`, tone: mark.tone, bold: mark.bold === true }
 
   return {
     tag: 'current',
-    parts: [
-      { text: `${mark.text} ${step.label}${tail}`, tone: mark.tone, bold: mark.bold === true },
-    ],
+    parts: tail === '' ? [label] : [label, { text: tail, tone: mark.tone, bold: mark.bold === true }],
   }
 }
 
@@ -560,13 +582,24 @@ const bandFields = (state: DeadhdState | null, hud: DeadhdHud, now: number): Fie
   const lang = state?.lang ?? 'ko'
 
   return [
-    ...(state === null ? [markField()] : bandRun(state, now)),
+    ...(state === null ? [markField()] : bandRun(state, hud, now)),
     ...hudFields(state, hud, now, lang, false),
   ]
 }
 
+/**
+ * Whether the session is working on a checklist it has not finished: the case
+ * a behind-age piece is drawn as `낡음` for. It follows the two things the mod
+ * already reads as working — the `●` `sessionField` draws for a turn in flight,
+ * and the state file's own word for a session the mod loaded into mid-run.
+ */
+const busyNow = (state: DeadhdState, hud: DeadhdHud): boolean =>
+  !state.allDone &&
+  state.status !== 'waiting_permission' &&
+  (hud.turnAt !== null || (hud.endedAt === null && hud.startedAt === null && state.status === 'working'))
+
 /** The run's own pieces on the band's first row: the progress, the step it marks and the counts. */
-const bandRun = (state: DeadhdState, now: number): Field[] => {
+const bandRun = (state: DeadhdState, hud: DeadhdHud, now: number): Field[] => {
   const words = WORDS[state.lang]
   const fields: Field[] = [markField()]
 
@@ -583,6 +616,14 @@ const bandRun = (state: DeadhdState, now: number): Field[] => {
 
   if (state.current !== null) {
     fields.push(stepField(state.current, state.lang, now, '▶'))
+  }
+
+  const behind = minutesBetween(state.updatedAt, now)
+
+  if (behind !== null) {
+    const piece = updatePiece(behind, state.lang, busyNow(state, hud))
+
+    fields.push({ tag: piece.tone === 'subtle' ? 'agoQuiet' : 'ago', parts: [piece] })
   }
 
   if (state.blocked > 0) {
@@ -628,13 +669,13 @@ const statusFields = (state: DeadhdState | null, hud: DeadhdHud, now: number): F
   const lang = state?.lang ?? 'ko'
 
   return [
-    ...(state === null ? [markField()] : statusRun(state, now)),
+    ...(state === null ? [markField()] : statusRun(state, hud, now)),
     ...hudFields(state, hud, now, lang, true),
   ]
 }
 
 /** The run's own pieces on the long row, in the order it draws them. */
-const statusRun = (state: DeadhdState, now: number): Field[] => {
+const statusRun = (state: DeadhdState, hud: DeadhdHud, now: number): Field[] => {
   const words = WORDS[state.lang]
   const fields: Field[] = []
 
@@ -687,10 +728,10 @@ const statusRun = (state: DeadhdState, now: number): Field[] => {
     fields.push({ tag: 'eta', parts: [{ text: `⏱ ${words.eta} ${eta}`, tone: 'planMode' }] })
   }
 
-  const stale = minutesBetween(state.updatedAt, now)
+  const behind = minutesBetween(state.updatedAt, now)
 
-  if (stale !== null) {
-    fields.push({ tag: 'ago', parts: [updatePiece(stale, state.lang)] })
+  if (behind !== null) {
+    fields.push({ tag: 'ago', parts: [updatePiece(behind, state.lang, busyNow(state, hud))] })
   }
 
   if (state.blocked > 0) {
@@ -760,15 +801,19 @@ const titleAfterKey = (title: string, key: string): string | null => {
   return after === '' || /^[\s\p{P}]/u.test(after) ? after : null
 }
 
-/** The last-update piece: quiet while the skill keeps up, louder as it falls behind. */
-const updatePiece = (minutes: number, lang: DeadhdLang): Segment => {
+/**
+ * The last-update piece: quiet while the skill keeps up, louder as it falls
+ * behind. A session that is not working raises no alarm however old the write
+ * is — a wait or a finished run is not a stale one.
+ */
+const updatePiece = (minutes: number, lang: DeadhdLang, busy: boolean): Segment => {
   const body = ago(minutes, lang)
 
-  if (minutes > 30) {
-    return { text: `🛑 ${body}`, tone: 'error' }
+  if (busy && minutes > 30) {
+    return { text: `🛑 ${WORDS[lang].stale} ${body}`, tone: 'error' }
   }
 
-  if (minutes > 10) {
+  if (busy && minutes > 10) {
     return { text: `⚠️ ${body}`, tone: 'warning' }
   }
 
@@ -808,15 +853,39 @@ const cutLast = (field: Field, room: number): void => {
 }
 
 /**
+ * Cuts the marked step's label to the cells left once its run of time is kept
+ * whole. Too few cells for the label at all leaves the field untouched, so the
+ * drop that follows takes the whole step rather than the mark with a bare `…`.
+ */
+const cutStepLabel = (field: Field, room: number): void => {
+  const label = field.parts[0]
+
+  if (label === undefined) {
+    return
+  }
+
+  const tail = field.parts.slice(1).reduce((cells, part) => cells + cellWidth(part.text), 0)
+  const left = room - tail
+
+  if (left <= 1) {
+    return
+  }
+
+  field.parts[0] = { ...label, text: cut(label.text, left) }
+}
+
+/**
  * Brings a line inside `maxCols` cells, giving way in the order the fields can
  * spare it: the title's body first, then what the mod watched of the session by
  * itself (the compaction and background counts, then the last tool), the next step,
- * the blocked step's label and the field itself, the step a line marks and the
- * field itself, the last-write age, the estimate, the left count, the pull
- * request, and the progress bar's own cells. The band's row carries the same
- * pieces under its own names (`leftCount` for the left count, `bar` for the
- * count's bar, `stuck` for the blocked label) and gives them up in the same
- * places. Still too wide, the title falls back to its key alone and then goes.
+ * the band's quiet age piece (`🔄`, which goes before the step's label; an age loud
+ * enough to warn or read stale keeps the last-write age's own place below), the
+ * blocked step's label and the field itself, the label the step a line marks
+ * carries and then the field itself, the last-write age, the estimate, the left
+ * count, the pull request, and the progress bar's own cells. The band's row
+ * carries the same pieces under its own names (`leftCount` for the left count,
+ * `bar` for the count's bar, `stuck` for the blocked label) and gives them up in
+ * the same places. Still too wide, the title falls back to its key alone and then goes.
  * A title that stayed draws the beginning of what it gave away into the cells
  * the dropped fields left, so a line too long to hold it whole shows the title's
  * own words rather than the key alone. What a line must not lose stays: the
@@ -833,6 +902,15 @@ const fit = (fields: Field[], maxCols: number): Field[] => {
     }
 
     cutLast(field, maxCols - (lineWidth(fields) - fieldWidth(field)))
+  }
+
+  /** The marked step gives its label away alone: the mark and the run's time stay. */
+  const shrinkStep = (tag: string): void => {
+    const field = fields.find(one => one.tag === tag)
+
+    if (field !== undefined) {
+      cutStepLabel(field, maxCols - (lineWidth(fields) - fieldWidth(field)))
+    }
   }
 
   const drop = (tag: string): void => {
@@ -882,9 +960,10 @@ const fit = (fields: Field[], maxCols: number): Field[] => {
   if (lineWidth(fields) > maxCols) drop('background')
   if (lineWidth(fields) > maxCols) drop('tool')
   if (lineWidth(fields) > maxCols) drop('next')
+  if (lineWidth(fields) > maxCols) drop('agoQuiet')
   if (lineWidth(fields) > maxCols) shrink('blocked')
   if (lineWidth(fields) > maxCols) drop('blocked')
-  if (lineWidth(fields) > maxCols) shrink('current')
+  if (lineWidth(fields) > maxCols) shrinkStep('current')
   if (lineWidth(fields) > maxCols) drop('current')
   if (lineWidth(fields) > maxCols) drop('ago')
   if (lineWidth(fields) > maxCols) drop('eta')

@@ -398,6 +398,8 @@ describe('the band', () => {
       expect(drawn).toContain(STATUS_MARK)
       expect(drawn).toContain('▓▓▓░░░ 3/6')
       expect(drawn).toContain('▶ 실제 화면 확인 4분째')
+      // 조용한 나이 조각이 단계 이름보다 먼저 빠지므로 이 폭에서는 나이가 서지 않는다.
+      expect(drawn).not.toContain('🔄 2분 전')
       expect(drawn).toContain('막힘 1')
       expect(drawn).toContain('남음 2')
       expect(drawn).toContain(RUNNING)
@@ -720,10 +722,11 @@ describe('the band', () => {
       expect(pieceOf(painted, '▓▓▓')?.color).toBe('success')
       expect(pieceOf(painted, '░░░')?.color).toBe('subtle')
       expect(pieceOf(painted, '3/6')).toMatchObject({ color: 'success', bold: true })
-      expect(pieceOf(painted, '▶ 실제 화면 확인 4분째')).toMatchObject({
+      expect(pieceOf(painted, '▶ 실제 화면 확인')).toMatchObject({
         color: 'suggestion',
         bold: true,
       })
+      expect(pieceOf(painted, '4분째')).toMatchObject({ color: 'suggestion', bold: true })
       expect(pieceOf(painted, '막힘 1')).toMatchObject({ color: 'error', bold: true })
       expect(pieceOf(painted, '남음 2')?.color).toBe('text')
       expect(pieceOf(painted, RUNNING)).toMatchObject({ color: 'suggestion', bold: true })
@@ -775,9 +778,9 @@ describe('the band', () => {
 })
 
 describe('the band line', () => {
-  test('carries the progress, the current step and the counts', () => {
+  test('carries the progress, the current step, the age and the counts', () => {
     expect(line(bandLine(STATE, NOW, 200))).toBe(
-      `${STATUS_MARK} · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · 막힘 1 · 남음 2`,
+      `${STATUS_MARK} · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · 🔄 2분 전 · 막힘 1 · 남음 2`,
     )
   })
 
@@ -838,6 +841,145 @@ describe('the band line', () => {
 
     for (const maxCols of [60, 40]) {
       expect(cellWidth(line(bandLine(long, NOW, maxCols)))).toBeLessThanOrEqual(maxCols)
+    }
+  })
+})
+
+describe('the freshness piece', () => {
+  /** The sample written `minutes` ago, as the summary's `dataAt` says. */
+  const behind = (minutes: number, patch: object = {}, summary: object = {}) =>
+    normalize(
+      stateOf(patch, { dataAt: new Date(NOW - minutes * 60000).toISOString(), ...summary }),
+      BOARD,
+    )
+
+  test('draws the age after the step a line marks', () => {
+    const parts = bandLine(STATE, NOW, 200)
+
+    expect(parts.findIndex(one => one.text.includes('▶'))).toBeGreaterThanOrEqual(0)
+    expect(parts.findIndex(one => one.text.includes('🔄'))).toBeGreaterThan(
+      parts.findIndex(one => one.text.includes('▶')),
+    )
+  })
+
+  test('gives the quiet age up before the step name when the band is narrow', () => {
+    const written = behind(2)
+    const quiet: string[] = []
+
+    for (let maxCols = 20; maxCols <= 70; maxCols++) {
+      const drawn = line(bandLine(written, NOW, maxCols))
+
+      if (drawn.includes('🔄')) {
+        quiet.push(drawn)
+      }
+    }
+
+    // 조용한 나이는 단계 이름보다 먼저 빠진다: 나이가 서 있는 폭에는 이름이 온전하다.
+    expect(quiet.length).toBeGreaterThan(0)
+    expect(quiet.every(one => one.includes('▶ 실제 화면 확인'))).toBe(true)
+  })
+
+  test('keeps a loud age while the step name gives way beside it', () => {
+    const written = behind(45)
+    const shortened: string[] = []
+
+    for (let maxCols = 20; maxCols <= 70; maxCols++) {
+      const drawn = line(bandLine(written, NOW, maxCols))
+
+      if (drawn.includes('▶') && !drawn.includes('▶ 실제 화면 확인')) {
+        shortened.push(drawn)
+      }
+    }
+
+    // 낡음 조각은 조용한 나이와 달리 먼저 빠지지 않는다: 이름이 깎이는 폭에도 아직 서 있다.
+    expect(shortened.length).toBeGreaterThan(0)
+    expect(shortened.every(one => one.includes('🛑 낡음 45분 전'))).toBe(true)
+  })
+
+  test("names the age as 낡음 while the session works and falls behind", () => {
+    const parts = bandLine(behind(45), NOW, 200)
+
+    expect(pieceIn(parts, '🛑 낡음 45분 전')?.tone).toBe('error')
+    expect(formatLine(behind(45), NOW, 240)).toContain('🛑 낡음 45분 전')
+  })
+
+  test('keeps the age quiet while the session waits on the person', () => {
+    // startedAt 만 있고 도는 턴도 끝난 턴도 없으면 입력 대기다. 상태 파일이 낡아도 경고는 없다.
+    const waiting = { ...EMPTY_HUD, startedAt: new Date(START).toISOString() }
+
+    expect(line(bandLine(behind(45), NOW, 200, waiting))).toContain('🔄 45분 전')
+    expect(formatLine(behind(45), NOW, 240, waiting)).toContain('🔄 45분 전')
+  })
+
+  test('keeps the age quiet once the checklist is done', () => {
+    const done = behind(45, {}, { allDone: true })
+
+    expect(line(bandLine(done, NOW, 200))).toContain('🔄 45분 전')
+  })
+
+  test('keeps the age quiet while the person has to approve something', () => {
+    const permission = behind(45, { status: 'waiting_permission' })
+
+    expect(line(bandLine(permission, NOW, 200))).toContain('🔄 45분 전')
+  })
+
+  test('keeps a step run of time whole when the row is cut', () => {
+    const running = {
+      ...STATE!,
+      current: {
+        ...STATE!.current!,
+        label: 'PR·머지',
+        startedAt: new Date(NOW - 105 * 60000).toISOString(),
+      },
+    }
+
+    for (let maxCols = 20; maxCols <= 70; maxCols++) {
+      const drawn = line(bandLine(running, NOW, maxCols))
+
+      expect(drawn).not.toMatch(/[0-9]…/)
+      // 단계 조각이 남아 있으면 걸린 시간도 온전히 남는다.
+      if (drawn.includes('▶')) {
+        expect(drawn).toContain('105분째')
+      }
+    }
+  })
+
+  test('cuts a label inside a number without leaving half of it', () => {
+    const numbered = { ...STATE!, current: { ...STATE!.current!, label: 'PR 1059 리뷰', startedAt: null } }
+    const drawn: string[] = []
+
+    for (let maxCols = 20; maxCols <= 70; maxCols++) {
+      drawn.push(line(bandLine(numbered, NOW, maxCols)))
+    }
+
+    // 숫자 중간에서 끊긴 조각은 남지 않는다: 1…, 10…, 105… 는 어느 폭에도 없다.
+    for (const row of drawn) {
+      expect(row).not.toMatch(/1(?:0(?:5)?)?…/)
+    }
+
+    // 실제로 그 자리에서 잘리는 폭이 있어야 위의 확인이 의미를 갖는다.
+    expect(drawn.some(one => one.includes('▶ PR …'))).toBe(true)
+  })
+
+  test('keeps the run of time on the status line too', () => {
+    const running = {
+      ...STATE!,
+      title: '',
+      key: null,
+      current: {
+        ...STATE!.current!,
+        label: 'PR·머지',
+        startedAt: new Date(NOW - 105 * 60000).toISOString(),
+      },
+    }
+
+    for (let maxCols = 20; maxCols <= 200; maxCols++) {
+      const drawn = line(statusLine(running, NOW, maxCols))
+
+      expect(drawn).not.toMatch(/[0-9]…/)
+      if (drawn.includes('▶')) {
+        expect(drawn).toContain('105분째')
+      }
     }
   })
 })
@@ -982,10 +1124,11 @@ describe('the status hint', () => {
       expect(pieceOf(painted, '░░░')?.color).toBe('subtle')
       expect(pieceOf(painted, 'CAS-1161')).toMatchObject({ color: 'permission', bold: true })
       expect(pieceOf(painted, '콘솔 dev 회귀 3회차')?.color).toBe('text')
-      expect(pieceOf(painted, '▶ 실제 화면 확인 4분째')).toMatchObject({
+      expect(pieceOf(painted, '▶ 실제 화면 확인')).toMatchObject({
         color: 'suggestion',
         bold: true,
       })
+      expect(pieceOf(painted, '4분째')).toMatchObject({ color: 'suggestion', bold: true })
       expect(pieceOf(painted, '🔀')).toMatchObject({ color: 'permission' })
       expect(pieceOf(painted, PR_TEXT)).toMatchObject({ color: 'permission' })
       expect(pieceOf(painted, '⏭ 다음 정리')?.color).toBe('inactive')
@@ -1008,9 +1151,10 @@ describe('the status hint', () => {
     const written = (minutes: number): typeof SAMPLE =>
       statusState({}, { dataAt: new Date(NOW - minutes * 60000).toISOString() })
 
-    statusWorld(on, filesOf(written(11)))
+    const { clock } = statusWorld(on, filesOf(written(11)))
 
-    await $.session.start(SESSION)
+    // 경고와 낡음은 작업 중인 세션에만 붙는다. 턴을 띄워 그 상태로 그린다.
+    await startsRunning($, clock)
 
     const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
     const painted = await paintedOf(ui)
@@ -1707,7 +1851,7 @@ describe('the HUD setting', () => {
     const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
 
     expect(textOf(rowsOf(await ui.drawn())[0])).toBe(
-      `${STATUS_MARK} · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · 막힘 1 · 남음 2 열기접기`,
+      `${STATUS_MARK} · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · 🔄 2분 전 · 막힘 1 · 남음 2 열기접기`,
     )
 
     await ui.unmount()
@@ -1881,7 +2025,7 @@ describe('formatLine', () => {
     expect(formatLine(normalize(written(10), BOARD), NOW, 240)).toContain('🔄 10분 전')
     expect(formatLine(normalize(written(11), BOARD), NOW, 240)).toContain('⚠️ 11분 전')
     expect(formatLine(normalize(written(30), BOARD), NOW, 240)).toContain('⚠️ 30분 전')
-    expect(formatLine(normalize(written(31), BOARD), NOW, 240)).toContain('🛑 31분 전')
+    expect(formatLine(normalize(written(31), BOARD), NOW, 240)).toContain('🛑 낡음 31분 전')
   })
 
   test('counts from the data write, not the state write the hooks keep fresh', () => {
@@ -1890,13 +2034,13 @@ describe('formatLine', () => {
       { dataAt: new Date(NOW - 31 * 60000).toISOString() },
     )
 
-    expect(formatLine(normalize(stalled, BOARD), NOW, 240)).toContain('🛑 31분 전')
+    expect(formatLine(normalize(stalled, BOARD), NOW, 240)).toContain('🛑 낡음 31분 전')
   })
 
   test('falls back to the state write for a state file with no data write', () => {
     const older = stateOf({ updatedAt: new Date(NOW - 31 * 60000).toISOString() }, { dataAt: undefined })
 
-    expect(formatLine(normalize(older, BOARD), NOW, 240)).toContain('🛑 31분 전')
+    expect(formatLine(normalize(older, BOARD), NOW, 240)).toContain('🛑 낡음 31분 전')
   })
 
   test('draws the session HUD with no state file at all', () => {

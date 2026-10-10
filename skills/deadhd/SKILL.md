@@ -228,6 +228,7 @@ Every render also rewrites the hub page (`/tmp/deadhd-hub.html`), which lists th
 
 - The open tab fetches the page again every 15 seconds and redraws only the data, so what the user expanded, scrolled, or focused stays put; a `file://` page reloads instead, and a shared copy (`-o`, `-c`) does not refresh. The completion effect plays on items that became `done`. If the fetch keeps failing, the page says so at the bottom instead of going quiet.
 - When a step changes state, record its `startedAt` and `doneAt` and refresh the remaining `estimate` values. A lane in `board.lanes` is updated the same way: its `state`, `lastSignal`, and a new `log` line.
+- The page, the hub and the band each show how long ago the data file was last written, and a session still working that has not written it for over 30 minutes is marked `stale` — so write the JSON on every step change rather than at the start only.
 - Do not run the delivery or open script again.
 - For a Claude artifact or an Orca artifact, republish only at the end of the task or when the user asks, not at every change. Republish an Orca artifact with `bash <skill-dir>/share.sh --update /tmp/deadhd-<slug>.html`.
 - On the first render and when the task ends, reread the data once against the writing rules (the writing-rules file's procedure when it has one). Skip this on intermediate updates.

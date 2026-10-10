@@ -5285,5 +5285,176 @@ class HubRefreshTest(unittest.TestCase):
         self.assertEqual(out['reloads'], 0)
 
 
+# 페이지와 허브가 「낡음」을 판정할 때 보는 세션의 모양. render.py 의 live_payload 와 같다.
+LIVE_WORKING = {
+    'status': 'working',
+    'since': FIXED_NOW,
+    'message': None,
+    'lastTool': None,
+    'backgroundTasks': [],
+    'compactions': {'count': 0, 'lastAt': None},
+    'offAt': None,
+}
+
+
+def minutes_later(iso, minutes):
+    return (datetime.fromisoformat(iso) + timedelta(minutes=minutes)).isoformat()
+
+
+class StaleMarkTest(unittest.TestCase):
+    """데이터 파일이 오래된 채 작업이 이어지는 세션을 낡음으로 그리는지 확인한다."""
+
+    def setUp(self):
+        if NODE is None:
+            self.skipTest('node 가 없어 템플릿 스크립트를 실행할 수 없다')
+        self.tmp = tempfile.mkdtemp(prefix='progress-stale-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.page = self.render_page()
+
+    def render_page(self):
+        path = os.path.join(self.tmp, 'data.json')
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(load_example(), f, ensure_ascii=False)
+        out = os.path.join(self.tmp, 'page.html')
+        r = run_render(path, out, env_extra={'DEADHD_NOW': FIXED_NOW})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding='utf-8') as f:
+            return f.read()
+
+    def page_nodes(self, minutes, patch=None, drop=()):
+        payload = parse_block(data_block(self.page))
+        for key in drop:
+            payload.pop(key, None)
+        payload.update(patch or {})
+        html = self.page.replace(data_block(self.page), json.dumps(payload, ensure_ascii=False), 1)
+        return run_linkify_harness(html, fixed_now=minutes_later(FIXED_NOW, minutes))['nodes']
+
+    def meta(self, nodes):
+        return list(iter_nodes(nodes['meta']))
+
+    def meta_texts(self, nodes):
+        return [n['text'] for n in self.meta(nodes)]
+
+    def test_page_marks_a_working_session_that_fell_behind(self):
+        nodes = self.page_nodes(45, patch={'live': LIVE_WORKING})
+        texts = self.meta_texts(nodes)
+
+        self.assertIn('마지막 갱신 45분 전', texts)
+        stale = [n for n in self.meta(nodes) if 'stale' in (n.get('cls') or '').split()]
+        self.assertEqual([n['text'] for n in stale], ['낡음'])
+
+    def test_page_updated_span_carries_the_absolute_time(self):
+        nodes = self.page_nodes(45, patch={'live': LIVE_WORKING})
+        updated = next(n for n in self.meta(nodes) if n['text'] == '마지막 갱신 45분 전')
+
+        self.assertEqual((updated.get('attrs') or {}).get('title'), '10:00')
+
+    def test_page_leaves_a_fresh_session_unmarked(self):
+        texts = self.meta_texts(self.page_nodes(20, patch={'live': LIVE_WORKING}))
+
+        self.assertIn('마지막 갱신 20분 전', texts)
+        self.assertNotIn('낡음', texts)
+
+    def test_page_leaves_a_waiting_session_unmarked(self):
+        nodes = self.page_nodes(45, patch={'live': dict(LIVE_WORKING, status='idle')})
+
+        self.assertNotIn('낡음', self.meta_texts(nodes))
+
+    def test_page_leaves_a_session_waiting_for_permission_unmarked(self):
+        nodes = self.page_nodes(45, patch={'live': dict(LIVE_WORKING, status='waiting_permission')})
+
+        self.assertNotIn('낡음', self.meta_texts(nodes))
+
+    def test_page_leaves_a_finished_checklist_unmarked(self):
+        done = [dict(item, state='done') for item in load_example()['items']]
+        nodes = self.page_nodes(45, patch={'live': LIVE_WORKING, 'items': done})
+
+        self.assertNotIn('낡음', self.meta_texts(nodes))
+
+    def test_page_leaves_a_session_turned_off_unmarked(self):
+        nodes = self.page_nodes(45, patch={'live': dict(LIVE_WORKING, offAt=FIXED_NOW)})
+
+        self.assertNotIn('낡음', self.meta_texts(nodes))
+
+    def test_page_falls_back_to_the_summary_time_without_a_data_time(self):
+        nodes = self.page_nodes(45, patch={'live': LIVE_WORKING}, drop=('dataAt',))
+        texts = self.meta_texts(nodes)
+
+        self.assertIn('마지막 갱신 2026-10-01 09:30 KST', texts)
+        self.assertNotIn('낡음', texts)
+
+    def hub_nodes(self, minutes, status='working', data_at=True, all_done=False, tool_at=None):
+        name = 'hub-%s%s%s' % (status, '-done' if all_done else '', '-nodata' if not data_at else '')
+        state_dir = os.path.join(self.tmp, name)
+        os.makedirs(state_dir, exist_ok=True)
+        page = os.path.join(self.tmp, 'hub-session.html')
+        with open(page, 'w', encoding='utf-8') as f:
+            f.write('<html></html>')
+        summary = {
+            'title': '작업 세션', 'key': 'SHOP-1', 'keyHref': None, 'lang': 'ko',
+            'updated': None, 'counts': {'done': 3, 'now': 1, 'side': 0, 'left': 1, 'blocked': 0},
+            'total': 5, 'states': ['done', 'done', 'done', 'now', 'left'], 'nowLabel': '배포 검증',
+            'eta': None, 'etaCalibrated': None, 'renderedAt': FIXED_NOW,
+            'hooked': True, 'allDone': all_done,
+        }
+        if data_at:
+            summary['dataAt'] = FIXED_NOW
+        tool = {'name': 'Bash', 'at': tool_at, 'durationMs': None} if tool_at else None
+        state = {
+            'sessionId': 'a', 'out': page, 'view': None, 'status': status, 'since': FIXED_NOW,
+            'updatedAt': FIXED_NOW, 'message': None, 'lastTool': tool, 'backgroundTasks': [],
+            'compactions': {'count': 0, 'lastAt': None}, 'cwd': '/tmp', 'summary': summary,
+        }
+        with open(os.path.join(state_dir, 'a.json'), 'w', encoding='utf-8') as f:
+            json.dump(state, f, ensure_ascii=False)
+        out = os.path.join(state_dir, 'hub.html')
+        r = run_hub(state_dir, out=out, env_extra={'DEADHD_NOW': FIXED_NOW})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding='utf-8') as f:
+            html = f.read()
+        return run_hub_harness(html, fixed_now=minutes_later(FIXED_NOW, minutes))['nodes']
+
+    def tile_upd(self, nodes):
+        return [n for tree in nodes.values() for n in iter_nodes(tree)
+                if 'tile-upd' in (n.get('cls') or '').split()]
+
+    def test_hub_marks_a_working_session_that_fell_behind(self):
+        tile = self.tile_upd(self.hub_nodes(45))
+
+        self.assertEqual(len(tile), 1)
+        self.assertIn('stale', (tile[0].get('cls') or '').split())
+        self.assertEqual(tile[0]['text'], '마지막 갱신 45분 전 · 낡음')
+        self.assertEqual((tile[0].get('attrs') or {}).get('title'), '10:00')
+
+    def test_hub_leaves_a_fresh_session_unmarked(self):
+        tile = self.tile_upd(self.hub_nodes(20))
+
+        self.assertNotIn('stale', (tile[0].get('cls') or '').split())
+        self.assertEqual(tile[0]['text'], '마지막 갱신 20분 전')
+
+    def test_hub_marks_a_stalled_session_that_fell_behind(self):
+        tool_at = minutes_later(FIXED_NOW, -20)
+        tile = self.tile_upd(self.hub_nodes(45, tool_at=tool_at))
+
+        self.assertIn('stale', (tile[0].get('cls') or '').split())
+        self.assertIn('낡음', tile[0]['text'])
+
+    def test_hub_leaves_a_waiting_session_unmarked(self):
+        tile = self.tile_upd(self.hub_nodes(45, status='idle'))
+
+        self.assertNotIn('낡음', tile[0]['text'])
+
+    def test_hub_leaves_a_finished_session_unmarked(self):
+        tile = self.tile_upd(self.hub_nodes(45, all_done=True))
+
+        self.assertNotIn('낡음', tile[0]['text'])
+
+    def test_hub_falls_back_to_the_state_time_without_a_data_time(self):
+        tile = self.tile_upd(self.hub_nodes(45, data_at=False))
+
+        self.assertEqual(tile[0]['text'], '마지막 갱신 10:00')
+        self.assertNotIn('stale', (tile[0].get('cls') or '').split())
+
+
 if __name__ == '__main__':
     unittest.main()
