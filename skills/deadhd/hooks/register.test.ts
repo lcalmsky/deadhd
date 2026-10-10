@@ -4,14 +4,17 @@ import type {
   RenderElement,
   RenderPropsOf,
   SessionStartInput,
+  TurnCompleteInput,
+  TurnStartInput,
 } from 'claude-code'
-import type { MockClock } from 'claude-code/testing'
+import type { Engine as TestEngine, MockClock } from 'claude-code/testing'
 import { describe, expect, mock, test } from 'claude-code/testing'
 
 import {
   bandAlertLine,
   bandLine,
   cellWidth,
+  EMPTY_HUD,
   formatLine,
   normalize,
   resolveView,
@@ -110,6 +113,38 @@ const BOARD = {
 
 const STATE = normalize(SAMPLE, BOARD)
 
+/** One compaction of the sample's conversation, as the engine raises it. */
+const COMPACTING = {
+  trigger: 'manual' as const,
+  messages: [{ role: 'user' as const, text: '이어서 진행해 줘', toolUses: [] }],
+}
+
+/** Where the clock starts in the tests that watch the session run: four minutes before NOW. */
+const START = NOW - 4 * 60000
+
+/** The first turn of a session, as the engine raises it. */
+const TURN: TurnStartInput = { text: '이어서 진행해 줘', turnId: 'turn-1' }
+
+/** That turn's end, as the engine raises it. */
+const TURN_END: TurnCompleteInput = {
+  answer: '다음 단계로 넘어갑니다.',
+  durationMs: 240000,
+  isAborted: false,
+  turnId: 'turn-1',
+  reason: 'answer',
+}
+
+/** The session's own state as the mod watches it while the sample's turn runs. */
+const RUNNING = '▶ 작업 중 4분째'
+
+/** The session's own state as the mod watches it with no turn behind it yet. */
+const IDLE = '⌨️ 입력 대기 0분째'
+
+/** The config file that names a view with no state file written yet. */
+const configOf = (view: string): Record<string, string> => ({
+  [CONFIG_PATH]: JSON.stringify({ view }),
+})
+
 /** The sample with a state-file field or a summary field put where a test wants it. */
 const stateOf = (
   patch: Partial<typeof SAMPLE> = {},
@@ -195,6 +230,10 @@ function worldOf(
   })
   on('session.id', () => ({ value: SESSION_ID }))
   on('session.start', ($, e) => ({ cwd: e.cwd }))
+  // 아래에 아무것도 없는 이벤트들: 엔진이 답할 자리를 테스트가 대신한다.
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('turn.complete', ($, e) => ({ text: e.answer }))
+  on('session.compact', ($, e) => ({ messages: e.messages }))
   on('ui.toast', ($, e) => {
     toasts.push(e.text)
 
@@ -242,6 +281,17 @@ const statusWorld = (
   on('ui.render', () => hint)
 
   return world
+}
+
+/**
+ * Starts the session and its first turn where the clock stands, then lets the
+ * clock reach NOW: the sample's own step and its own session state are both four
+ * minutes in, as the state file says.
+ */
+async function startsRunning($: TestEngine, clock: MockClock): Promise<void> {
+  await $.session.start(SESSION)
+  await $.turn.start(TURN)
+  await clock.advance(NOW - clock.now())
 }
 
 /** Every string a drawn tree holds, in drawing order, a Button's label included. */
@@ -318,15 +368,18 @@ const LONG_ROW =
   '▶ 실제 화면 확인 4분째 · 🔀 app-api#512 · ⏭ 다음 정리 · ⏱ 예상 16:20 · 🔄 2분 전 · ' +
   '⛔ 막힘 1: 배포 검증 · ⏳ 남음 2 · 🧵 백그라운드 2 · 🗜 압축 1'
 
+/** The same row with the session's own state, which trails the run's own pieces. */
+const LONG_ROW_RUNNING = `${LONG_ROW} · ${RUNNING}`
+
 /** What the engine draws when the plugin leaves the component to it. */
 const ENGINE_OWN: RenderElement = { type: 'Text', children: ['(the engine drew its own)'] }
 
 describe('the band', () => {
   for (const surface of ['terminal', 'desktop'] as const) {
     test(`draws the short line from the session's files, on the ${surface}`, async ($, on) => {
-      worldOf(on, filesOf())
+      const { clock } = worldOf(on, filesOf(), START)
 
-      await $.session.start(SESSION)
+      await startsRunning($, clock)
 
       const ui = await $.ui.mount({ ...MOUNT, surface })
       const drawn = textOf(await ui.drawn())
@@ -336,6 +389,7 @@ describe('the band', () => {
       expect(drawn).toContain('▶ 실제 화면 확인 4분째')
       expect(drawn).toContain('막힘 1')
       expect(drawn).toContain('남음 2')
+      expect(drawn).toContain(RUNNING)
       expect(drawn).toContain('열기')
       expect(drawn).toContain('접기')
       expect(drawn).not.toContain('CAS-1161')
@@ -344,7 +398,25 @@ describe('the band', () => {
     })
   }
 
-  test('with no state file the engine keeps the band it draws', async ($, on) => {
+  test('draws the session HUD with no state file at all', async ($, on) => {
+    // /deadhd 를 실행하기 전이다. 설정이 밴드를 고른 세션에서 그린다.
+    const { clock } = worldOf(on, configOf('band'), START)
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+    const drawn = textOf(await ui.drawn())
+
+    expect(drawn).toContain(`${STATUS_MARK} · ${RUNNING}`)
+    // 상태 파일이 없으니 체크리스트도, 열 페이지도 없다.
+    expect(drawn).not.toContain('막힘')
+    expect(drawn).not.toContain('열기')
+    expect(drawn).toContain('접기')
+
+    await ui.unmount()
+  })
+
+  test('with nothing naming the band the engine keeps the row it draws', async ($, on) => {
     worldOf(on, {})
     on('ui.render', () => ENGINE_OWN)
 
@@ -374,19 +446,20 @@ describe('the band', () => {
     await ui.unmount()
   })
 
-  test('adds a second row when a step is stuck and the session waits', async ($, on) => {
+  test('adds a second row when a step is stuck', async ($, on) => {
     const waiting = stateOf({ status: 'waiting_permission' })
 
-    worldOf(on, filesOf(waiting))
+    const { clock } = worldOf(on, filesOf(waiting), START)
 
-    await $.session.start(SESSION)
+    await startsRunning($, clock)
 
     const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
-    const drawn = textOf(await ui.drawn())
+    const rows = rowsOf(await ui.drawn())
 
-    expect(drawn).toContain('⛔ 막힘: 배포 검증 (권한 대기)')
-    expect(drawn).toContain('🔐 권한 승인 대기 4분째')
-    expect(drawn).toContain('접기')
+    // 권한 대기는 엔진의 다이얼로그라 관측되지 않는다: 상태 파일의 말이 그대로 나온다.
+    expect(textOf(rows[0])).toContain('🔐 권한 승인 대기 4분째')
+    expect(textOf(rows[0])).not.toContain(RUNNING)
+    expect(textOf(rows[1])).toContain('⛔ 막힘: 배포 검증 (권한 대기)')
 
     await ui.unmount()
   })
@@ -394,14 +467,19 @@ describe('the band', () => {
   test('keeps to one row while nothing needs attention', async ($, on) => {
     const clean = stateOf({}, { counts: { done: 4, now: 1, side: 0, left: 1, blocked: 0 } })
 
-    worldOf(on, filesOf(clean, { items: BOARD.items.filter(item => item.state !== 'blocked') }))
+    const { clock } = worldOf(
+      on,
+      filesOf(clean, { items: BOARD.items.filter(item => item.state !== 'blocked') }),
+      START,
+    )
 
-    await $.session.start(SESSION)
+    await startsRunning($, clock)
 
     const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
     const drawn = textOf(await ui.drawn())
 
     expect(drawn).toContain('남음 1')
+    expect(drawn).toContain(RUNNING)
     expect(drawn).not.toContain('막힘')
     expect(drawn).not.toContain('막힘:')
 
@@ -409,9 +487,9 @@ describe('the band', () => {
   })
 
   test('drops the second row when the band has room for one', async ($, on) => {
-    worldOf(on, filesOf(stateOf({ status: 'waiting_permission' })))
+    const { clock } = worldOf(on, filesOf(stateOf({ status: 'waiting_permission' })), START)
 
-    await $.session.start(SESSION)
+    await startsRunning($, clock)
 
     const ui = await $.ui.mount({
       ...MOUNT,
@@ -420,19 +498,25 @@ describe('the band', () => {
     })
     const drawn = textOf(await ui.drawn())
 
+    // 둘째 줄이 사라도 세션 상태는 첫 줄에 남는다.
+    expect(rowsOf(await ui.drawn())).toHaveLength(1)
     expect(drawn).toContain('막힘 1')
+    expect(drawn).toContain('🔐 권한 승인 대기 4분째')
     expect(drawn).not.toContain('막힘:')
-    expect(drawn).not.toContain('권한 승인 대기')
 
     await ui.unmount()
   })
 
   test('gives the alert row the whole region, since it carries no button', async ($, on) => {
-    const waiting = stateOf({ status: 'waiting_permission' })
+    const board = {
+      ...BOARD,
+      items: BOARD.items.map(item =>
+        item.state === 'blocked' ? { ...item, label: '아주 긴 막힌 단계 이름이 여기에 들어 있다' } : item,
+      ),
+    }
+    const { clock } = worldOf(on, filesOf(SAMPLE, board), START)
 
-    worldOf(on, filesOf(waiting))
-
-    await $.session.start(SESSION)
+    await startsRunning($, clock)
 
     const ui = await $.ui.mount({
       ...MOUNT,
@@ -440,21 +524,21 @@ describe('the band', () => {
       props: { ...BAND, bodyColumns: 60 },
     })
     const rows = rowsOf(await ui.drawn())
-    const alerts = line(bandAlertLine(normalize(waiting, BOARD), NOW, 60))
+    const whole = line(bandAlertLine(normalize(SAMPLE, board), NOW, 60))
 
     // 1줄째는 버튼 두 개의 폭(18칸)을 뺀 42칸이지만, 2줄째는 60칸을 다 쓴다.
-    expect(cellWidth(line(bandAlertLine(normalize(waiting, BOARD), NOW, 42)))).toBeLessThan(
-      cellWidth(alerts),
+    expect(cellWidth(line(bandAlertLine(normalize(SAMPLE, board), NOW, 42)))).toBeLessThan(
+      cellWidth(whole),
     )
-    expect(textOf(rows[1])).toBe(`${alerts} `)
+    expect(textOf(rows[1])).toBe(`${whole} `)
 
     await ui.unmount()
   })
 
   test('folds to one line and opens again from it', async ($, on) => {
-    worldOf(on, filesOf())
+    const { clock } = worldOf(on, filesOf(), START)
 
-    await $.session.start(SESSION)
+    await startsRunning($, clock)
 
     const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
 
@@ -466,7 +550,8 @@ describe('the band', () => {
     const folded = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
     const summary = textOf(await folded.drawn())
 
-    expect(summary).toContain(`${STATUS_MARK} ✓ 3/6`)
+    // 접힌 줄은 표지와 세션 상태 한 조각만 남긴다.
+    expect(summary).toContain(`${STATUS_MARK} ${RUNNING}`)
     expect(summary).not.toContain('/deadhd-band')
     expect(summary).toContain('열기')
     expect(summary).toContain('펼치기')
@@ -482,12 +567,32 @@ describe('the band', () => {
     await opened.unmount()
   })
 
+  test('folds with no state file and carries no way to a page', async ($, on) => {
+    const { clock } = worldOf(on, configOf('band'), START)
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+
+    await ui.press({ key: 'collapse' })
+    await ui.unmount()
+
+    const folded = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+    const summary = textOf(await folded.drawn())
+
+    expect(summary).toContain(`${STATUS_MARK} ${RUNNING}`)
+    expect(summary).toContain('펼치기')
+    expect(summary).not.toContain('열기')
+
+    await folded.unmount()
+  })
+
   test('opens again when a step gets stuck while it is folded', async ($, on) => {
     const files = filesOf()
 
-    const { clock } = worldOf(on, files)
+    const { clock } = worldOf(on, files, START)
 
-    await $.session.start(SESSION)
+    await startsRunning($, clock)
 
     const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
 
@@ -512,16 +617,17 @@ describe('the band', () => {
   test('stays folded as the turns end', async ($, on) => {
     const files = filesOf()
 
-    const { clock } = worldOf(on, files)
+    const { clock } = worldOf(on, files, START)
 
-    await $.session.start(SESSION)
+    await startsRunning($, clock)
 
     const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
 
     await ui.press({ key: 'collapse' })
     await ui.unmount()
 
-    // 턴이 끝나면 상태가 idle 로 돌아온다. 접기를 풀 만한 변화는 아니다.
+    // 턴이 끝나면 세션은 다시 입력을 기다린다. 접기를 풀 만한 변화는 아니다.
+    await $.turn.complete(TURN_END)
     files[STATE_PATH] = JSON.stringify(stateOf({ status: 'idle' }))
 
     await clock.advance(15000)
@@ -529,7 +635,7 @@ describe('the band', () => {
     const after = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
     const drawn = textOf(await after.drawn())
 
-    expect(drawn).toContain(`${STATUS_MARK} ✓ 3/6`)
+    expect(drawn).toContain(`${STATUS_MARK} ⌨️ 입력 대기 0분째`)
     expect(drawn).toContain('펼치기')
     expect(drawn).not.toContain('막힘')
 
@@ -538,9 +644,9 @@ describe('the band', () => {
 
   for (const surface of ['terminal', 'desktop'] as const) {
     test(`paints each piece with its theme key, on the ${surface}`, async ($, on) => {
-      worldOf(on, filesOf())
+      const { clock } = worldOf(on, filesOf(), START)
 
-      await $.session.start(SESSION)
+      await startsRunning($, clock)
 
       const ui = await $.ui.mount({ ...MOUNT, surface })
       const painted = await paintedOf(ui)
@@ -556,6 +662,7 @@ describe('the band', () => {
       })
       expect(pieceOf(painted, '막힘 1')).toMatchObject({ color: 'error', bold: true })
       expect(pieceOf(painted, '남음 2')?.color).toBe('text')
+      expect(pieceOf(painted, RUNNING)).toMatchObject({ color: 'suggestion', bold: true })
       expect(separators.length).toBeGreaterThan(0)
       expect(separators.every(one => one.color === 'subtle')).toBe(true)
 
@@ -563,17 +670,19 @@ describe('the band', () => {
     })
   }
 
-  test('paints the stuck step and the wait on the second row', async ($, on) => {
-    worldOf(on, filesOf(stateOf({ status: 'idle' })))
+  test('paints the stuck step on the second row and the session state on the first', async ($, on) => {
+    const { clock } = worldOf(on, filesOf(stateOf({ status: 'idle' })), START)
 
-    await $.session.start(SESSION)
+    await startsRunning($, clock)
 
     const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
     const painted = await paintedOf(ui)
 
     expect(pieceOf(painted, '⛔ 막힘:')).toMatchObject({ color: 'error', bold: true })
     expect(pieceOf(painted, '배포 검증 (권한 대기)')).toMatchObject({ color: 'error', bold: true })
-    expect(pieceOf(painted, '⌨️ 입력 대기 4분째')).toMatchObject({ color: 'merged', bold: true })
+    // 상태 파일이 idle 이라 해도 관측한 턴이 그 위에 선다.
+    expect(pieceOf(painted, RUNNING)).toMatchObject({ color: 'suggestion', bold: true })
+    expect(pieceOf(painted, '⌨️ 입력 대기 4분째')).toBeUndefined()
 
     await ui.unmount()
   })
@@ -670,12 +779,10 @@ describe('the band line', () => {
 })
 
 describe('the band alerts', () => {
-  test('names the stuck step, then the wait', () => {
+  test('names the stuck step', () => {
     const waiting = { ...STATE!, status: 'waiting_permission' }
 
-    expect(line(bandAlertLine(waiting, NOW, 200))).toBe(
-      '⛔ 막힘: 배포 검증 (권한 대기) · 🔐 권한 승인 대기 4분째',
-    )
+    expect(line(bandAlertLine(waiting, NOW, 200))).toBe('⛔ 막힘: 배포 검증 (권한 대기)')
   })
 
   test('is empty while the session works and no step is stuck', () => {
@@ -688,9 +795,9 @@ describe('the band alerts', () => {
 describe('the status hint', () => {
   for (const surface of ['terminal', 'desktop'] as const) {
     test(`draws the long row and the engine hint as two rows, on the ${surface}`, async ($, on) => {
-      statusWorld(on, filesOf(statusState()))
+      const { clock } = statusWorld(on, filesOf(statusState()), ENGINE_HINT, START)
 
-      await $.session.start(SESSION)
+      await startsRunning($, clock)
 
       const ui = await $.ui.mount({ ...MOUNT_HINT, surface })
       const drawn = await ui.drawn()
@@ -699,7 +806,7 @@ describe('the status hint', () => {
       expect(elementOf(drawn).props?.flexDirection).toBe('column')
       expect(rows).toHaveLength(2)
       // 버튼 두 개는 줄 뒤에 나란히 붙는다.
-      expect(textOf(rows[0])).toBe(`${LONG_ROW} 열기접기`)
+      expect(textOf(rows[0])).toBe(`${LONG_ROW_RUNNING} 열기접기`)
       expect(rows[1]).toEqual(ENGINE_HINT)
 
       await ui.unmount()
@@ -741,16 +848,16 @@ describe('the status hint', () => {
     await ui.unmount()
   })
 
-  test('keeps the buttons and the count on the folded row, naming no command', async ($, on) => {
-    statusWorld(on, filesOf(statusState()))
+  test('keeps the buttons and the session state on the folded row, naming no command', async ($, on) => {
+    const { clock } = statusWorld(on, filesOf(statusState()), ENGINE_HINT, START)
 
-    await $.session.start(SESSION)
+    await startsRunning($, clock)
     await $.command.run(statusRun)
 
     const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
     const drawn = textOf(await ui.drawn())
 
-    expect(drawn).toContain(`${STATUS_MARK} ✓ 3/6`)
+    expect(drawn).toContain(`${STATUS_MARK} ${RUNNING}`)
     // 접힌 줄은 명령 이름 대신 버튼 두 개로 되돌아가는 길을 알린다.
     expect(drawn).toContain('열기')
     expect(drawn).toContain('펼치기')
@@ -797,9 +904,9 @@ describe('the status hint', () => {
 
   for (const surface of ['terminal', 'desktop'] as const) {
     test(`paints each piece with its theme key, on the ${surface}`, async ($, on) => {
-      statusWorld(on, filesOf(statusState()))
+      const { clock } = statusWorld(on, filesOf(statusState()), ENGINE_HINT, START)
 
-      await $.session.start(SESSION)
+      await startsRunning($, clock)
 
       const ui = await $.ui.mount({ ...MOUNT_HINT, surface })
       const painted = await paintedOf(ui)
@@ -825,6 +932,7 @@ describe('the status hint', () => {
       expect(pieceOf(painted, '⏳ 남음 2')?.color).toBe('text')
       expect(pieceOf(painted, '🧵 백그라운드 2')?.color).toBe('ide')
       expect(pieceOf(painted, '🗜 압축 1')?.color).toBe('remember')
+      expect(pieceOf(painted, RUNNING)).toMatchObject({ color: 'suggestion', bold: true })
       expect(separators.length).toBeGreaterThan(0)
       expect(separators.every(one => one.color === 'subtle')).toBe(true)
 
@@ -849,15 +957,20 @@ describe('the status hint', () => {
   })
 
   test('keeps the row whole under a long engine hint', async ($, on) => {
-    statusWorld(on, filesOf(statusState()), { type: 'Text', children: ['x'.repeat(200)] })
+    const { clock } = statusWorld(
+      on,
+      filesOf(statusState()),
+      { type: 'Text', children: ['x'.repeat(200)] },
+      START,
+    )
 
-    await $.session.start(SESSION)
+    await startsRunning($, clock)
 
     const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
     const rows = rowsOf(await ui.drawn())
     const painted = await paintedOf(ui)
 
-    expect(textOf(rows[0])).toBe(`${LONG_ROW} 열기접기`)
+    expect(textOf(rows[0])).toBe(`${LONG_ROW_RUNNING} 열기접기`)
     expect(textOf(rows[1])).toBe('x'.repeat(200))
     expect(pieceOf(painted, '⏳ 남음 2')).toBeDefined()
 
@@ -945,7 +1058,27 @@ describe('the status hint', () => {
     await ui.unmount()
   })
 
-  test('with no state file the engine keeps its own hint', async ($, on) => {
+  test('with no state file draws the session HUD and keeps the state file out of it', async ($, on) => {
+    // /deadhd 를 실행하기 전, 설정이 상태줄을 고른 세션이다.
+    const { clock } = statusWorld(on, configOf('statusline'), ENGINE_HINT, START)
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+    const rows = rowsOf(await ui.drawn())
+    const drawn = textOf(rows[0])
+
+    expect(drawn).toContain(`${STATUS_MARK} · ${RUNNING}`)
+    // 상태 파일이 없으니 체크리스트도, 열 페이지도 없다.
+    expect(drawn).not.toContain('남음')
+    expect(drawn).not.toContain('열기')
+    expect(drawn).toContain('접기')
+    expect(rows[1]).toEqual(ENGINE_HINT)
+
+    await ui.unmount()
+  })
+
+  test('with nothing naming the status line the engine keeps its own hint', async ($, on) => {
     worldOf(on, {})
     pinsNothing(on)
     on('ui.render', () => ENGINE_OWN)
@@ -977,16 +1110,103 @@ describe('the status hint', () => {
   })
 })
 
+describe('the session the mod watches', () => {
+  test('names the tool in flight, then the one that just ran', async ($, on) => {
+    const { clock } = statusWorld(on, filesOf(statusState()), ENGINE_HINT, START)
+
+    // 도구 하나가 아직 도는 동안. 아래에 답이 없으면 이 호출은 끝나지 않는다.
+    let release = (): void => {}
+    const held = new Promise<{ result: unknown }>(resolve => {
+      release = () => resolve({ result: { stdout: '', stderr: '', interrupted: false } })
+    })
+
+    on('tool.call', () => held)
+
+    await startsRunning($, clock)
+
+    const call = $.tool.call({ tool: 'Bash', command: 'sleep 1' })
+
+    await clock.settle()
+
+    const working = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+
+    expect(textOf(await working.drawn())).toContain('🔧 Bash 실행 중')
+
+    await working.unmount()
+
+    release()
+    await call
+    await clock.advance(12000)
+
+    const after = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+
+    expect(textOf(await after.drawn())).toContain('🔧 Bash 12초 전')
+
+    await after.unmount()
+  })
+
+  test("leaves a subagent's own calls to the loop it runs in", async ($, on) => {
+    const { clock } = statusWorld(on, filesOf(statusState()), ENGINE_HINT, START)
+
+    on('tool.call', () => ({ result: {} }))
+
+    await startsRunning($, clock)
+
+    await $.tool.call({ tool: 'Read', file_path: '/work/a.md', agentId: 'agent-1' })
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+
+    expect(textOf(await ui.drawn())).not.toContain('🔧')
+
+    await ui.unmount()
+  })
+
+  test("counts the compactions it watched over the state file's own count", async ($, on) => {
+    const { clock } = statusWorld(on, filesOf(statusState()), ENGINE_HINT, START)
+
+    await startsRunning($, clock)
+    await $.session.compact(COMPACTING)
+    await $.session.compact(COMPACTING)
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+
+    // 상태 파일은 1 이라고 적고 있지만, 이 세션이 본 것은 2 다.
+    expect(textOf(await ui.drawn())).toContain('🗜 압축 2')
+
+    await ui.unmount()
+  })
+
+  test('keeps the session state when the row has room for nothing else', async ($, on) => {
+    const { clock } = statusWorld(on, filesOf(statusState()), ENGINE_HINT, START)
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({
+      ...MOUNT_HINT,
+      surface: 'terminal',
+      viewport: { columns: 60, rows: 24 },
+    })
+    const row = textOf(rowsOf(await ui.drawn())[0])
+
+    expect(row).toContain(RUNNING)
+    expect(row).toContain('✓ 3/6')
+    expect(row).not.toContain('남음 2')
+    expect(row).not.toContain('🗜')
+
+    await ui.unmount()
+  })
+})
+
 describe('the status line command', () => {
   test('folds and unfolds from the buttons beside it, as the command does', async ($, on) => {
-    statusWorld(on, filesOf(statusState()))
+    const { clock } = statusWorld(on, filesOf(statusState()), ENGINE_HINT, START)
 
-    await $.session.start(SESSION)
+    await startsRunning($, clock)
 
     const long = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
     const open = textOf(await long.drawn())
 
-    expect(open).toContain(`${LONG_ROW} 열기접기`)
+    expect(open).toContain(`${LONG_ROW_RUNNING} 열기접기`)
     expect(open).not.toContain('펼치기')
 
     await long.press({ key: 'collapse' })
@@ -995,7 +1215,7 @@ describe('the status line command', () => {
     const folded = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
     const shut = textOf(await folded.drawn())
 
-    expect(shut).toContain(`${STATUS_MARK} ✓ 3/6 열기펼치기`)
+    expect(shut).toContain(`${STATUS_MARK} ${RUNNING} 열기펼치기`)
     expect(shut).not.toContain('접기')
 
     await folded.press({ key: 'expand' })
@@ -1011,16 +1231,16 @@ describe('the status line command', () => {
   })
 
   test('folds and opens the line, answering each time', async ($, on) => {
-    statusWorld(on, filesOf(statusState()))
+    const { clock } = statusWorld(on, filesOf(statusState()), ENGINE_HINT, START)
 
-    await $.session.start(SESSION)
+    await startsRunning($, clock)
 
     expect((await $.command.run(statusRun)).text).toBe('상태줄을 접었어요')
 
     const folded = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
     const drawn = textOf(await folded.drawn())
 
-    expect(drawn).toContain(`${STATUS_MARK} ✓ 3/6`)
+    expect(drawn).toContain(`${STATUS_MARK} ${RUNNING}`)
     expect(drawn).not.toContain('⏳ 남음 2')
     // The engine's own hint stays under the line whether or not it is folded.
     expect(drawn).toContain('? for shortcuts')
@@ -1033,14 +1253,14 @@ describe('the status line command', () => {
   test('opens again when a step gets stuck while it is folded', async ($, on) => {
     const files = filesOf(statusState())
 
-    const { clock } = statusWorld(on, files)
+    const { clock } = statusWorld(on, files, ENGINE_HINT, START)
 
-    await $.session.start(SESSION)
+    await startsRunning($, clock)
     await $.command.run(statusRun)
 
     const folded = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
 
-    expect(textOf(await folded.drawn())).toContain(`${STATUS_MARK} ✓ 3/6`)
+    expect(textOf(await folded.drawn())).toContain(`${STATUS_MARK} ${RUNNING}`)
 
     await folded.unmount()
 
@@ -1242,19 +1462,27 @@ describe('formatLine', () => {
     expect(cut).toContain('⏭ 다음 정리')
     expect(cut).toContain('배포 검증')
 
-    // Too narrow for the keyed title at all: the next step goes before the blocked label.
+    // What the mod watched by itself goes before the run's own pieces: the two
+    // counts are dropped while the next step and the blocked label stay, and the
+    // title takes the cells they leave back.
     const keyed = cellWidth(formatLine({ ...STATE!, title: '' }, NOW, 240))
-    const dropped = formatLine(long, NOW, keyed + 1)
+    const dropped = formatLine(long, NOW, keyed - 20)
 
-    expect(dropped).not.toContain('아주')
+    expect(dropped).not.toContain('🧵 백그라운드 2')
+    expect(dropped).not.toContain('🗜 압축 1')
+    expect(dropped).toContain('아주 긴…')
     expect(dropped).toContain('⏭ 다음 정리')
     expect(dropped).toContain('배포 검증')
 
-    // Narrower still: the blocked label is cut, and the next step is already gone.
-    const tight = formatLine(long, NOW, keyed - 15)
-    expect(cellWidth(tight)).toBeLessThanOrEqual(keyed - 15)
-    expect(tight).not.toContain('⏭')
-    expect(tight).toContain('배포')
+    // Past those, the next step is the piece that goes, and the last write stays.
+    const tighter = formatLine(long, NOW, keyed - 45)
+
+    expect(tighter).not.toContain('⏭')
+    expect(tighter).toContain('⏱ 예상 16:20')
+    expect(tighter).toContain('🔄 2분 전')
+
+    // Anywhere between, the row keeps inside the cells it was given.
+    expect(cellWidth(formatLine(long, NOW, keyed - 15))).toBeLessThanOrEqual(keyed - 15)
   })
 
   test('gives the pieces up in the order the row can spare them, down to the count', () => {
@@ -1325,8 +1553,16 @@ describe('formatLine', () => {
     expect(formatLine(normalize(older, BOARD), NOW, 240)).toContain('🛑 31분 전')
   })
 
-  test('draws nothing without a state', () => {
-    expect(formatLine(null, NOW, 240)).toBe('')
+  test('draws the session HUD with no state file at all', () => {
+    const watched = {
+      ...EMPTY_HUD,
+      startedAt: '2026-10-09T15:34:53+09:00',
+      turnAt: '2026-10-09T15:34:53+09:00',
+    }
+
+    expect(formatLine(null, NOW, 240, watched)).toBe(`${STATUS_MARK} · ▶ 작업 중 4분째`)
+    // 관측한 것도 상태 파일도 없으면 표지만 남는다.
+    expect(formatLine(null, NOW, 240)).toBe(STATUS_MARK)
   })
 
   test('draws the key a title opens with once, not beside a copy of it', () => {
@@ -1362,14 +1598,15 @@ describe('formatLine', () => {
 
   test('draws the title again in the cells the fields before it left', () => {
     // A row far too long for its cells: the title gives its body away at once,
-    // and takes back the cells the fields dropped after it leave behind.
+    // and takes back the cells the pieces the mod watched drop leave behind.
     const long = normalize(stateOf({}, { title: '아주 긴 제목이 여기에 들어 있다 '.repeat(12) }), BOARD)
-    const row = formatLine(long, NOW, 109)
+    const keyed = cellWidth(formatLine({ ...long, title: '' }, NOW, 240))
+    const row = formatLine(long, NOW, keyed - 20)
 
     expect(row).toContain('아주')
     expect(row).toContain('…')
     expect(row).toContain('⏳ 남음 2')
-    expect(cellWidth(row)).toBeLessThanOrEqual(109)
+    expect(cellWidth(row)).toBeLessThanOrEqual(keyed - 20)
   })
 })
 

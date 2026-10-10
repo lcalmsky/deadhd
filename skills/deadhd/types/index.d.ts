@@ -1,7 +1,8 @@
 /**
  * deadhd's `$.state` contract: the normalized progress the band and the status
- * line draw from, which view this session draws in, and whether the person
- * folded the line down for this session.
+ * line draw from, what the mod watched of the session itself, which view this
+ * session draws in, and whether the person folded the line down for this
+ * session.
  */
 
 export type DeadhdLang = 'ko' | 'en'
@@ -73,7 +74,11 @@ export type DeadhdState = {
   next: DeadhdStep | null
   /** The first `blocked` step the data names. */
   stuck: DeadhdStep | null
-  /** The completion estimate, an ISO 8601 instant with an offset, or null. */
+  /**
+   * The completion estimate, an ISO 8601 instant with an offset, or null:
+   * render.py's calibrated one (`etaCalibrated`) when it calibrated one, else
+   * the estimate it computed from the steps alone.
+   */
   eta: string | null
   /**
    * When the skill last wrote the data file, ISO 8601 with an offset; the lines
@@ -95,6 +100,32 @@ export type DeadhdState = {
   out: string | null
 }
 
+/**
+ * What the mod has watched of this session itself, for the line it draws before
+ * the skill writes a state file: a session-scoped reading of the engine's own
+ * events, never of the state file.
+ *
+ * The permission dialog is the engine's own and raises no event the mod can
+ * watch, so the state file's word for that wait stands in its place; a watched
+ * turn beats the state file's, which goes stale between renders.
+ */
+export type DeadhdHud = {
+  /** When the session started, ISO 8601 with an offset; `입력 대기` counts from here. */
+  startedAt: string | null
+  /** When the turn in flight began, ISO 8601, or null while no turn runs. */
+  turnAt: string | null
+  /** When the last turn ended, ISO 8601, or null before one has. */
+  endedAt: string | null
+  /** The tool the session's own loop called last, or the one it runs now. */
+  tool: string | null
+  /** When that tool began, or finished, ISO 8601. */
+  toolAt: string | null
+  /** Tool calls in flight; parallel calls settle one at a time. */
+  running: number
+  /** How many compactions the mod watched. */
+  compactions: number
+}
+
 declare module 'claude-code' {
   interface PluginState {
     deadhd: {
@@ -104,6 +135,8 @@ declare module 'claude-code' {
       collapsed: boolean
       /** The view in force: the state file's, else the config file's, else `html`. */
       view: DeadhdView
+      /** What the mod watched of the session itself, drawn with no state file. */
+      hud: DeadhdHud
     }
   }
 }

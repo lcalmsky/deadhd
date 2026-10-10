@@ -33,8 +33,6 @@ TERM_COLS = 0
 
 BAR_CELLS = 6
 SEP = ' · '
-BAND_CMD = '/deadhd-band'
-STATUS_CMD = '/deadhd-statusline'
 STATUS_MARK = '◆'
 
 WORDS = {
@@ -42,14 +40,19 @@ WORDS = {
         'blocked': '막힘', 'left': '남음', 'allDone': '완료', 'next': '다음', 'eta': '예상',
         'background': '백그라운드', 'compacted': '압축', 'collapse': '접기', 'expand': '펼치기',
         'open': '열기', 'permission': '권한 승인 대기', 'input': '입력 대기',
+        'running': '작업 중', 'toolRunning': '실행 중',
     },
     'en': {
         'blocked': 'blocked', 'left': 'left', 'allDone': 'all done', 'next': 'next', 'eta': 'ETA',
         'background': 'background', 'compacted': 'compacted', 'collapse': 'Collapse',
         'expand': 'Expand', 'open': 'Open', 'permission': 'waiting for permission',
-        'input': 'waiting for input',
+        'input': 'waiting for input', 'running': 'working', 'toolRunning': 'running',
     },
 }
+
+# 관측한 것이 아직 없는 세션의 HUD. 상태 파일 없이 그리는 줄이 이 값에서 나온다.
+EMPTY_HUD = {'startedAt': None, 'turnAt': None, 'endedAt': None, 'tool': None, 'toolAt': None,
+             'running': 0, 'compactions': 0}
 
 WIDE = ((0x1100, 0x115f), (0x2e80, 0xa4cf), (0xac00, 0xd7a3), (0xf900, 0xfaff),
         (0xfe30, 0xfe4f), (0xff00, 0xff60), (0xffe0, 0xffe6), (0x1f300, 0x1faff),
@@ -105,16 +108,21 @@ def cut(label, room):
     return kept.rstrip() + '…'
 
 
-def minutes_between(frm, now):
+def seconds_between(frm, now):
     if frm is None:
         return None
     try:
         at = datetime.fromisoformat(frm).timestamp() * 1000
-    except ValueError:
+    except (ValueError, TypeError):
         return None
     if now < at:
         return None
-    return int(math.floor((now - at) / 60000))
+    return int(math.floor((now - at) / 1000))
+
+
+def minutes_between(frm, now):
+    seconds = seconds_between(frm, now)
+    return None if seconds is None else seconds // 60
 
 
 def since(minutes, lang):
@@ -125,34 +133,18 @@ def ago(minutes, lang):
     return '%dm ago' % minutes if lang == 'en' else '%d분 전' % minutes
 
 
+def tool_ago(seconds, lang):
+    return '%ds ago' % seconds if lang == 'en' else '%d초 전' % seconds
+
+
 def clock_of(eta):
     match = re.search(r'T(\d{2}:\d{2})', eta or '')
     return match.group(1) if match else None
 
 
-def status_label(status, lang):
-    if status in ('', 'working', 'ended'):
-        return None
-    if status == 'waiting_permission':
-        return WORDS[lang]['permission']
-    if status == 'idle':
-        return WORDS[lang]['input']
-    return status
-
-
-def bar_parts(done, total):
-    cells = max(0, min(BAR_CELLS, int(math.floor(done / total * BAR_CELLS + 0.5))))
-    parts = []
-    if cells > 0:
-        parts.append(('▓' * cells, 'success', False))
-    if cells < BAR_CELLS:
-        parts.append(('░' * (BAR_CELLS - cells), 'subtle', False))
-    return parts
-
-
 def step_mark(state, running):
     if state == 'side':
-        return '◇', 'autoAccept', False
+        return '◐', 'autoAccept', False
     return running, 'suggestion', True
 
 
@@ -163,20 +155,62 @@ def step_field(step, lang, now, running):
     return ('current', [('%s %s%s' % (mark, step['label'], tail), tone, bold)])
 
 
-def wait_field(state, now):
-    if state['status'] not in ('waiting_permission', 'idle'):
+def session_piece(mark, word, tone, frm, now, lang):
+    minutes = minutes_between(frm, now)
+    tail = '' if minutes is None else ' ' + since(minutes, lang)
+    return ('session', [('%s %s%s' % (mark, word, tail), tone, True)])
+
+
+def session_field(state, hud, now, lang):
+    """세션의 지금 상태. 권한 대기는 엔진 다이얼로그라 관측되지 않아 상태 파일의 말을 쓴다."""
+    words = WORDS[lang]
+    if state is not None and state['status'] == 'waiting_permission':
+        return session_piece('🔐', words['permission'], 'warning', state['since'], now, lang)
+    if hud['turnAt'] is not None:
+        return session_piece('▶', words['running'], 'suggestion', hud['turnAt'], now, lang)
+    frm = hud['endedAt'] or hud['startedAt'] or (
+        state['since'] if state is not None and state['status'] == 'idle' else None)
+    if frm is None:
         return None
-    word = status_label(state['status'], state['lang']) or state['status']
-    minutes = minutes_between(state['since'], now)
-    tail = '' if minutes is None else ' ' + since(minutes, state['lang'])
-    asking = state['status'] == 'waiting_permission'
-    return ('wait', [('%s %s%s' % ('🔐' if asking else '⌨️', word, tail),
-                      'warning' if asking else 'merged', True)])
+    return session_piece('⌨️', words['input'], 'merged', frm, now, lang)
 
 
-def band_fields(state, now):
+def tool_field(hud, now, lang):
+    if hud['tool'] is None:
+        return None
+    if hud['running'] > 0:
+        return ('tool', [('🔧 %s %s' % (hud['tool'], WORDS[lang]['toolRunning']), 'ide', True)])
+    seconds = seconds_between(hud['toolAt'], now)
+    if seconds is None:
+        return None
+    return ('tool', [('🔧 %s %s' % (hud['tool'], tool_ago(seconds, lang)), 'subtle', False)])
+
+
+def hud_fields(state, hud, now, lang):
+    """상태 파일 없이도 그리는 조각들: 세션 상태와 마지막 도구."""
+    fields = []
+    session = session_field(state, hud, now, lang)
+    tool = tool_field(hud, now, lang)
+    if session is not None:
+        fields.append(session)
+    if tool is not None:
+        fields.append(tool)
+    return fields
+
+
+def mark_field():
+    return ('name', [(STATUS_MARK, 'claude', True)])
+
+
+def band_fields(state, hud, now):
+    lang = 'ko' if state is None else state['lang']
+    return (([mark_field()] if state is None else band_run(state, now))
+            + hud_fields(state, hud, now, lang))
+
+
+def band_run(state, now):
     words = WORDS[state['lang']]
-    fields = [('name', [(BAND_CMD, 'claude', True)])]
+    fields = [mark_field()]
     if state['total'] > 0:
         fields.append(('bar', bar_parts(state['done'], state['total']) + [
             (' ', 'plain', False),
@@ -192,17 +226,24 @@ def band_fields(state, now):
     return fields
 
 
-def band_alert_fields(state, now):
+def band_alert_fields(state):
     words = WORDS[state['lang']]
     fields = []
     if state['stuck'] is not None:
         stuck = state['stuck']
         note = stuck['label'] if stuck['sub'] == '' else '%s (%s)' % (stuck['label'], stuck['sub'])
         fields.append(('blocked', [('⛔ %s: ' % words['blocked'], 'error', True), (note, 'error', True)]))
-    wait = wait_field(state, now)
-    if wait is not None:
-        fields.append(wait)
     return fields
+
+
+def bar_parts(done, total):
+    cells = max(0, min(BAR_CELLS, int(math.floor(done / total * BAR_CELLS + 0.5))))
+    parts = []
+    if cells > 0:
+        parts.append(('▓' * cells, 'success', False))
+    if cells < BAR_CELLS:
+        parts.append(('░' * (BAR_CELLS - cells), 'subtle', False))
+    return parts
 
 
 def heading_parts(state):
@@ -232,7 +273,13 @@ def title_after_key(title, key):
     return None
 
 
-def status_fields(state, now):
+def status_fields(state, hud, now):
+    lang = 'ko' if state is None else state['lang']
+    return (([mark_field()] if state is None else status_run(state, hud, now))
+            + hud_fields(state, hud, now, lang))
+
+
+def status_run(state, hud, now):
     words = WORDS[state['lang']]
     fields = []
     if state['total'] > 0:
@@ -240,15 +287,15 @@ def status_fields(state, now):
         # 막대 조각이 버려져도 표지는 남는다.
         fields.append(('count', [
             (STATUS_MARK + ' ', 'claude', True),
-            ('✅ %d/%d' % (state['done'], state['total']), 'success', True),
+            ('✓ %d/%d' % (state['done'], state['total']), 'success', True),
             (' ', 'plain', False)] + bar_parts(state['done'], state['total'])))
     else:
-        fields.append(('name', [(STATUS_MARK, 'claude', True)]))
+        fields.append(mark_field())
     heading = heading_parts(state)
     if heading:
         fields.append(('title', heading))
     if state['current'] is not None:
-        fields.append(step_field(state['current'], state['lang'], now, '▶️'))
+        fields.append(step_field(state['current'], state['lang'], now, '▶'))
     if state['pr'] is not None:
         # 아이콘은 링크 밖 조각이다. 밑줄이 아이콘과 그 뒤 공백까지 걸치지 않는다.
         fields.append(('pr', [('🔀 ', 'permission', False),
@@ -268,15 +315,14 @@ def status_fields(state, now):
         fields.append(('blocked', parts))
     if state['left'] > 0:
         fields.append(('left', [('⏳ %s %d' % (words['left'], state['left']), 'text', False)]))
-    wait = wait_field(state, now)
-    if wait is not None:
-        fields.append(wait)
     if state['background'] > 0:
         fields.append(('background',
                        [('🧵 %s %d' % (words['background'], state['background']), 'ide', False)]))
-    if state['compactions'] > 0:
+    # 둘 다 이 세션의 횟수다. 큰 쪽이 더 많은 사건을 놓치지 않았다.
+    compactions = max(hud['compactions'], state['compactions'])
+    if compactions > 0:
         fields.append(('compacted',
-                       [('🗜 %s %d' % (words['compacted'], state['compactions']), 'remember', False)]))
+                       [('🗜 %s %d' % (words['compacted'], compactions), 'remember', False)]))
     return fields
 
 
@@ -344,10 +390,10 @@ def fit(fields, max_cols):
     title = next((f for f in fields if f[0] == 'title'), None)
     whole = None if title is None else [tuple(part) for part in title[1]]
 
-    for step, tag in ((shrink, 'title'), (drop, 'next'), (shrink, 'blocked'), (drop, 'blocked'),
-                      (shrink, 'current'), (drop, 'current'), (drop, 'compacted'),
-                      (drop, 'background'), (drop, 'ago'), (drop, 'eta'), (drop, 'left'),
-                      (drop, 'leftCount'), (drop, 'pr'), (shrink_bar, 'count'),
+    for step, tag in ((shrink, 'title'), (drop, 'compacted'), (drop, 'background'),
+                      (drop, 'tool'), (drop, 'next'), (shrink, 'blocked'), (drop, 'blocked'),
+                      (shrink, 'current'), (drop, 'current'), (drop, 'ago'), (drop, 'eta'),
+                      (drop, 'left'), (drop, 'leftCount'), (drop, 'pr'), (shrink_bar, 'count'),
                       (shrink_bar, 'bar'), (drop, 'stuck'), (key_only, 'title'),
                       (drop, 'title')):
         if line_width(fields) > max_cols:
@@ -367,23 +413,26 @@ def flatten(fields):
     return parts
 
 
-def band_line(state, now, max_cols):
-    return [] if state is None else flatten(fit(band_fields(state, now), max_cols))
+def band_line(state, now, max_cols, hud=None):
+    return flatten(fit(band_fields(state, EMPTY_HUD if hud is None else hud, now), max_cols))
 
 
 def band_alert_line(state, now, max_cols):
-    return [] if state is None else flatten(fit(band_alert_fields(state, now), max_cols))
+    return [] if state is None else flatten(fit(band_alert_fields(state), max_cols))
 
 
-def status_line(state, now, max_cols):
-    return [] if state is None else flatten(fit(status_fields(state, now), max_cols))
+def status_line(state, now, max_cols, hud=None):
+    return flatten(fit(status_fields(state, EMPTY_HUD if hud is None else hud, now), max_cols))
 
 
-def folded_segments(state):
-    parts = [(BAND_CMD, 'claude', True)]
-    if state['total'] > 0:
+def folded_segments(state, hud, now):
+    """접힌 줄: 표지와 세션 상태 한 조각만."""
+    lang = 'ko' if state is None else state['lang']
+    session = session_field(state, hud, now, lang)
+    parts = [(STATUS_MARK, 'claude', True)]
+    if session is not None:
         parts.append((' ', 'plain', False))
-        parts.append(('✓ %d/%d' % (state['done'], state['total']), 'success', False))
+        parts.extend(session[1])
     return parts
 
 
@@ -391,8 +440,8 @@ def segments_text(parts):
     return ''.join(part[0] for part in parts)
 
 
-def format_line(state, now, max_cols):
-    return '' if state is None else segments_text(status_line(state, now, max_cols))
+def format_line(state, now, max_cols, hud=None):
+    return segments_text(status_line(state, now, max_cols, hud))
 
 
 def read_steps(data):
@@ -489,7 +538,9 @@ def normalize(raw, data=None):
         'next': next_step(steps, running),
         'stuck': (next((s for s in steps if s['state'] == 'blocked'), None)
                   or (summary_step if now == 0 and blocked > 0 else None)),
-        'eta': summary.get('eta') if isinstance(summary.get('eta'), str) else None,
+        # render.py 는 보정한 예상이 있으면 etaCalibrated 로 싣는다.
+        'eta': (summary.get('etaCalibrated') if isinstance(summary.get('etaCalibrated'), str)
+                else summary.get('eta') if isinstance(summary.get('eta'), str) else None),
         'updatedAt': raw.get('updatedAt') if isinstance(raw.get('updatedAt'), str) else None,
         'since': raw.get('since') if isinstance(raw.get('since'), str) else None,
         'background': len(raw['backgroundTasks']) if isinstance(raw.get('backgroundTasks'), list) else 0,
@@ -744,19 +795,33 @@ BOARD = {
         {'lane': 1, 'col': 3, 'label': '보고', 'sub': '완료', 'state': 'done'},
     ],
 }
-BAND_EXPECT = '/deadhd-band · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · 막힘 1 · 남음 2'
-ALERT_EXPECT = '⛔ 막힘: 배포 검증 (권한 대기) · 🔐 권한 승인 대기 4분째'
-CUT_EXPECT = '/deadhd-band · ▓▓▓░░░ 3/6 · 막힘 1'
+# 세션이 스스로 지켜본 것. NOW_TEST 기준으로 턴은 4분 전에 시작했고 도구는 12초 전에 끝났다.
+HUD = {'startedAt': '2026-10-09T15:34:53+09:00', 'turnAt': '2026-10-09T15:34:53+09:00',
+       'endedAt': None, 'tool': 'Bash', 'toolAt': '2026-10-09T15:38:41+09:00',
+       'running': 0, 'compactions': 0}
+HUD_PIECES = '▶ 작업 중 4분째 · 🔧 Bash 12초 전'
+
+BAND_EXPECT = '◆ · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · 막힘 1 · 남음 2'
+ALERT_EXPECT = '⛔ 막힘: 배포 검증 (권한 대기)'
+CUT_EXPECT = '◆ · ▓▓▓░░░ 3/6 · 막힘 1'
+CUT_COLS = 31
+FOLDED_EXPECT = '◆ 🔐 권한 승인 대기 4분째'
+HUD_ONLY = '◆ · %s' % HUD_PIECES
 LONG_LABEL = '아주 긴 단계 이름이 여기에 들어 있다'
-LONG_ROW = ('◆ ✅ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · '
-            '▶️ 실제 화면 확인 4분째 · 🔀 app-api#512 · ⏭ 다음 정리 · ⏱ 예상 16:20 · 🔄 2분 전 · '
+LONG_ROW = ('◆ ✓ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · '
+            '▶ 실제 화면 확인 4분째 · 🔀 app-api#512 · ⏭ 다음 정리 · ⏱ 예상 16:20 · 🔄 2분 전 · '
             '⛔ 막힘 1: 배포 검증 · ⏳ 남음 2 · 🧵 백그라운드 2 · 🗜 압축 1')
-# LONG_ROW 는 테스트에서 두 줄로 쪼개 붙이므로 조각으로 확인한다.
-TEST_FRAGMENTS = (BAND_EXPECT, ALERT_EXPECT,
-                  '✅ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · ',
+LONG_ROW_HUD = '%s · %s' % (LONG_ROW, HUD_PIECES)
+# 위 기대 줄들은 테스트에서 조각을 이어 붙여 만들거나 표지를 템플릿으로 넣으므로,
+# 테스트 파일에는 조각으로 있는지 본다.
+TEST_FRAGMENTS = ('· ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · 막힘 1 · 남음 2',
+                  '⛔ 막힘: 배포 검증 (권한 대기)',
+                  '· ▓▓▓░░░ 3/6 · 막힘 1',
+                  '✓ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · ',
                   '⛔ 막힘 1: 배포 검증 · ⏳ 남음 2 · 🧵 백그라운드 2 · 🗜 압축 1',
                   '🔀 app-api#512',
-                  '▶️ 실제 화면 확인 · 🔀 app-api#512 · ⏱ 예상 16:20')
+                  '▶ 실제 화면 확인 4분째 · 🔀 app-api#512 · ⏭ 다음 정리 · ⏱ 예상 16:20 · 🔄 2분 전 · ',
+                  '▶ 작업 중 4분째', '🔧 Bash 실행 중', '🔧 Bash 12초 전', '🗜 압축 2')
 
 
 def check_lines():
@@ -769,7 +834,11 @@ def check_lines():
     drawn = (('bandLine', segments_text(band_line(state, NOW_TEST, 200)), BAND_EXPECT),
              ('bandAlertLine', segments_text(band_alert_line(waiting, NOW_TEST, 200)), ALERT_EXPECT),
              ('statusLine', format_line(state, NOW_TEST, 240), LONG_ROW),
-             ('bandLine/maxCols 40', segments_text(band_line(long_step, NOW_TEST, 40)), CUT_EXPECT))
+             ('bandLine/maxCols %d' % CUT_COLS,
+              segments_text(band_line(long_step, NOW_TEST, CUT_COLS)), CUT_EXPECT),
+             ('statusLine/HUD', format_line(state, NOW_TEST, 240, HUD), LONG_ROW_HUD),
+             ('bandLine/HUD', segments_text(band_line(None, NOW_TEST, 200, HUD)), HUD_ONLY),
+             ('foldedSegments', segments_text(folded_segments(waiting, HUD, NOW_TEST)), FOLDED_EXPECT))
     for name, produced, expected in drawn:
         if produced != expected:
             die('%s 가 테스트 기대 문자열과 다르다\n  재현: %s\n  기대: %s' % (name, produced, expected))
@@ -809,19 +878,22 @@ def main(argv):
             'result': '  ⎿  Ran 398 tests in 6.21s — OK',
             'say': '테스트가 통과했다. 카나리 전에 남은 검증만 돌리면 된다.',
             'worked': 'Worked for 27s · done 2026-10-09 16:19',
-            'bandCap': '밴드: 입력칸 위 한 줄. 막힌 단계나 대기가 있으면 둘째 줄이 붙는다.',
+            'bandCap': '밴드: 입력칸 위 한 줄. 막힌 단계가 있으면 둘째 줄이 붙는다.',
             'foldedCap': '접힌 밴드: /deadhd-band 로 접었을 때',
             'statusCap': '상태줄: 입력칸 아래, 엔진 힌트 다음 줄',
+            'hudCap': '세션 HUD: /deadhd 를 실행하기 전. 세션 상태와 마지막 도구만 보이고 '
+                      '열 페이지가 없어 열기 버튼도 없다.',
         },
         'en': {
             'call': 'Bash(python3 -m unittest skills/deadhd/test_render.py)',
             'result': '  ⎿  Ran 398 tests in 6.21s — OK',
             'say': 'Tests pass. Only the last canary checks are left.',
             'worked': 'Worked for 27s · done 2026-10-09 16:19',
-            'bandCap': 'Band: one row above the input. A second row appears when a step is '
-                       'stuck or the session waits.',
+            'bandCap': 'Band: one row above the input. A second row appears when a step is stuck.',
             'foldedCap': 'Folded band: after /deadhd-band',
             'statusCap': 'Status line: under the input, on the row after the engine hint',
+            'hudCap': 'Session HUD: before /deadhd runs. The session state and the last tool '
+                      'alone, with no page and so no Open button.',
         },
     }[lang]
 
@@ -865,6 +937,14 @@ def main(argv):
         raw['since'] = None
         status_state = normalize(raw, board)
 
+        # 세션이 스스로 지켜본 것: 턴은 4분 전에 시작했고 마지막 도구는 12초 전에 끝났다.
+        hud = dict(EMPTY_HUD,
+                   startedAt=(base - timedelta(minutes=WAIT_MINUTES)).isoformat(timespec='seconds'),
+                   turnAt=(base - timedelta(minutes=WAIT_MINUTES)).isoformat(timespec='seconds'),
+                   tool='Bash',
+                   toolAt=(base - timedelta(seconds=12)).isoformat(timespec='seconds'),
+                   compactions=1)
+
         # 실제 화면 순서 그대로다: 대화 영역, 밴드(프롬프트 위), 입력칸, 엔진 힌트,
         # 그리고 상태줄 모드에서만 그 아래에 deadhd 상태줄.
         talk_lines = [
@@ -879,13 +959,18 @@ def main(argv):
             """칸 수를 정해 밴드·상태줄 페이지를 만든다. 버튼이 차지하는 칸은 줄의 예산에서 뺀다."""
             global TERM_COLS
             TERM_COLS = cols
-            # register.tsx 처럼 버튼이 차지하는 칸을 줄의 예산에서 뺀다.
-            band_room = cols - (1 + button_cols(words['open'])) - (1 + button_cols(words['collapse']))
-            status_room = cols - (1 + button_cols(words['open']))
-            band = band_line(state, now, band_room)
+            # register.tsx 처럼 버튼이 차지하는 칸을 줄의 예산에서 뺀다. 상태 파일이 없는
+            # 세션에는 열 페이지가 없어 열기 버튼을 그리지 않으니 그 칸도 빼지 않는다.
+            opening = 1 + button_cols(words['open'])
+            toggle = 1 + button_cols(words['collapse'])
+            band_room = cols - opening - toggle
+            status_room = cols - opening - toggle
+            only_room = cols - toggle
+            band = band_line(state, now, band_room, hud)
             alerts = band_alert_line(state, now, cols)
-            folded = folded_segments(state)
-            status = status_line(status_state, now, status_room)
+            folded = folded_segments(state, hud, now)
+            status = status_line(status_state, now, status_room, hud)
+            only = status_line(None, now, only_room, hud)
             return {
                 'band': [
                     (talk['foldedCap'], terminal(talk_lines + [
@@ -895,10 +980,16 @@ def main(argv):
                         control_row(band, [(words['open'], True), (words['collapse'], False)]),
                         row(alerts),
                     ] + under_input)),
+                    (talk['hudCap'], terminal(talk_lines + [
+                        control_row(only, [(words['collapse'], False)]),
+                    ] + under_input)),
                 ],
                 'statusline': [
                     (talk['statusCap'], terminal(talk_lines + under_input + [
-                        control_row(status, [(words['open'], True)]),
+                        control_row(status, [(words['open'], True), (words['collapse'], False)]),
+                    ])),
+                    (talk['hudCap'], terminal(talk_lines + under_input + [
+                        control_row(only, [(words['collapse'], False)]),
                     ])),
                 ],
             }

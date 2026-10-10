@@ -1,7 +1,14 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ThemeKey } from 'claude-code'
 
-import type { DeadhdLang, DeadhdPr, DeadhdState, DeadhdStep, DeadhdView } from '../types'
+import type {
+  DeadhdHud,
+  DeadhdLang,
+  DeadhdPr,
+  DeadhdState,
+  DeadhdStep,
+  DeadhdView,
+} from '../types'
 
 const DEFAULT_STATE_DIR = '/tmp/deadhd-state'
 const REFRESH_MS = 5000
@@ -19,15 +26,22 @@ const BAR_CELLS = 6
 const SEP = ' · '
 const OPEN_TIMEOUT_MS = 15000
 
-/** The slash command each line folds from, spelled here and in `session.start`'s registration. */
-const BAND_CMD = '/deadhd-band'
-const STATUS_CMD = '/deadhd-statusline'
-
 /** The mark both lines open with, so a folded row names no command. */
 const STATUS_MARK = '◆'
 
 /** With no state file and no config the session draws in this view, as render.py decides too. */
 export const DEFAULT_VIEW: DeadhdView = 'html'
+
+/** The HUD of a mod that has watched nothing yet: what a line with no observation draws from. */
+export const EMPTY_HUD: DeadhdHud = {
+  startedAt: null,
+  turnAt: null,
+  endedAt: null,
+  tool: null,
+  toolAt: null,
+  running: 0,
+  compactions: 0,
+}
 
 const VIEWS: readonly DeadhdView[] = ['html', 'band', 'statusline']
 
@@ -82,6 +96,8 @@ const WORDS: Record<
     statusOnly: string
     permission: string
     input: string
+    running: string
+    toolRunning: string
     opened: string
     noPage: string
     openFailed: string
@@ -108,6 +124,8 @@ const WORDS: Record<
     statusOnly: '지금은 상태줄 모드가 아니에요. /deadhd setup 에서 상태줄을 고르면 보여요.',
     permission: '권한 승인 대기',
     input: '입력 대기',
+    running: '작업 중',
+    toolRunning: '실행 중',
     opened: 'HTML 페이지를 열었어요',
     noPage: '아직 HTML 페이지가 없어요',
     openFailed: 'HTML 페이지를 열지 못했어요',
@@ -133,6 +151,8 @@ const WORDS: Record<
     statusOnly: 'The status line is not drawn in this view. Choose statusline with /deadhd setup.',
     permission: 'waiting for permission',
     input: 'waiting for input',
+    running: 'working',
+    toolRunning: 'running',
     opened: 'Opened the HTML.',
     noPage: 'No HTML page yet.',
     openFailed: 'Could not open the HTML',
@@ -144,6 +164,9 @@ const WORDS: Record<
 const live = atom({ plugin: 'deadhd', key: 'state' } as const, null)
 const collapsed = atom({ plugin: 'deadhd', key: 'collapsed' } as const, false)
 const shown = atom({ plugin: 'deadhd', key: 'view' } as const, DEFAULT_VIEW)
+
+/** What the mod watched of this session by itself, before any state file is there to read. */
+const seen = atom({ plugin: 'deadhd', key: 'hud' } as const, EMPTY_HUD)
 
 /**
  * The text each mode last asked a repaint for, so a refresh whose line did not
@@ -291,27 +314,11 @@ const asIndex = (value: unknown): number | null => {
   return null
 }
 
-/** The words the lines add for a status the session waits in; null while it works or has ended. */
-export function statusLabel(status: string, lang: DeadhdLang): string | null {
-  if (status === '' || status === 'working' || status === 'ended') {
-    return null
-  }
+/** An instant as the HUD keeps it: ISO 8601, the shape `minutesBetween` reads. */
+const instant = (now: number): string => new Date(now).toISOString()
 
-  const words = WORDS[lang]
-
-  if (status === 'waiting_permission') {
-    return words.permission
-  }
-
-  if (status === 'idle') {
-    return words.input
-  }
-
-  return status
-}
-
-/** Whole minutes between an ISO instant and `now`, or null when either does not read as one. */
-const minutesBetween = (from: string | null, now: number): number | null => {
+/** Whole seconds between an ISO instant and `now`, or null when either does not read as one. */
+const secondsBetween = (from: string | null, now: number): number | null => {
   if (from === null) {
     return null
   }
@@ -322,7 +329,14 @@ const minutesBetween = (from: string | null, now: number): number | null => {
     return null
   }
 
-  return Math.floor((now - at) / 60000)
+  return Math.floor((now - at) / 1000)
+}
+
+/** Whole minutes between an ISO instant and `now`, or null when either does not read as one. */
+const minutesBetween = (from: string | null, now: number): number | null => {
+  const seconds = secondsBetween(from, now)
+
+  return seconds === null ? null : Math.floor(seconds / 60)
 }
 
 /** `8분째` / `8m in`: how long a step has been running. */
@@ -332,6 +346,10 @@ const since = (minutes: number, lang: DeadhdLang): string =>
 /** `8분 전` / `8m ago`: how long since the state file was written. */
 const ago = (minutes: number, lang: DeadhdLang): string =>
   lang === 'en' ? `${minutes}m ago` : `${minutes}분 전`
+
+/** `12초 전` / `12s ago`: how long since the tool a line names last ran. */
+const toolAgo = (seconds: number, lang: DeadhdLang): string =>
+  lang === 'en' ? `${seconds}s ago` : `${seconds}초 전`
 
 /** The `HH:MM` an eta carries, in the offset its writer used; null for anything else. */
 const clockOf = (eta: string | null): string | null => {
@@ -409,31 +427,103 @@ const stepField = (step: DeadhdStep, lang: DeadhdLang, now: number, running: str
   }
 }
 
-/** The piece for a session waiting on the person, or null while this session works. */
-const waitField = (state: DeadhdState, now: number): Field | null => {
-  if (state.status !== 'waiting_permission' && state.status !== 'idle') {
+/** One session-state piece: the mark, the word for the state, and how long it has lasted. */
+const sessionPiece = (
+  mark: string,
+  word: string,
+  tone: Tone,
+  from: string | null,
+  now: number,
+  lang: DeadhdLang,
+): Field => {
+  const minutes = minutesBetween(from, now)
+  const tail = minutes === null ? '' : ` ${since(minutes, lang)}`
+
+  return { tag: 'session', parts: [{ text: `${mark} ${word}${tail}`, tone, bold: true }] }
+}
+
+/**
+ * The session's own state: the wait it is in, and since when. The mod watches
+ * the turn itself, so its own word for working and for waiting beats the state
+ * file's; the permission dialog is the engine's own and raises no event the mod
+ * can watch, so that one word is the state file's.
+ */
+const sessionField = (
+  state: DeadhdState | null,
+  hud: DeadhdHud,
+  now: number,
+  lang: DeadhdLang,
+): Field | null => {
+  const words = WORDS[lang]
+
+  if (state !== null && state.status === 'waiting_permission') {
+    return sessionPiece('🔐', words.permission, 'warning', state.since, now, lang)
+  }
+
+  if (hud.turnAt !== null) {
+    return sessionPiece('▶', words.running, 'suggestion', hud.turnAt, now, lang)
+  }
+
+  // A mod that loaded into a running session watched no turn either way, so the
+  // state file's own word for the wait stands where it names one.
+  const from = hud.endedAt ?? hud.startedAt ?? (state !== null && state.status === 'idle' ? state.since : null)
+
+  return from === null ? null : sessionPiece('⌨️', words.input, 'merged', from, now, lang)
+}
+
+/** The tool the main loop called last, or the one it runs now; a subagent's own calls are not its own. */
+const toolField = (hud: DeadhdHud, now: number, lang: DeadhdLang): Field | null => {
+  if (hud.tool === null) {
     return null
   }
 
-  const word = statusLabel(state.status, state.lang) ?? state.status
-  const minutes = minutesBetween(state.since, now)
-  const tail = minutes === null ? '' : ` ${since(minutes, state.lang)}`
-  const asking = state.status === 'waiting_permission'
-
-  return {
-    tag: 'wait',
-    parts: [
-      { text: `${asking ? '🔐' : '⌨️'} ${word}${tail}`, tone: asking ? 'warning' : 'merged', bold: true },
-    ],
+  if (hud.running > 0) {
+    return { tag: 'tool', parts: [{ text: `🔧 ${hud.tool} ${WORDS[lang].toolRunning}`, tone: 'ide', bold: true }] }
   }
+
+  const seconds = secondsBetween(hud.toolAt, now)
+
+  return seconds === null
+    ? null
+    : { tag: 'tool', parts: [{ text: `🔧 ${hud.tool} ${toolAgo(seconds, lang)}`, tone: 'subtle' }] }
 }
 
-/** The band's first row: how far the run has come, and what is on it. */
-const bandFields = (state: DeadhdState, now: number): Field[] => {
+/** The session's own state and the tool it last called: the fields no state file is needed for. */
+const hudFields = (
+  state: DeadhdState | null,
+  hud: DeadhdHud,
+  now: number,
+  lang: DeadhdLang,
+): Field[] => {
+  const fields: Field[] = []
+  const session = sessionField(state, hud, now, lang)
+  const tool = toolField(hud, now, lang)
+
+  if (session !== null) {
+    fields.push(session)
+  }
+
+  if (tool !== null) {
+    fields.push(tool)
+  }
+
+  return fields
+}
+
+/** The mark a line opens with, on its own while the session has nothing else to draw. */
+const markField = (): Field => ({ tag: 'name', parts: [{ text: STATUS_MARK, tone: 'claude', bold: true }] })
+
+/** The band's first row: how far the run has come, and what is on it, then the session's own state. */
+const bandFields = (state: DeadhdState | null, hud: DeadhdHud, now: number): Field[] => {
+  const lang = state?.lang ?? 'ko'
+
+  return [...(state === null ? [markField()] : bandRun(state, now)), ...hudFields(state, hud, now, lang)]
+}
+
+/** The run's own pieces on the band's first row: the progress, the step it marks and the counts. */
+const bandRun = (state: DeadhdState, now: number): Field[] => {
   const words = WORDS[state.lang]
-  const fields: Field[] = [
-    { tag: 'name', parts: [{ text: STATUS_MARK, tone: 'claude', bold: true }] },
-  ]
+  const fields: Field[] = [markField()]
 
   if (state.total > 0) {
     fields.push({
@@ -468,8 +558,8 @@ const bandFields = (state: DeadhdState, now: number): Field[] => {
   return fields
 }
 
-/** The band's second row: the step that got stuck and the wait, when either is on. */
-const bandAlertFields = (state: DeadhdState, now: number): Field[] => {
+/** The band's second row: the step that got stuck, when one is. */
+const bandAlertFields = (state: DeadhdState): Field[] => {
   const words = WORDS[state.lang]
   const fields: Field[] = []
 
@@ -485,17 +575,18 @@ const bandAlertFields = (state: DeadhdState, now: number): Field[] => {
     })
   }
 
-  const wait = waitField(state, now)
-
-  if (wait !== null) {
-    fields.push(wait)
-  }
-
   return fields
 }
 
 /** The status line's pieces, in the order the long row draws them. */
-const statusFields = (state: DeadhdState, now: number): Field[] => {
+const statusFields = (state: DeadhdState | null, hud: DeadhdHud, now: number): Field[] => {
+  const lang = state?.lang ?? 'ko'
+
+  return [...(state === null ? [markField()] : statusRun(state, now, hud)), ...hudFields(state, hud, now, lang)]
+}
+
+/** The run's own pieces on the long row, in the order it draws them. */
+const statusRun = (state: DeadhdState, now: number, hud: DeadhdHud): Field[] => {
   const words = WORDS[state.lang]
   const fields: Field[] = []
 
@@ -512,7 +603,7 @@ const statusFields = (state: DeadhdState, now: number): Field[] => {
       ],
     })
   } else {
-    fields.push({ tag: 'name', parts: [{ text: STATUS_MARK, tone: 'claude', bold: true }] })
+    fields.push(markField())
   }
 
   const heading = headingParts(state)
@@ -570,12 +661,6 @@ const statusFields = (state: DeadhdState, now: number): Field[] => {
     fields.push({ tag: 'left', parts: [{ text: `⏳ ${words.left} ${state.left}`, tone: 'text' }] })
   }
 
-  const wait = waitField(state, now)
-
-  if (wait !== null) {
-    fields.push(wait)
-  }
-
   if (state.background > 0) {
     fields.push({
       tag: 'background',
@@ -583,10 +668,13 @@ const statusFields = (state: DeadhdState, now: number): Field[] => {
     })
   }
 
-  if (state.compactions > 0) {
+  // Both counts are of this session, so the larger one missed fewer of its events.
+  const compactions = Math.max(hud.compactions, state.compactions)
+
+  if (compactions > 0) {
     fields.push({
       tag: 'compacted',
-      parts: [{ text: `🗜 ${words.compacted} ${state.compactions}`, tone: 'remember' }],
+      parts: [{ text: `🗜 ${words.compacted} ${compactions}`, tone: 'remember' }],
     })
   }
 
@@ -683,17 +771,18 @@ const cutLast = (field: Field, room: number): void => {
 
 /**
  * Brings a line inside `maxCols` cells, giving way in the order the fields can
- * spare it: the title's body first, then the next step, the blocked step's
- * label and the field itself, the step a line marks and the field itself, the
- * compaction and background counts, the last-write age, the estimate, the left
- * count, the pull request, and the progress bar's own cells. The band's row
- * carries the same pieces under its own names (`leftCount` for the left count,
- * `bar` for the count's bar, `stuck` for the blocked label) and gives them up
- * in the same places. Still too wide, the title falls back to its key alone and
- * then goes. A title that stayed draws the beginning of what it gave away into
- * the cells the dropped fields left, so a line too long to hold it whole shows
- * the title's own words rather than the key alone. What a line must not lose
- * stays: the wait a session is in, the mark or command it opens with, and the
+ * spare it: the title's body first, then what the mod watched of the session by
+ * itself (the compaction and background counts, then the last tool), the next step,
+ * the blocked step's label and the field itself, the step a line marks and the
+ * field itself, the last-write age, the estimate, the left count, the pull
+ * request, and the progress bar's own cells. The band's row carries the same
+ * pieces under its own names (`leftCount` for the left count, `bar` for the
+ * count's bar, `stuck` for the blocked label) and gives them up in the same
+ * places. Still too wide, the title falls back to its key alone and then goes.
+ * A title that stayed draws the beginning of what it gave away into the cells
+ * the dropped fields left, so a line too long to hold it whole shows the title's
+ * own words rather than the key alone. What a line must not lose stays: the
+ * state the session is in, the mark or command it opens with, and the
  * `done/total` the bar's cells are rounded onto — so a row narrower than those
  * keeps drawing them.
  */
@@ -751,13 +840,14 @@ const fit = (fields: Field[], maxCols: number): Field[] => {
   const whole = title?.parts.map(part => ({ ...part }))
 
   if (lineWidth(fields) > maxCols) shrink('title')
+  if (lineWidth(fields) > maxCols) drop('compacted')
+  if (lineWidth(fields) > maxCols) drop('background')
+  if (lineWidth(fields) > maxCols) drop('tool')
   if (lineWidth(fields) > maxCols) drop('next')
   if (lineWidth(fields) > maxCols) shrink('blocked')
   if (lineWidth(fields) > maxCols) drop('blocked')
   if (lineWidth(fields) > maxCols) shrink('current')
   if (lineWidth(fields) > maxCols) drop('current')
-  if (lineWidth(fields) > maxCols) drop('compacted')
-  if (lineWidth(fields) > maxCols) drop('background')
   if (lineWidth(fields) > maxCols) drop('ago')
   if (lineWidth(fields) > maxCols) drop('eta')
   if (lineWidth(fields) > maxCols) drop('left')
@@ -797,69 +887,61 @@ const flatten = (fields: readonly Field[]): Segment[] => {
 }
 
 /** The band's first row, cut to `maxCols` cells. */
-export function bandLine(state: DeadhdState | null, now: number, maxCols: number): Segment[] {
-  if (state === null) {
-    return []
-  }
-
-  return flatten(fit(bandFields(state, now), maxCols))
+export function bandLine(
+  state: DeadhdState | null,
+  now: number,
+  maxCols: number,
+  hud: DeadhdHud = EMPTY_HUD,
+): Segment[] {
+  return flatten(fit(bandFields(state, hud, now), maxCols))
 }
 
-/** The band's second row, empty when neither a stuck step nor a wait is on. */
+/** The band's second row, empty while no step is stuck. */
 export function bandAlertLine(state: DeadhdState | null, now: number, maxCols: number): Segment[] {
   if (state === null) {
     return []
   }
 
-  return flatten(fit(bandAlertFields(state, now), maxCols))
+  return flatten(fit(bandAlertFields(state), maxCols))
 }
 
 const segmentsText = (parts: readonly Segment[]): string => parts.map(part => part.text).join('')
 
 /** The status line's pieces, cut to `maxCols` cells. */
-export function statusLine(state: DeadhdState | null, now: number, maxCols: number): Segment[] {
-  if (state === null) {
-    return []
-  }
-
-  return flatten(fit(statusFields(state, now), maxCols))
+export function statusLine(
+  state: DeadhdState | null,
+  now: number,
+  maxCols: number,
+  hud: DeadhdHud = EMPTY_HUD,
+): Segment[] {
+  return flatten(fit(statusFields(state, hud, now), maxCols))
 }
 
 /** The status line as plain text: the same pieces a drawing lays out, joined. */
-export function formatLine(state: DeadhdState | null, now: number, maxCols: number): string {
-  return segmentsText(statusLine(state, now, maxCols))
-}
-
-/** The folded band's one line: the mark and how far the run has come, nothing else. */
-function foldedSegments(state: DeadhdState): Segment[] {
-  const parts: Segment[] = [{ text: STATUS_MARK, tone: 'claude', bold: true }]
-
-  if (state.total > 0) {
-    parts.push(
-      { text: ' ', tone: 'plain' },
-      { text: `✓ ${state.done}/${state.total}`, tone: 'success' },
-    )
-  }
-
-  return parts
+export function formatLine(
+  state: DeadhdState | null,
+  now: number,
+  maxCols: number,
+  hud: DeadhdHud = EMPTY_HUD,
+): string {
+  return segmentsText(statusLine(state, now, maxCols, hud))
 }
 
 /**
- * The folded status line's one row: the mark and the count. The buttons drawn
- * at the row's end carry the way back to the long line, so the row itself names
- * no command.
+ * A folded line's one row: the mark and the state the session is in, nothing
+ * else. The buttons drawn at the row's end carry the way back to the long line,
+ * so the row itself names no command.
  */
-function statusFoldedSegments(state: DeadhdState): Segment[] {
-  const parts: Segment[] = [{ text: STATUS_MARK, tone: 'claude', bold: true }]
+function foldedSegments(
+  state: DeadhdState | null,
+  hud: DeadhdHud,
+  now: number,
+): Segment[] {
+  const session = sessionField(state, hud, now, state?.lang ?? 'ko')
 
-  if (state.total > 0) {
-    parts.push(
-      { text: ' ', tone: 'plain' },
-      { text: `✓ ${state.done}/${state.total}`, tone: 'success', bold: true },
-    )
-  }
-
-  return parts
+  return session === null
+    ? [{ text: STATUS_MARK, tone: 'claude', bold: true }]
+    : [{ text: STATUS_MARK, tone: 'claude', bold: true }, { text: ' ', tone: 'plain' }, ...session.parts]
 }
 
 /** The data file's items in lane·column order; a column the data leaves out follows its lane's last. */
@@ -1133,19 +1215,26 @@ const needsAttention = (fresh: DeadhdState, previous: DeadhdState): boolean =>
 /**
  * The line the current view would draw now, as plain text: what a refresh
  * compares against the last to tell whether a repaint would move anything.
- * A folded line carries no elapsed time, so it reads the same every interval.
+ * A folded line carries the session's own state alone, and no state file is
+ * needed to draw either line.
  */
-const paintText = (state: DeadhdState, now: number, folded: boolean, view: DeadhdView): string => {
+const paintText = (
+  state: DeadhdState | null,
+  hud: DeadhdHud,
+  now: number,
+  folded: boolean,
+  view: DeadhdView,
+): string => {
   const mode = view === 'band' ? 'band' : 'status'
   const cells = widths[mode]
 
   return view === 'band'
     ? folded
-      ? segmentsText(foldedSegments(state))
-      : segmentsText(bandLine(state, now, cells))
+      ? segmentsText(foldedSegments(state, hud, now))
+      : segmentsText(bandLine(state, now, cells, hud))
     : folded
-      ? segmentsText(statusFoldedSegments(state))
-      : formatLine(state, now, cells)
+      ? segmentsText(foldedSegments(state, hud, now))
+      : formatLine(state, now, cells, hud)
 }
 
 /** The kind and the path `open.sh` names on its `opened:` line, or null. */
@@ -1234,14 +1323,16 @@ async function refresh($: EngineInterface): Promise<void> {
       await update($, collapsed, () => false)
     }
 
-    if (fresh === null || view === 'html') {
+    // A line in the html view is the page's, not the mod's; the band and the
+    // status line draw the session's own state whether or not a file is there.
+    if (view === 'html') {
       return
     }
 
     const mode = view === 'band' ? 'band' : 'status'
     const folded = await read($, collapsed)
     const now = await $.clock.now()
-    const line = paintText(fresh, now, folded, view)
+    const line = paintText(fresh, await read($, seen), now, folded, view)
     const before = painted[mode]
 
     painted[mode] = line
@@ -1256,6 +1347,10 @@ async function refresh($: EngineInterface): Promise<void> {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
+    const at = instant(await $.clock.now())
+
+    await update($, seen, () => ({ ...EMPTY_HUD, startedAt: at }))
+
     await refresh($)
 
     if ((await read($, shown)) === 'statusline') {
@@ -1284,16 +1379,54 @@ export const register: Register = on => {
     return next(e)
   })
 
+  on('turn.start', async ($, e, next) => {
+    const ran = await next(e)
+    const at = instant(await $.clock.now())
+
+    await update($, seen, held => ({ ...held, turnAt: at, endedAt: null }))
+    void refresh($)
+
+    return ran
+  })
+
   on('turn.complete', async ($, e, next) => {
     const ran = await next(e)
+    const at = instant(await $.clock.now())
 
+    await update($, seen, held => ({ ...held, turnAt: null, endedAt: at }))
+    void refresh($)
+
+    return ran
+  })
+
+  on('session.compact', async ($, e, next) => {
+    const ran = await next(e)
+
+    await update($, seen, held => ({ ...held, compactions: held.compactions + 1 }))
     void refresh($)
 
     return ran
   })
 
   on('tool.call', async ($, e, next) => {
+    // A subagent's own calls carry the loop's `agentId`; the line names what the
+    // session's own loop last called.
+    const mine = e.agentId === undefined
+    const name = mine ? text(e.tool, '') : null
+
+    if (name !== null) {
+      const at = instant(await $.clock.now())
+
+      await update($, seen, held => ({ ...held, tool: name, toolAt: at, running: held.running + 1 }))
+    }
+
     const ran = await next(e)
+
+    if (name !== null) {
+      const at = instant(await $.clock.now())
+
+      await update($, seen, held => ({ ...held, toolAt: at, running: Math.max(0, held.running - 1) }))
+    }
 
     // A tool call never waits on this: refresh reads the state, the config and the
     // data JSON, and the timer keeps the line current anyway. It swallows its own
@@ -1345,29 +1478,25 @@ export const register: Register = on => {
     }
 
     const state = await read($, live)
-
-    if (state === null) {
-      return next(e)
-    }
-
+    const hud = await read($, seen)
     const folded = await read($, collapsed)
     const now = await $.clock.now()
-    const words = WORDS[state.lang]
+    const words = WORDS[state?.lang ?? 'ko']
     // The two buttons and the space before each are drawn beside the text, so
     // their cells come off the budget the line's own pieces are cut to. The
-    // width is the surface's own, which PromptHint's props do not carry.
+    // width is the surface's own, which PromptHint's props do not carry. A
+    // session with no state file has no page to open, so no `열기` button is
+    // drawn and its cells are not taken off the budget either.
     const cols = e.viewport?.columns ?? STATUS_COLS
     const toggle = folded ? words.expand : words.collapse
-    const room = Math.max(
-      0,
-      cols - HINT_INSET - (1 + buttonCols(words.open)) - (1 + buttonCols(toggle)),
-    )
+    const opening = state === null ? 0 : 1 + buttonCols(words.open)
+    const room = Math.max(0, cols - HINT_INSET - opening - (1 + buttonCols(toggle)))
 
     if (room > 0) {
       widths.status = room
     }
 
-    const parts = folded ? statusFoldedSegments(state) : statusLine(state, now, room)
+    const parts = folded ? foldedSegments(state, hud, now) : statusLine(state, now, room, hud)
     // The engine's hint keeps its own tree, drawn under the deadhd line.
     const hint = await next(e)
     const { Box, Text, Button, Link } = $.ui.resolve(e)
@@ -1393,7 +1522,9 @@ export const register: Register = on => {
               </Link>
             )
           })}
-          <Button key="open" label={words.open} variant="primary" onPress={open} />
+          {state === null ? null : (
+            <Button key="open" label={words.open} variant="primary" onPress={open} />
+          )}
           {folded ? (
             <Button key="expand" label={words.expand} onPress={() => update($, collapsed, () => false)} />
           ) : (
@@ -1415,19 +1546,15 @@ export const register: Register = on => {
     }
 
     const state = await read($, live)
-
-    if (state === null) {
-      return next(e)
-    }
-
+    const hud = await read($, seen)
     const { Box, Text, Button } = $.ui.resolve(e)
-    const words = WORDS[state.lang]
+    const words = WORDS[state?.lang ?? 'ko']
     const open = (): void => {
       void openText($, state).then(message => $.ui.toast(message))
     }
 
     if (await read($, collapsed)) {
-      const folded = foldedSegments(state)
+      const folded = foldedSegments(state, hud, await $.clock.now())
 
       return (
         <Box>
@@ -1436,21 +1563,26 @@ export const register: Register = on => {
               {index === folded.length - 1 ? `${part.text} ` : part.text}
             </Text>
           ))}
-          <Button key="open" label={words.open} variant="primary" onPress={open} />
+          {state === null ? null : (
+            <Button key="open" label={words.open} variant="primary" onPress={open} />
+          )}
           <Button key="expand" label={words.expand} onPress={() => update($, collapsed, () => false)} />
         </Box>
       )
     }
 
     const now = await $.clock.now()
-    const controls = buttonCols(words.open) + 1 + buttonCols(words.collapse) + 1
+    // A session with no state file has no page to open, so no `열기` button is
+    // drawn and its cells stay in the line's budget.
+    const controls =
+      buttonCols(words.collapse) + 1 + (state === null ? 0 : buttonCols(words.open) + 1)
     const room = Math.max(0, e.props.bodyColumns - controls)
 
     if (room > 0) {
       widths.band = room
     }
 
-    const line = bandLine(state, now, room)
+    const line = bandLine(state, now, room, hud)
 
     if (line.length === 0) {
       return next(e)
@@ -1463,12 +1595,14 @@ export const register: Register = on => {
             {index === line.length - 1 ? `${part.text} ` : part.text}
           </Text>
         ))}
-        <Button key="open" label={words.open} variant="primary" onPress={open} />
+        {state === null ? null : (
+          <Button key="open" label={words.open} variant="primary" onPress={open} />
+        )}
         <Button key="collapse" label={words.collapse} onPress={() => update($, collapsed, () => true)} />
       </Box>,
     ]
 
-    if (e.props.maxRows > 1) {
+    if (state !== null && e.props.maxRows > 1) {
       // The second row carries no button, so the whole region is its budget.
       const alerts = bandAlertLine(state, now, e.props.bodyColumns)
 

@@ -64,21 +64,23 @@ The same progress can be shown three ways. The band and the status line are show
 
 | Display | Where | Layout |
 |---|---|---|
-| `band` | One line above the prompt | Compresses the done count, a progress bar, the step in progress with its elapsed time, and only the blocked and left counts. It opens no browser tab, so it is the lightest of the three |
-| `statusline` | One line under the prompt | Carries the ticket key and title, the pull request of the step in progress, the next step, the completion estimate, the last update, background tasks, and compactions |
+| `band` | One line above the prompt | Shows the session state and the last tool first; a checklist adds the done count, a progress bar, the step in progress with its elapsed time, and the blocked and left counts. It opens no browser tab, so it is the lightest of the three |
+| `statusline` | One line under the prompt | The session state and the last tool, plus the ticket key and title, the pull request of the step in progress, the next step, the completion estimate, the last update, background tasks, and compactions |
 | `html` | The browser page | The progress page above |
 
-**The band** grows a second row when a step is stuck or the session waits. `/deadhd-band` folds it back to the count with the `Open` and `Expand` buttons.
+The checklist's state file is written when `/deadhd` runs. Before that the mod watches the session's own events and draws the **session state** (`▶ working Nm in` / `⌨️ waiting for input Nm in`) and the **last tool** (`🔧 tool Ns ago`). That is why the session's state shows the moment it starts, with nothing left in the conversation. There is no page yet, so the `Open` button is not drawn either; running `/deadhd` adds the checklist fields above to the same line.
 
-<p align="center"><img src="docs/band.en.png" alt="The band folded, and a second row for a stuck step and a wait" width="800"></p>
+**The band** grows a second row when a step is stuck. `/deadhd-band` folds it back to the session state with the `Open` and `Expand` buttons.
 
-**The status line** carries the same state file with more fields. The ticket key and the pull request of the step in progress are links you can press. When the row is wider than the terminal, the title is cut first and gets a `…`; if it still does not fit, the less important fields go first, and the wait state and the done count always stay. The `Open` button at the end of the row opens the page.
+<p align="center"><img src="docs/band.en.png" alt="The band, the session HUD, and a second row for a stuck step" width="800"></p>
+
+**The status line** carries the same state file with more fields. The ticket key and the pull request of the step in progress are links you can press. When the row is wider than the terminal, the title is cut first and gets a `…`; if it still does not fit, the less important fields go first, and the session state and the done count always stay. The `Open` button at the end of the row opens the page. `/deadhd-statusline` folds it back to the session state alone.
 
 <p align="center"><img src="docs/statusline.en.png" alt="The status line under the prompt" width="800"></p>
 
 Pick one in `/deadhd setup`, or change it with `/deadhd --view <value>`. The order is the `--view` value, the value already recorded in the session's state file, the saved setting, and `html` when there is none, so one run with `--view band` keeps that session on the band.
 
-The band and the status line are drawn by the deadhd plugin's mod (`skills/deadhd/hooks/register.tsx`), which reads the same state file the skill writes. They are **Claude Code only**; outside Claude Code (Codex `$deadhd`, say) the skill does not ask and works as `html`.
+The band and the status line are drawn by the deadhd plugin's mod (`skills/deadhd/hooks/register.tsx`), which watches the session's own events (a turn's start and end, tool calls, compactions) for the session state and reads the same state file the skill writes. They are **Claude Code only**; outside Claude Code (Codex `$deadhd`, say) the skill does not ask and works as `html`.
 
 <details>
 <summary>How the band and the status line handle the page file</summary>
