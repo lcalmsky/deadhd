@@ -167,7 +167,8 @@ def session_field(state, hud, now, lang):
     if state is not None and state['status'] == 'waiting_permission':
         return session_piece('🔐', words['permission'], 'warning', state['since'], now, lang)
     if hud['turnAt'] is not None:
-        return session_piece('▶', words['running'], 'suggestion', hud['turnAt'], now, lang)
+        # 현재 단계의 ▶ 와 구분되게 ● 를 쓴다. 한 줄에 둘이 함께 선다.
+        return session_piece('●', words['running'], 'suggestion', hud['turnAt'], now, lang)
     frm = hud['endedAt'] or hud['startedAt'] or (
         state['since'] if state is not None and state['status'] == 'idle' else None)
     if frm is None:
@@ -186,11 +187,23 @@ def tool_field(hud, now, lang):
     return ('tool', [('🔧 %s %s' % (hud['tool'], tool_ago(seconds, lang)), 'subtle', False)])
 
 
-def hud_fields(state, hud, now, lang):
-    """상태 파일 없이도 그리는 조각들: 세션 상태와 마지막 도구."""
+def compacted_field(state, hud, lang):
+    """상태줄이 그리는 압축 횟수. mod 가 지켜본 것과 상태 파일의 것 중 큰 쪽을 쓴다."""
+    compactions = max(hud['compactions'], 0 if state is None else state['compactions'])
+    if compactions == 0:
+        return None
+    return ('compacted', [('🗜 %s %d' % (WORDS[lang]['compacted'], compactions), 'remember', False)])
+
+
+def hud_fields(state, hud, now, lang, compacted):
+    """상태 파일 없이도 그리는 조각들: 세션 상태와 마지막 도구. 상태줄은 압축 횟수도 그린다."""
     fields = []
     session = session_field(state, hud, now, lang)
     tool = tool_field(hud, now, lang)
+    compaction = compacted_field(state, hud, lang) if compacted else None
+    # 세션 상태 앞, 실행의 개수들이 끝나는 자리다. 상태줄이 예전에 그리던 자리 그대로다.
+    if compaction is not None:
+        fields.append(compaction)
     if session is not None:
         fields.append(session)
     if tool is not None:
@@ -205,7 +218,7 @@ def mark_field():
 def band_fields(state, hud, now):
     lang = 'ko' if state is None else state['lang']
     return (([mark_field()] if state is None else band_run(state, now))
-            + hud_fields(state, hud, now, lang))
+            + hud_fields(state, hud, now, lang, False))
 
 
 def band_run(state, now):
@@ -275,11 +288,11 @@ def title_after_key(title, key):
 
 def status_fields(state, hud, now):
     lang = 'ko' if state is None else state['lang']
-    return (([mark_field()] if state is None else status_run(state, hud, now))
-            + hud_fields(state, hud, now, lang))
+    return (([mark_field()] if state is None else status_run(state, now))
+            + hud_fields(state, hud, now, lang, True))
 
 
-def status_run(state, hud, now):
+def status_run(state, now):
     words = WORDS[state['lang']]
     fields = []
     if state['total'] > 0:
@@ -318,11 +331,6 @@ def status_run(state, hud, now):
     if state['background'] > 0:
         fields.append(('background',
                        [('🧵 %s %d' % (words['background'], state['background']), 'ide', False)]))
-    # 둘 다 이 세션의 횟수다. 큰 쪽이 더 많은 사건을 놓치지 않았다.
-    compactions = max(hud['compactions'], state['compactions'])
-    if compactions > 0:
-        fields.append(('compacted',
-                       [('🗜 %s %d' % (words['compacted'], compactions), 'remember', False)]))
     return fields
 
 
@@ -799,7 +807,9 @@ BOARD = {
 HUD = {'startedAt': '2026-10-09T15:34:53+09:00', 'turnAt': '2026-10-09T15:34:53+09:00',
        'endedAt': None, 'tool': 'Bash', 'toolAt': '2026-10-09T15:38:41+09:00',
        'running': 0, 'compactions': 0}
-HUD_PIECES = '▶ 작업 중 4분째 · 🔧 Bash 12초 전'
+HUD_PIECES = '● 작업 중 4분째 · 🔧 Bash 12초 전'
+# 상태 파일 없이 지켜본 압축까지 있는 세션. 그 횟수는 상태 파일과 무관하게 나온다.
+WATCHED = dict(HUD, compactions=1)
 
 BAND_EXPECT = '◆ · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · 막힘 1 · 남음 2'
 ALERT_EXPECT = '⛔ 막힘: 배포 검증 (권한 대기)'
@@ -807,6 +817,8 @@ CUT_EXPECT = '◆ · ▓▓▓░░░ 3/6 · 막힘 1'
 CUT_COLS = 31
 FOLDED_EXPECT = '◆ 🔐 권한 승인 대기 4분째'
 HUD_ONLY = '◆ · %s' % HUD_PIECES
+# 상태 파일 없는 상태줄. 지켜본 압축 횟수는 여기서도 나온다.
+HUD_STRIP = '◆ · 🗜 압축 1 · %s' % HUD_PIECES
 LONG_LABEL = '아주 긴 단계 이름이 여기에 들어 있다'
 LONG_ROW = ('◆ ✓ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · '
             '▶ 실제 화면 확인 4분째 · 🔀 app-api#512 · ⏭ 다음 정리 · ⏱ 예상 16:20 · 🔄 2분 전 · '
@@ -821,7 +833,8 @@ TEST_FRAGMENTS = ('· ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째
                   '⛔ 막힘 1: 배포 검증 · ⏳ 남음 2 · 🧵 백그라운드 2 · 🗜 압축 1',
                   '🔀 app-api#512',
                   '▶ 실제 화면 확인 4분째 · 🔀 app-api#512 · ⏭ 다음 정리 · ⏱ 예상 16:20 · 🔄 2분 전 · ',
-                  '▶ 작업 중 4분째', '🔧 Bash 실행 중', '🔧 Bash 12초 전', '🗜 압축 2')
+                  '● 작업 중 4분째', '🔧 Bash 실행 중', '🔧 Bash 12초 전', '🗜 압축 2',
+                  '· 🗜 압축 2')
 
 
 def check_lines():
@@ -837,6 +850,7 @@ def check_lines():
              ('bandLine/maxCols %d' % CUT_COLS,
               segments_text(band_line(long_step, NOW_TEST, CUT_COLS)), CUT_EXPECT),
              ('statusLine/HUD', format_line(state, NOW_TEST, 240, HUD), LONG_ROW_HUD),
+             ('statusLine/HUD only', format_line(None, NOW_TEST, 240, WATCHED), HUD_STRIP),
              ('bandLine/HUD', segments_text(band_line(None, NOW_TEST, 200, HUD)), HUD_ONLY),
              ('foldedSegments', segments_text(folded_segments(waiting, HUD, NOW_TEST)), FOLDED_EXPECT))
     for name, produced, expected in drawn:
@@ -881,8 +895,10 @@ def main(argv):
             'bandCap': '밴드: 입력칸 위 한 줄. 막힌 단계가 있으면 둘째 줄이 붙는다.',
             'foldedCap': '접힌 밴드: /deadhd-band 로 접었을 때',
             'statusCap': '상태줄: 입력칸 아래, 엔진 힌트 다음 줄',
-            'hudCap': '세션 HUD: /deadhd 를 실행하기 전. 세션 상태와 마지막 도구만 보이고 '
-                      '열 페이지가 없어 열기 버튼도 없다.',
+            'hudCap': '세션 HUD(상태줄): /deadhd 를 실행하기 전. 세션 상태와 마지막 도구, 지켜본 압축 '
+                      '횟수가 보이고 열 페이지가 없어 열기 버튼도 없다.',
+            'hudBandCap': '세션 HUD(밴드): /deadhd 를 실행하기 전. 세션 상태와 마지막 도구가 보이고 '
+                          '열 페이지가 없어 열기 버튼도 없다.',
         },
         'en': {
             'call': 'Bash(python3 -m unittest skills/deadhd/test_render.py)',
@@ -892,8 +908,10 @@ def main(argv):
             'bandCap': 'Band: one row above the input. A second row appears when a step is stuck.',
             'foldedCap': 'Folded band: after /deadhd-band',
             'statusCap': 'Status line: under the input, on the row after the engine hint',
-            'hudCap': 'Session HUD: before /deadhd runs. The session state and the last tool '
-                      'alone, with no page and so no Open button.',
+            'hudCap': 'Session HUD (status line): before /deadhd runs. The session state, the last '
+                      'tool and the compactions it watched, with no page and so no Open button.',
+            'hudBandCap': 'Session HUD (band): before /deadhd runs. The session state and the last '
+                          'tool, with no page and so no Open button.',
         },
     }[lang]
 
@@ -970,7 +988,9 @@ def main(argv):
             alerts = band_alert_line(state, now, cols)
             folded = folded_segments(state, hud, now)
             status = status_line(status_state, now, status_room, hud)
+            # 상태 파일 없는 세션의 HUD 줄. 그림마다 그 방식의 줄로 그린다: 밴드는 압축을 그리지 않는다.
             only = status_line(None, now, only_room, hud)
+            band_only = band_line(None, now, only_room, hud)
             return {
                 'band': [
                     (talk['foldedCap'], terminal(talk_lines + [
@@ -980,8 +1000,8 @@ def main(argv):
                         control_row(band, [(words['open'], True), (words['collapse'], False)]),
                         row(alerts),
                     ] + under_input)),
-                    (talk['hudCap'], terminal(talk_lines + [
-                        control_row(only, [(words['collapse'], False)]),
+                    (talk['hudBandCap'], terminal(talk_lines + [
+                        control_row(band_only, [(words['collapse'], False)]),
                     ] + under_input)),
                 ],
                 'statusline': [

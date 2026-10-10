@@ -68,7 +68,7 @@ The same progress can be shown three ways. The band and the status line are show
 | `statusline` | One line under the prompt | The session state and the last tool, plus the ticket key and title, the pull request of the step in progress, the next step, the completion estimate, the last update, background tasks, and compactions |
 | `html` | The browser page | The progress page above |
 
-The checklist's state file is written when `/deadhd` runs. Before that the mod watches the session's own events and draws the **session state** (`▶ working Nm in` / `⌨️ waiting for input Nm in`) and the **last tool** (`🔧 tool Ns ago`). That is why the session's state shows the moment it starts, with nothing left in the conversation. There is no page yet, so the `Open` button is not drawn either; running `/deadhd` adds the checklist fields above to the same line.
+The checklist's state file is written when `/deadhd` runs. Before that the mod watches the session's own events and draws the **session state** (`● working Nm in` / `⌨️ waiting for input Nm in`) and the **last tool** (`🔧 tool Ns ago`). The status line adds the **compactions** it watched (`🗜 compacted N`). That is why the session's state shows the moment it starts, with nothing left in the conversation. There is no page yet, so the `Open` button is not drawn either; running `/deadhd` adds the checklist fields above to the same line.
 
 **The band** grows a second row when a step is stuck. `/deadhd-band` folds it back to the session state with the `Open` and `Expand` buttons.
 

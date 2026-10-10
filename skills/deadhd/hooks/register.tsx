@@ -460,8 +460,10 @@ const sessionField = (
     return sessionPiece('🔐', words.permission, 'warning', state.since, now, lang)
   }
 
+  // `●`, not the `▶` the run's own current step carries: one row draws both, so
+  // the mark has to say which of the two a reader is looking at.
   if (hud.turnAt !== null) {
-    return sessionPiece('▶', words.running, 'suggestion', hud.turnAt, now, lang)
+    return sessionPiece('●', words.running, 'suggestion', hud.turnAt, now, lang)
   }
 
   // A mod that loaded into a running session watched no turn either way, so the
@@ -488,16 +490,42 @@ const toolField = (hud: DeadhdHud, now: number, lang: DeadhdLang): Field | null 
     : { tag: 'tool', parts: [{ text: `🔧 ${hud.tool} ${toolAgo(seconds, lang)}`, tone: 'subtle' }] }
 }
 
-/** The session's own state and the tool it last called: the fields no state file is needed for. */
+/** The compaction piece: the count the mod watched, the state file's own standing in for its miss. */
+const compactedField = (state: DeadhdState | null, hud: DeadhdHud, lang: DeadhdLang): Field | null => {
+  // Both counts are of this session, so the larger one missed fewer of its events.
+  const compactions = Math.max(hud.compactions, state?.compactions ?? 0)
+
+  return compactions === 0
+    ? null
+    : {
+        tag: 'compacted',
+        parts: [{ text: `🗜 ${WORDS[lang].compacted} ${compactions}`, tone: 'remember' }],
+      }
+}
+
+/**
+ * The session's own state and the tool it last called: the fields no state file
+ * is needed for. The status line draws the compactions watched here too, since
+ * that count is the mod's own watch; the band draws the session state and the
+ * tool alone.
+ */
 const hudFields = (
   state: DeadhdState | null,
   hud: DeadhdHud,
   now: number,
   lang: DeadhdLang,
+  compacted: boolean,
 ): Field[] => {
   const fields: Field[] = []
   const session = sessionField(state, hud, now, lang)
   const tool = toolField(hud, now, lang)
+  const compaction = compacted ? compactedField(state, hud, lang) : null
+
+  // Ahead of the session's own state: the status line drew the compaction there
+  // while the field was the run's own.
+  if (compaction !== null) {
+    fields.push(compaction)
+  }
 
   if (session !== null) {
     fields.push(session)
@@ -517,7 +545,10 @@ const markField = (): Field => ({ tag: 'name', parts: [{ text: STATUS_MARK, tone
 const bandFields = (state: DeadhdState | null, hud: DeadhdHud, now: number): Field[] => {
   const lang = state?.lang ?? 'ko'
 
-  return [...(state === null ? [markField()] : bandRun(state, now)), ...hudFields(state, hud, now, lang)]
+  return [
+    ...(state === null ? [markField()] : bandRun(state, now)),
+    ...hudFields(state, hud, now, lang, false),
+  ]
 }
 
 /** The run's own pieces on the band's first row: the progress, the step it marks and the counts. */
@@ -582,11 +613,14 @@ const bandAlertFields = (state: DeadhdState): Field[] => {
 const statusFields = (state: DeadhdState | null, hud: DeadhdHud, now: number): Field[] => {
   const lang = state?.lang ?? 'ko'
 
-  return [...(state === null ? [markField()] : statusRun(state, now, hud)), ...hudFields(state, hud, now, lang)]
+  return [
+    ...(state === null ? [markField()] : statusRun(state, now)),
+    ...hudFields(state, hud, now, lang, true),
+  ]
 }
 
 /** The run's own pieces on the long row, in the order it draws them. */
-const statusRun = (state: DeadhdState, now: number, hud: DeadhdHud): Field[] => {
+const statusRun = (state: DeadhdState, now: number): Field[] => {
   const words = WORDS[state.lang]
   const fields: Field[] = []
 
@@ -665,16 +699,6 @@ const statusRun = (state: DeadhdState, now: number, hud: DeadhdHud): Field[] => 
     fields.push({
       tag: 'background',
       parts: [{ text: `🧵 ${words.background} ${state.background}`, tone: 'ide' }],
-    })
-  }
-
-  // Both counts are of this session, so the larger one missed fewer of its events.
-  const compactions = Math.max(hud.compactions, state.compactions)
-
-  if (compactions > 0) {
-    fields.push({
-      tag: 'compacted',
-      parts: [{ text: `🗜 ${words.compacted} ${compactions}`, tone: 'remember' }],
     })
   }
 
@@ -1345,6 +1369,19 @@ async function refresh($: EngineInterface): Promise<void> {
   }
 }
 
+/**
+ * One write of what the mod watched. These hooks only watch: the events are the
+ * engine's own and none of them is the mod's to hold up or refuse, so a write
+ * that fails leaves the last value standing and the event goes on.
+ */
+async function watch(write: () => Promise<void>): Promise<void> {
+  try {
+    await write()
+  } catch {
+    // The last value stands.
+  }
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const at = instant(await $.clock.now())
@@ -1383,7 +1420,7 @@ export const register: Register = on => {
     const ran = await next(e)
     const at = instant(await $.clock.now())
 
-    await update($, seen, held => ({ ...held, turnAt: at, endedAt: null }))
+    await watch(() => update($, seen, held => ({ ...held, turnAt: at, endedAt: null })))
     void refresh($)
 
     return ran
@@ -1393,7 +1430,7 @@ export const register: Register = on => {
     const ran = await next(e)
     const at = instant(await $.clock.now())
 
-    await update($, seen, held => ({ ...held, turnAt: null, endedAt: at }))
+    await watch(() => update($, seen, held => ({ ...held, turnAt: null, endedAt: at })))
     void refresh($)
 
     return ran
@@ -1402,11 +1439,11 @@ export const register: Register = on => {
   on('session.compact', async ($, e, next) => {
     const ran = await next(e)
 
-    await update($, seen, held => ({ ...held, compactions: held.compactions + 1 }))
+    await watch(() => update($, seen, held => ({ ...held, compactions: held.compactions + 1 })))
     void refresh($)
 
     return ran
-  })
+  }).catch(($, e, next) => next(e))
 
   on('tool.call', async ($, e, next) => {
     // A subagent's own calls carry the loop's `agentId`; the line names what the
@@ -1417,7 +1454,9 @@ export const register: Register = on => {
     if (name !== null) {
       const at = instant(await $.clock.now())
 
-      await update($, seen, held => ({ ...held, tool: name, toolAt: at, running: held.running + 1 }))
+      await watch(() =>
+        update($, seen, held => ({ ...held, tool: name, toolAt: at, running: held.running + 1 })),
+      )
     }
 
     const ran = await next(e)
@@ -1425,16 +1464,17 @@ export const register: Register = on => {
     if (name !== null) {
       const at = instant(await $.clock.now())
 
-      await update($, seen, held => ({ ...held, toolAt: at, running: Math.max(0, held.running - 1) }))
+      await watch(() =>
+        update($, seen, held => ({ ...held, toolAt: at, running: Math.max(0, held.running - 1) })),
+      )
     }
 
     // A tool call never waits on this: refresh reads the state, the config and the
-    // data JSON, and the timer keeps the line current anyway. It swallows its own
-    // failures, so nothing here needs a catch.
+    // data JSON, and the timer keeps the line current anyway.
     void refresh($)
 
     return ran
-  })
+  }).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'deadhd-open' }, async $ => {
     const state = await read($, live)

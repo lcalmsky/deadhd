@@ -135,7 +135,7 @@ const TURN_END: TurnCompleteInput = {
 }
 
 /** The session's own state as the mod watches it while the sample's turn runs. */
-const RUNNING = '▶ 작업 중 4분째'
+const RUNNING = '● 작업 중 4분째'
 
 /** The session's own state as the mod watches it with no turn behind it yet. */
 const IDLE = '⌨️ 입력 대기 0분째'
@@ -1176,6 +1176,40 @@ describe('the session the mod watches', () => {
     await ui.unmount()
   })
 
+  test('goes on watching when a recording throws', async ($, on) => {
+    const { clock } = statusWorld(on, filesOf(statusState()), ENGINE_HINT, START)
+    let broken = false
+
+    // 지켜본 값을 읽지 못하는 세션: 다음 한 번의 적기가 값이 아닌 것에 손을 대고 넘어진다.
+    on('state.get', { plugin: PLUGIN, key: 'hud' }, async ($, e, next) => {
+      const answer = await next(e)
+
+      if (!broken) {
+        return answer
+      }
+
+      broken = false
+
+      return { ...answer, value: null }
+    })
+    on('tool.call', () => ({ result: {} }))
+
+    await startsRunning($, clock)
+    await $.tool.call({ tool: 'Read', file_path: '/work/a.md' })
+    await clock.advance(12000)
+
+    broken = true
+
+    // 넘어진 적기 하나가 훅을 끝내지 않는다: 엔진이 준 답이 그대로 나오고,
+    await expect($.tool.call({ tool: 'Bash', command: 'sleep 1' })).resolves.toEqual({ result: {} })
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+
+    // 지켜보던 도구를 본 시각은 방금으로 남는다(넘어진 적기가 그것을 되돌리지 않는다).
+    expect(textOf(await ui.drawn())).toContain('🔧 Read 0초 전')
+
+    await ui.unmount()
+  })
   test('keeps the session state when the row has room for nothing else', async ($, on) => {
     const { clock } = statusWorld(on, filesOf(statusState()), ENGINE_HINT, START)
 
@@ -1560,9 +1594,17 @@ describe('formatLine', () => {
       turnAt: '2026-10-09T15:34:53+09:00',
     }
 
-    expect(formatLine(null, NOW, 240, watched)).toBe(`${STATUS_MARK} · ▶ 작업 중 4분째`)
+    expect(formatLine(null, NOW, 240, watched)).toBe(`${STATUS_MARK} · ● 작업 중 4분째`)
     // 관측한 것도 상태 파일도 없으면 표지만 남는다.
     expect(formatLine(null, NOW, 240)).toBe(STATUS_MARK)
+  })
+
+  test('draws the compactions it watched with no state file at all', () => {
+    const watched = { ...EMPTY_HUD, compactions: 2 }
+
+    expect(formatLine(null, NOW, 240, watched)).toBe(`${STATUS_MARK} · 🗜 압축 2`)
+    // 밴드는 압축을 그리지 않는다: 상태 파일이 있는 세션과 같은 줄이어야 한다.
+    expect(line(bandLine(null, NOW, 240, watched))).toBe(STATUS_MARK)
   })
 
   test('draws the key a title opens with once, not beside a copy of it', () => {
@@ -1848,7 +1890,7 @@ describe('cellWidth', () => {
   })
 
   test('counts the text symbols the lines draw as one cell', () => {
-    for (const glyph of ['✓', '▶', '↗', '▓', '░', '◇', '◐', '·']) {
+    for (const glyph of ['✓', '▶', '●', '↗', '▓', '░', '◇', '◐', '·']) {
       expect([glyph, cellWidth(glyph)]).toEqual([glyph, 1])
     }
   })
