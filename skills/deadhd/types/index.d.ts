@@ -21,6 +21,8 @@ export type DeadhdStep = {
   label: string
   /** The one-to-three-word note drawn under the step; `''` when the data has none. */
   sub: string
+  /** What the user has to do to unblock a blocked step; `''` when the data has none. */
+  ask: string
   /** When the step started, ISO 8601 with an offset, or null when the data omits it. */
   startedAt: string | null
   /** The step's lane and column, the order the page draws it in. */

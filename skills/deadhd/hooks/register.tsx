@@ -81,6 +81,7 @@ const WORDS: Record<
     blocked: string
     left: string
     allDone: string
+    ask: string
     next: string
     eta: string
     background: string
@@ -114,6 +115,7 @@ const WORDS: Record<
     blocked: '막힘',
     left: '남음',
     allDone: '완료',
+    ask: '할 일',
     next: '다음',
     eta: '예상',
     background: '백그라운드',
@@ -146,6 +148,7 @@ const WORDS: Record<
     blocked: 'blocked',
     left: 'left',
     allDone: 'all done',
+    ask: 'your move',
     next: 'next',
     eta: 'ETA',
     background: 'background',
@@ -618,6 +621,19 @@ const bandRun = (state: DeadhdState, hud: DeadhdHud, now: number): Field[] => {
     fields.push(stepField(state.current, state.lang, now, '▶'))
   }
 
+  if (state.next !== null) {
+    fields.push({
+      tag: 'next',
+      parts: [{ text: `⏭ ${words.next} ${state.next.label}`, tone: 'inactive' }],
+    })
+  }
+
+  const eta = clockOf(state.eta)
+
+  if (eta !== null) {
+    fields.push({ tag: 'etaBand', parts: [{ text: `⏱ ${words.eta} ${eta}`, tone: 'planMode' }] })
+  }
+
   const behind = minutesBetween(state.updatedAt, now)
 
   if (behind !== null) {
@@ -657,6 +673,16 @@ const bandAlertFields = (state: DeadhdState): Field[] => {
       parts: [
         { text: `⛔ ${words.blocked}: `, tone: 'error', bold: true },
         { text: note, tone: 'error', bold: true },
+      ],
+    })
+  }
+
+  if (state.stuck !== null && state.stuck.state === 'blocked' && state.stuck.ask !== '') {
+    fields.push({
+      tag: 'ask',
+      parts: [
+        { text: `${words.ask}: `, tone: 'warning', bold: true },
+        { text: state.stuck.ask, tone: 'text' },
       ],
     })
   }
@@ -874,18 +900,24 @@ const cutStepLabel = (field: Field, room: number): void => {
   field.parts[0] = { ...label, text: cut(label.text, left) }
 }
 
+/** Cells the stuck step's label keeps while the ask beside it gives way first. */
+const STUCK_KEEP = 8
+
 /**
  * Brings a line inside `maxCols` cells, giving way in the order the fields can
  * spare it: the title's body first, then what the mod watched of the session by
  * itself (the compaction and background counts, then the last tool), the next step,
  * the band's quiet age piece (`🔄`, which goes before the step's label; an age loud
  * enough to warn or read stale keeps the last-write age's own place below), the
- * blocked step's label and the field itself, the label the step a line marks
- * carries and then the field itself, the last-write age, the estimate, the left
- * count, the pull request, and the progress bar's own cells. The band's row
- * carries the same pieces under its own names (`leftCount` for the left count,
- * `bar` for the count's bar, `stuck` for the blocked label) and gives them up in
- * the same places. Still too wide, the title falls back to its key alone and then goes.
+ * band's estimate (`etaBand`, which goes just after that quiet age), the
+ * second row's blocked label down to the few cells it keeps while an ask sits
+ * beside it, then that ask (`ask`, which gives its own sentence away and then
+ * goes), the blocked step's label, and the blocked field itself, the label the
+ * step a line marks carries and then the field itself, the last-write age, the
+ * estimate, the left count, the pull request, and the progress bar's own cells.
+ * The band's row carries the same pieces under its own names (`leftCount` for the
+ * left count, `bar` for the count's bar, `stuck` for the blocked label) and gives
+ * them up in the same places. Still too wide, the title falls back to its key alone and then goes.
  * A title that stayed draws the beginning of what it gave away into the cells
  * the dropped fields left, so a line too long to hold it whole shows the title's
  * own words rather than the key alone. What a line must not lose stays: the
@@ -911,6 +943,33 @@ const fit = (fields: Field[], maxCols: number): Field[] => {
     if (field !== undefined) {
       cutStepLabel(field, maxCols - (lineWidth(fields) - fieldWidth(field)))
     }
+  }
+
+  /** The stuck step keeps a few cells of its own label while the ask beside it gives its sentence away. */
+  const shrinkStuck = (): void => {
+    if (!fields.some(one => one.tag === 'ask')) {
+      return
+    }
+
+    const field = fields.find(one => one.tag === 'blocked')
+
+    if (field === undefined) {
+      return
+    }
+
+    const last = field.parts[field.parts.length - 1]
+
+    if (last === undefined) {
+      return
+    }
+
+    const fixed = field.parts
+      .slice(0, -1)
+      .reduce((cells, part) => cells + cellWidth(part.text), 0)
+    const room =
+      Math.max(maxCols - (lineWidth(fields) - fieldWidth(field)) - fixed, STUCK_KEEP)
+
+    field.parts[field.parts.length - 1] = { ...last, text: cut(last.text, room) }
   }
 
   const drop = (tag: string): void => {
@@ -961,6 +1020,10 @@ const fit = (fields: Field[], maxCols: number): Field[] => {
   if (lineWidth(fields) > maxCols) drop('tool')
   if (lineWidth(fields) > maxCols) drop('next')
   if (lineWidth(fields) > maxCols) drop('agoQuiet')
+  if (lineWidth(fields) > maxCols) drop('etaBand')
+  if (lineWidth(fields) > maxCols) shrinkStuck()
+  if (lineWidth(fields) > maxCols) shrink('ask')
+  if (lineWidth(fields) > maxCols) drop('ask')
   if (lineWidth(fields) > maxCols) shrink('blocked')
   if (lineWidth(fields) > maxCols) drop('blocked')
   if (lineWidth(fields) > maxCols) shrinkStep('current')
@@ -1108,6 +1171,7 @@ const readSteps = (data: unknown): DeadhdStep[] => {
         state: text(source.state, ''),
         label: text(source.label, ''),
         sub: text(source.sub, ''),
+        ask: text(source.ask, ''),
         startedAt: typeof source.startedAt === 'string' ? source.startedAt : null,
         lane,
         col,
@@ -1204,6 +1268,7 @@ export function normalize(raw: unknown, data?: unknown): DeadhdState | null {
           state: now > 0 ? 'now' : 'blocked',
           label: nowLabel,
           sub: '',
+          ask: '',
           startedAt: null,
           lane: 0,
           col: 0,

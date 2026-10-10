@@ -893,6 +893,42 @@ class TemplateLinkifyTest(unittest.TestCase):
         self.assertEqual(probe['link_http'], {'tag': 'A', 'href': 'http://ok.test/x'})
         self.assertEqual(probe['link_upper'], {'tag': 'A', 'href': 'HTTPS://OK.test/y'})
 
+    def ask_texts(self, result):
+        found = []
+        for tree in result['nodes'].values():
+            for node in iter_nodes(tree):
+                if node['t'] == 'P' and node.get('cls') == 'ask':
+                    found.append(node['text'])
+        return found
+
+    def paragraph_texts(self, result):
+        found = []
+        for tree in result['nodes'].values():
+            for node in iter_nodes(tree):
+                if node['t'] == 'P':
+                    found.append(node['text'])
+        return found
+
+    def blocked_item(self, **extra):
+        item = {'id': 'a', 'label': 'L', 'state': 'blocked', 'body': '권한이 없다'}
+        item.update(extra)
+        return {'title': 'T', 'items': [item]}
+
+    def test_blocked_card_draws_the_ask_beside_the_body(self):
+        result = self.run_data(self.blocked_item(ask='권한을 승인해 주세요'))
+        self.assertEqual(self.ask_texts(result), ['할 일 권한을 승인해 주세요'])
+        # 막힌 카드는 #cards 가 아니라 #blocked 에 그려지므로 본문도 거기서 본다.
+        self.assertEqual(self.paragraph_texts(result), ['권한이 없다', '할 일 권한을 승인해 주세요'])
+
+    def test_blocked_card_without_an_ask_draws_no_ask(self):
+        self.assertEqual(self.ask_texts(self.run_data(self.blocked_item())), [])
+
+    def test_ask_on_a_step_that_is_not_blocked_is_not_drawn(self):
+        result = self.run_data({'title': 'T', 'items': [
+            {'id': 'a', 'label': 'L', 'state': 'now', 'body': '확인 중', 'ask': '확인해 주세요'},
+        ]})
+        self.assertEqual(self.ask_texts(result), [])
+
     def test_evidence_href_text_does_not_nest_anchor(self):
         links = {'SHOP-13': 'https://x.test/13'}
         evidence = [{'text': 'SHOP-13 티켓 확인', 'href': 'https://tracker.test/9'}]
@@ -1556,6 +1592,41 @@ class LaneShapeTest(unittest.TestCase):
                 self.assertEqual(r.returncode, 0, r.stderr)
 
 
+class ItemAskTest(unittest.TestCase):
+    """막힘 항목의 `ask` 가 문자열일 때만 통과하고, 다른 상태의 ask 는 막지 않는지 본다."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='progress-ask-test-')
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.count = 0
+
+    def render(self, items):
+        self.count += 1
+        path = os.path.join(self.tmp, 'data%d.json' % self.count)
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump({'title': 'T', 'items': items}, f, ensure_ascii=False)
+        out = os.path.join(self.tmp, 'out%d.html' % self.count)
+        return out, run_render(path, out)
+
+    def test_non_string_ask_is_rejected(self):
+        for value in (5, ['a'], {'text': 'a'}, True):
+            with self.subTest(ask=value):
+                out, r = self.render([mini_item('a', 'blocked', ask=value)])
+                self.assertEqual(r.returncode, 1, r.stdout)
+                self.assertIn('items[0].ask 가 문자열이 아니다', r.stderr)
+                self.assertFalse(os.path.exists(out))
+
+    def test_string_ask_passes_on_any_state(self):
+        for state in ('blocked', 'now', 'left'):
+            with self.subTest(state=state):
+                out, r = self.render([mini_item('a', state, ask='확인해 주세요')])
+                self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_empty_ask_passes(self):
+        out, r = self.render([mini_item('a', 'blocked', ask='')])
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+
 class RenderTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix='progress-test-')
@@ -2158,6 +2229,12 @@ class TemplateCompactTest(unittest.TestCase):
         for view, marker in (('a', 'class="ca-strip"'), ('b', 'class="cb-tl"'), ('c', 'class="cc-tiles"')):
             with self.subTest(view=view):
                 self.assertIn(marker, self.compact(data, view))
+
+    def test_compact_card_shows_the_ask_of_a_blocked_step(self):
+        stuck = {'id': 'a', 'label': 'L', 'state': 'blocked', 'body': '권한이 없다'}
+        drawn = self.compact({'title': 'T', 'items': [dict(stuck, ask='권한을 승인해 주세요')]}, 'a')
+        self.assertIn('<p class="cx-ask"><b>할 일</b> 권한을 승인해 주세요</p>', drawn)
+        self.assertNotIn('cx-ask', self.compact({'title': 'T', 'items': [stuck]}, 'a'))
 
     def test_compact_view_escapes_data(self):
         data = {'title': 'T', 'items': [{

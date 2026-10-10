@@ -400,6 +400,10 @@ describe('the band', () => {
       expect(drawn).toContain('▶ 실제 화면 확인 4분째')
       // 조용한 나이 조각이 단계 이름보다 먼저 빠지므로 이 폭에서는 나이가 서지 않는다.
       expect(drawn).not.toContain('🔄 2분 전')
+      // 다음 단계와 예상도 단계 이름과 함께 이 폭에서는 빠진다: 세션 상태 조각까지 더해
+      // 82칸을 넘기기 때문이다.
+      expect(drawn).not.toContain('⏭ 다음 정리')
+      expect(drawn).not.toContain('⏱ 예상 16:20')
       expect(drawn).toContain('막힘 1')
       expect(drawn).toContain('남음 2')
       expect(drawn).toContain(RUNNING)
@@ -778,9 +782,10 @@ describe('the band', () => {
 })
 
 describe('the band line', () => {
-  test('carries the progress, the current step, the age and the counts', () => {
+  test('carries the progress, the current step, the next step, the estimate, the age and the counts', () => {
     expect(line(bandLine(STATE, NOW, 200))).toBe(
-      `${STATUS_MARK} · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · 🔄 2분 전 · 막힘 1 · 남음 2`,
+      `${STATUS_MARK} · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · ⏭ 다음 정리 · ⏱ 예상 16:20 · ` +
+        '🔄 2분 전 · 막힘 1 · 남음 2',
     )
   })
 
@@ -843,6 +848,32 @@ describe('the band line', () => {
       expect(cellWidth(line(bandLine(long, NOW, maxCols)))).toBeLessThanOrEqual(maxCols)
     }
   })
+
+  test('keeps the step name whole on every width that still draws the next step or the estimate', () => {
+    for (let maxCols = 20; maxCols <= 80; maxCols++) {
+      const drawn = line(bandLine(STATE, NOW, maxCols))
+
+      // 다음 단계와 예상은 단계 이름보다 먼저 빠지므로, 둘 중 하나가 서 있는 폭에는 이름이 온전하다.
+      if (drawn.includes('⏭') || drawn.includes('⏱')) {
+        expect(drawn).toContain('▶ 실제 화면 확인')
+      }
+    }
+  })
+
+  test('gives the estimate up after the next step', () => {
+    const estimateAlone: number[] = []
+    const nextAlone: number[] = []
+
+    for (let maxCols = 20; maxCols <= 80; maxCols++) {
+      const drawn = line(bandLine(STATE, NOW, maxCols))
+
+      if (drawn.includes('⏱') && !drawn.includes('⏭')) estimateAlone.push(maxCols)
+      if (drawn.includes('⏭') && !drawn.includes('⏱')) nextAlone.push(maxCols)
+    }
+
+    expect(estimateAlone.length).toBeGreaterThan(0)
+    expect(nextAlone).toEqual([])
+  })
 })
 
 describe('the freshness piece', () => {
@@ -866,7 +897,8 @@ describe('the freshness piece', () => {
     const written = behind(2)
     const quiet: string[] = []
 
-    for (let maxCols = 20; maxCols <= 70; maxCols++) {
+    // 다음 단계와 예상 조각이 줄에 더해져, 조용한 나이가 설 수 있는 폭은 70칸보다 넓다.
+    for (let maxCols = 20; maxCols <= 100; maxCols++) {
       const drawn = line(bandLine(written, NOW, maxCols))
 
       if (drawn.includes('🔄')) {
@@ -995,6 +1027,61 @@ describe('the band alerts', () => {
     const clean = { ...STATE!, blocked: 0, stuck: null }
 
     expect(bandAlertLine(clean, NOW, 200)).toEqual([])
+  })
+
+  test('names what the user has to do beside the stuck step', () => {
+    const board = {
+      ...BOARD,
+      items: BOARD.items.map(item =>
+        item.state === 'blocked' ? { ...item, ask: '권한을 승인해 주세요' } : item,
+      ),
+    }
+    const stuck = normalize(SAMPLE, board)
+
+    expect(line(bandAlertLine(stuck, NOW, 200))).toBe(
+      '⛔ 막힘: 배포 검증 (권한 대기) · 할 일: 권한을 승인해 주세요',
+    )
+
+    for (const maxCols of [40, 60]) {
+      expect(cellWidth(line(bandAlertLine(stuck, NOW, maxCols)))).toBeLessThanOrEqual(maxCols)
+    }
+  })
+
+  test('keeps the stuck step named wherever the ask beside it still shows', () => {
+    // 할 일이 보이는 폭에서는 막힌 단계 이름도 최소 한 글자는 남아야 한다.
+    const board = {
+      ...BOARD,
+      items: BOARD.items.map(item =>
+        item.state === 'blocked' ? { ...item, ask: '권한을 승인해 주세요' } : item,
+      ),
+    }
+    const stuck = normalize(SAMPLE, board)
+
+    for (let maxCols = 20; maxCols <= 70; maxCols++) {
+      const drawn = line(bandAlertLine(stuck, NOW, maxCols))
+
+      expect(cellWidth(drawn)).toBeLessThanOrEqual(maxCols)
+
+      if (drawn.includes('할 일')) {
+        expect(drawn).toMatch(/⛔ 막힘: \S/)
+      }
+    }
+  })
+
+  test('leaves the alert row empty for an ask on a step that is not blocked', () => {
+    // 막힘을 풀며 state 만 바꾸고 ask 를 남긴 데이터다. 그 ask 는 어디에도 그리지 않는다.
+    const board = {
+      ...BOARD,
+      items: BOARD.items.filter(item => item.state !== 'blocked').map(item =>
+        item.state === 'now' ? { ...item, ask: '화면을 확인해 주세요' } : item,
+      ),
+    }
+    const state = normalize(
+      stateOf({}, { counts: { done: 3, now: 1, side: 0, left: 2, blocked: 0 } }),
+      board,
+    )
+
+    expect(bandAlertLine(state, NOW, 200)).toEqual([])
   })
 })
 
@@ -1851,7 +1938,7 @@ describe('the HUD setting', () => {
     const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
 
     expect(textOf(rowsOf(await ui.drawn())[0])).toBe(
-      `${STATUS_MARK} · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · 🔄 2분 전 · 막힘 1 · 남음 2 열기접기`,
+      `${STATUS_MARK} · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · ⏱ 예상 16:20 · 막힘 1 · 남음 2 열기접기`,
     )
 
     await ui.unmount()

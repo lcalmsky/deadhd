@@ -552,6 +552,9 @@ def validate(data):
         estimate = it.get('estimate')
         if estimate is not None and bad_estimate(estimate):
             problems.append('%s.estimate 가 0 보다 큰 수가 아니다' % where)
+        ask = it.get('ask')
+        if ask is not None and not isinstance(ask, str):
+            problems.append('%s.ask 가 문자열이 아니다' % where)
         check_hrefs(problems, where + '.evidence', it.get('evidence'))
         check_hrefs(problems, where + '.substeps', it.get('substeps'))
 

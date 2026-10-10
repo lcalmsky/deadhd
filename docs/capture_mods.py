@@ -37,13 +37,13 @@ STATUS_MARK = '◆'
 
 WORDS = {
     'ko': {
-        'blocked': '막힘', 'left': '남음', 'allDone': '완료', 'next': '다음', 'eta': '예상',
+        'blocked': '막힘', 'left': '남음', 'allDone': '완료', 'ask': '할 일', 'next': '다음', 'eta': '예상',
         'background': '백그라운드', 'compacted': '압축', 'collapse': '접기', 'expand': '펼치기',
         'open': '열기', 'enable': '켜기', 'permission': '권한 승인 대기', 'input': '입력 대기',
         'running': '작업 중', 'stale': '낡음', 'toolRunning': '실행 중',
     },
     'en': {
-        'blocked': 'blocked', 'left': 'left', 'allDone': 'all done', 'next': 'next', 'eta': 'ETA',
+        'blocked': 'blocked', 'left': 'left', 'allDone': 'all done', 'ask': 'your move', 'next': 'next', 'eta': 'ETA',
         'background': 'background', 'compacted': 'compacted', 'collapse': 'Collapse',
         'expand': 'Expand', 'open': 'Open', 'enable': 'Enable', 'permission': 'waiting for permission',
         'input': 'waiting for input', 'running': 'working', 'stale': 'stale', 'toolRunning': 'running',
@@ -250,6 +250,11 @@ def band_run(state, hud, now):
             ('%d/%d' % (state['done'], state['total']), 'success', True)]))
     if state['current'] is not None:
         fields.append(step_field(state['current'], state['lang'], now, '▶'))
+    if state['next'] is not None:
+        fields.append(('next', [('⏭ %s %s' % (words['next'], state['next']['label']), 'inactive', False)]))
+    eta = clock_of(state['eta'])
+    if eta is not None:
+        fields.append(('etaBand', [('⏱ %s %s' % (words['eta'], eta), 'planMode', False)]))
     behind = minutes_between(state['updatedAt'], now)
     if behind is not None:
         piece = update_piece(behind, state['lang'], busy_now(state, hud))
@@ -270,6 +275,9 @@ def band_alert_fields(state):
         stuck = state['stuck']
         note = stuck['label'] if stuck['sub'] == '' else '%s (%s)' % (stuck['label'], stuck['sub'])
         fields.append(('blocked', [('⛔ %s: ' % words['blocked'], 'error', True), (note, 'error', True)]))
+        if stuck['state'] == 'blocked' and stuck['ask'] != '':
+            fields.append(('ask', [('%s: ' % words['ask'], 'warning', True),
+                                   (stuck['ask'], 'text', False)]))
     return fields
 
 
@@ -404,6 +412,9 @@ def cut_step_label(field, room):
     parts[0] = (cut(label[0], left),) + label[1:]
 
 
+STUCK_KEEP = 8
+
+
 def fit(fields, max_cols):
     def shrink(tag):
         field = next((f for f in fields if f[0] == tag), None)
@@ -414,6 +425,18 @@ def fit(fields, max_cols):
         field = next((f for f in fields if f[0] == tag), None)
         if field is not None:
             cut_step_label(field, max_cols - (line_width(fields) - field_width(field)))
+
+    def shrink_stuck(_tag):
+        """할 일 조각이 옆에 있으면 막힌 단계 이름을 STUCK_KEEP 칸까지 줄인다. 없으면 손대지 않는다."""
+        if not any(f[0] == 'ask' for f in fields):
+            return
+        field = next((f for f in fields if f[0] == 'blocked'), None)
+        if field is None or not field[1]:
+            return
+        last = field[1][-1]
+        fixed = sum(cell_width(part[0]) for part in field[1][:-1])
+        room = max(max_cols - (line_width(fields) - field_width(field)) - fixed, STUCK_KEEP)
+        field[1][-1] = (cut(last[0], room),) + last[1:]
 
     def drop(tag):
         at = next((i for i, f in enumerate(fields) if f[0] == tag), -1)
@@ -442,7 +465,8 @@ def fit(fields, max_cols):
     whole = None if title is None else [tuple(part) for part in title[1]]
 
     for step, tag in ((shrink, 'title'), (drop, 'compacted'), (drop, 'background'),
-                      (drop, 'tool'), (drop, 'next'), (drop, 'agoQuiet'),
+                      (drop, 'tool'), (drop, 'next'), (drop, 'agoQuiet'), (drop, 'etaBand'),
+                      (shrink_stuck, ''), (shrink, 'ask'), (drop, 'ask'),
                       (shrink, 'blocked'), (drop, 'blocked'),
                       (shrink_step, 'current'), (drop, 'current'), (drop, 'ago'), (drop, 'eta'),
                       (drop, 'left'), (drop, 'leftCount'), (drop, 'pr'), (shrink_bar, 'count'),
@@ -526,6 +550,7 @@ def read_steps(data):
             'state': text(source.get('state'), ''),
             'label': text(source.get('label'), ''),
             'sub': text(source.get('sub'), ''),
+            'ask': text(source.get('ask'), ''),
             'startedAt': source.get('startedAt') if isinstance(source.get('startedAt'), str) else None,
             'lane': lane, 'col': col,
         }, index))
@@ -570,7 +595,7 @@ def normalize(raw, data=None):
     blocked = count(counts.get('blocked'))
     summary_step = None
     if not steps and now_label != '':
-        summary_step = {'state': 'now' if now > 0 else 'blocked', 'label': now_label, 'sub': '',
+        summary_step = {'state': 'now' if now > 0 else 'blocked', 'label': now_label, 'sub': '', 'ask': '',
                         'startedAt': None, 'lane': 0, 'col': 0}
     running = (next((s for s in steps if s['state'] == 'now'), None)
                or next((s for s in steps if s['state'] == 'side'), None))
@@ -855,7 +880,8 @@ HUD_PIECES = '● 작업 중 4분째 · 🔧 Bash 12초 전'
 # 상태 파일 없이 지켜본 압축까지 있는 세션. 그 횟수는 상태 파일과 무관하게 나온다.
 WATCHED = dict(HUD, compactions=1)
 
-BAND_EXPECT = '◆ · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · 🔄 2분 전 · 막힘 1 · 남음 2'
+BAND_EXPECT = ('◆ · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · ⏭ 다음 정리 · ⏱ 예상 16:20 · '
+               '🔄 2분 전 · 막힘 1 · 남음 2')
 ALERT_EXPECT = '⛔ 막힘: 배포 검증 (권한 대기)'
 CUT_EXPECT = '◆ · ▓▓▓░░░ 3/6 · 막힘 1'
 CUT_COLS = 31
@@ -870,7 +896,8 @@ LONG_ROW = ('◆ ✓ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회�
 LONG_ROW_HUD = '%s · %s' % (LONG_ROW, HUD_PIECES)
 # 위 기대 줄들은 테스트에서 조각을 이어 붙여 만들거나 표지를 템플릿으로 넣으므로,
 # 테스트 파일에는 조각으로 있는지 본다.
-TEST_FRAGMENTS = ('· ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · 🔄 2분 전 · 막힘 1 · 남음 2',
+TEST_FRAGMENTS = ('▶ 실제 화면 확인 4분째 · ⏭ 다음 정리 · ⏱ 예상 16:20 · ',
+                  '⛔ 막힘: 배포 검증 (권한 대기) · 할 일: 권한을 승인해 주세요',
                   '⛔ 막힘: 배포 검증 (권한 대기)',
                   '· ▓▓▓░░░ 3/6 · 막힘 1',
                   '✓ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · ',

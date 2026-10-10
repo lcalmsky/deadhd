@@ -384,6 +384,8 @@ h2.blocked .ic { background: color-mix(in srgb, var(--blocked) 18%, transparent)
 
 .card.blocked { border-color: color-mix(in srgb, var(--blocked) 45%, transparent); }
 .card.blocked h3::before { content: "!"; color: var(--blocked); }
+.card .ask { margin-top: 6px; border-left: 3px solid var(--blocked); padding-left: 10px; }
+.card .ask b { color: var(--blocked); }
 [data-fx="max"] .card.blocked { box-shadow: 0 0 40px -8px color-mix(in srgb, var(--blocked) 45%, transparent); }
 
 /* ---------- 카드 안 그림 ---------- */
@@ -519,6 +521,8 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
 .cx-card { padding: 14px 16px; min-width: 0; }
 .cx-card h3 { margin: 0 0 4px; font-size: 15px; font-weight: 400; display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
 .cx-card p { margin: 0; color: var(--ink-2); font-size: 13px; }
+.cx-card .cx-ask { margin-top: 6px; border-left: 3px solid var(--blocked); padding-left: 10px; }
+.cx-card .cx-ask b { color: var(--blocked); }
 .cx-subs { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 4px; font-size: 12.5px; }
 .cx-subs li { display: flex; gap: 8px; align-items: center; color: var(--ink-2); }
 .cx-subs .g { width: 14px; text-align: center; font-size: 11px; }
@@ -970,6 +974,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       overdue: ' (지남)',
       eyebrowNow: l => l + ' 진행 중',
       eyebrowBlocked: l => l + ' 막힘',
+      askLabel: '할 일',
       allDone: '모든 단계 완료',
       tally: { done: '완료', now: '진행', blocked: '막힘', side: '병행', left: '남음' },
       secBlocked: '막힌 작업',
@@ -1065,6 +1070,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       overdue: ' (overdue)',
       eyebrowNow: l => l + ' in progress',
       eyebrowBlocked: l => l + ' blocked',
+      askLabel: 'Your move',
       allDone: 'All steps done',
       tally: { done: 'Done', now: 'Now', blocked: 'Blocked', side: 'Parallel', left: 'Left' },
       secBlocked: 'Blocked',
@@ -2060,6 +2066,13 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
       p.appendChild(linkify(it.body));
       card.appendChild(p);
     }
+    if (it.state === 'blocked' && typeof it.ask === 'string' && it.ask) {
+      const p = el('p', 'ask');
+      p.appendChild(el('b', null, L.askLabel));
+      p.appendChild(document.createTextNode(' '));
+      p.appendChild(linkify(it.ask));
+      card.appendChild(p);
+    }
     const etime = nowTimeEl(it);
     if (etime) card.appendChild(etime);
     if (Array.isArray(it.substeps) && it.substeps.length) card.appendChild(substepsEl(it.substeps));
@@ -2276,6 +2289,7 @@ body:not([data-view]) #orient, body[data-view="full"] #orient { display: none; }
   const nowCard = () => !vNow ? '' : `<div class="cx-glass cx-card">
       <h3><span>${esc(vNow.title)}</span>${vNow.estimate != null ? `<span class="cx-eta">${L.remainingTime}<b>${fmtDur(vNow.estimate)}</b></span>` : ''}</h3>
       <p>${esc(vNow.body)}</p>
+      ${vNow.state === 'blocked' && typeof vNow.ask === 'string' && vNow.ask ? `<p class="cx-ask"><b>${esc(L.askLabel)}</b> ${esc(vNow.ask)}</p>` : ''}
       ${Array.isArray(vNow.substeps) && vNow.substeps.length ? `<ul class="cx-subs">${vNow.substeps.map(s => { const sh = httpHref(s.href); return `<li class="${s.state}"><span class="g">${NODE_ICON[s.state] || '○'}</span>${sh ? `<a href="${esc(sh)}" target="_blank" rel="noopener" style="color:inherit">${esc(s.label)}</a>` : esc(s.label)}</li>`; }).join('')}</ul>` : ''}
       ${Array.isArray(vNow.evidence) && vNow.evidence.length ? `<div class="cx-ev">${vNow.evidence.map(e => { const eh = httpHref(e.href), mono = e.mono ? ' class="mono"' : ''; return eh ? `<a href="${esc(eh)}" target="_blank" rel="noopener"${mono}>${esc(e.text)}</a>` : `<span${mono}>${esc(e.text)}</span>`; }).join('')}</div>` : ''}
     </div>`;

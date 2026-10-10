@@ -137,7 +137,8 @@ Each item:
 
 - `id`, `label` (short, for the flow picture), `sub` (one to three words under the node), `state`: `done`, `now` (exactly one while work is running), `side` (running in parallel), `left`, `blocked` (failed or waiting on the user).
 - `lane`: the lane this step sits in — the index in `lanes`, or a lane's `id` or name; a name is matched against `id` first, then against the lane's name, and the first match wins; defaults to `0`. `col`: its column inside the lane; leave it out to take the next free column after the previous step in that lane.
-- `title` and `body`: the card. `body` is one or two sentences: what and why for `now`, what happened for `done`, what is needed for `blocked`.
+- `title` and `body`: the card. `body` is one or two sentences: what and why for `now`, what happened for `done`, what stopped it for `blocked`.
+- `ask`: only on a `blocked` item, the one thing the user has to do to unblock it, as one sentence addressed to them, e.g. `SHOP-209 에서 부분 환불 때 쿠폰을 복원할지 정해 주세요`. The band's second row and the blocked card show it apart from `body`. Leave it out when the step waits on nothing the user can do.
 - `evidence`: file paths, PR, commit, test counts, Jira comments, each with an `icon` and an `href` when the identifier has a URL.
 - `startedAt`, `doneAt`: when the step actually started and finished, ISO 8601 with a timezone offset, e.g. `2026-10-02T22:35:00+09:00`. Use a real time only: the output of `date -Iseconds` taken when you start or finish the step, or a timestamp that appeared in this session's tool results. Never invent one; leave the field out when you do not know.
 - `estimate`: your estimate in minutes. On the `now` item it is the minutes left from now; on a `left` or `side` item it is how long that step will take. Leave it out when you have no basis for the number.
