@@ -33,13 +33,13 @@ A status page for the task running in this session. The reader glanced away for 
 - `band`: a one-line band above the prompt, in Claude Code. Nothing is opened; the page is rendered only when someone asks for it (`/deadhd-open`, the band's `열기` button).
 - `statusline`: a hint line under the prompt, in Claude Code. Same as `band`, with more fields on the line.
 
-`band` and `statusline` are drawn by the deadhd mod, a Claude Code plugin: `skills/deadhd/hooks/register.tsx`, loaded through the plugin's `hooks/hooks.json`. The mod reads the same state file the skill writes and needs no separate step, and it watches the session's own events (a turn's start and end, tool calls, compactions) so the session state — `● 작업 중 N분째`, `⌨️ 입력 대기 N분째`, `🔧 도구이름 N초 전`, `🗜 압축 N` — is drawn from the moment the session starts, before this skill has written anything. A session with no state file yet has no page to open, so the mod draws no `열기` button; running the skill attaches the checklist fields to the same line. The view is `html` where the mod cannot run: Codex (`$deadhd`), any host that does not load Claude Code plugins, and surfaces that draw no band or hint line even inside Claude Code — the VS Code extension and `claude -p` name `CLAUDE_CODE_SESSION_ID` and still show nothing. Work as the `html` view there, and do not ask the display question outside Claude Code.
+`band` and `statusline` are drawn by the deadhd mod, a Claude Code plugin: `skills/deadhd/hooks/register.tsx`, loaded through the plugin's `hooks/hooks.json`. The mod reads the same state file the skill writes and needs no separate step, and it watches the session's own events (a turn's start and end, tool calls, compactions) so the session state — `● 작업 중 N분째`, `⌨️ 입력 대기 N분째`, `🔧 도구이름 N초 전`, `🗜 압축 N` — is drawn from the moment the session starts, before this skill has written anything. The saved `hud` value turns that watch off (see Setup): with `hud off` the line is drawn only once the state file is there. A session with no state file yet has no page to open, so the mod draws no `열기` button; running the skill attaches the checklist fields to the same line. The view is `html` where the mod cannot run: Codex (`$deadhd`), any host that does not load Claude Code plugins, and surfaces that draw no band or hint line even inside Claude Code — the VS Code extension and `claude -p` name `CLAUDE_CODE_SESSION_ID` and still show nothing. Work as the `html` view there, and do not ask the display question outside Claude Code.
 
 On a `band` or `statusline` view the skill does not call `open.sh`. Reply with one line saying the band (or the status line) is showing and that the page is opened with `/deadhd-open` or the band's `열기` button. A run that names `-h`, `-o`, `-c`, or `--view html` still opens the page and keeps it updated: on the first render pass `--page` to `render.py` so the HTML file exists (the view itself stays), then open or publish it as Deliver says. `--view html` also changes this session's view to `html` from then on.
 
 ## Setup
 
-Ask once, then save the answers as the defaults. There are four questions: the default open location, the default display, the default theme, and the default heading font. Ask with the `AskUserQuestion` tool when it is available, otherwise ask in plain text; when the tool is available, put all four questions in a single call (the tool allows at most four).
+Ask once, then save the answers as the defaults. There are four questions: the default open location, the default display, the default theme, and the default heading font. Ask with the `AskUserQuestion` tool when it is available, otherwise ask in plain text; when the tool is available, put all four questions in a single call (the tool allows at most four). The display answer decides whether a fifth question follows (see Session HUD).
 
 Display, three choices:
 
@@ -48,6 +48,13 @@ Display, three choices:
 - `html`: the browser page, as before.
 
 Save it with `python3 <skill-dir>/config.py set view <value>`. Outside Claude Code (no `CLAUDE_CODE_SESSION_ID`) skip this question and leave the view at `html`, which is also what a session with no saved view and no state file draws.
+
+Session HUD, asked as a second `AskUserQuestion` call right after the first one, and only when the display answer is `band` or `statusline`. Two choices:
+
+- `on` (recommended): the session state, the wait and the last tool are drawn from the session's own events, so they show before `/deadhd` has run.
+- `off`: the line is drawn from the run that has written the checklist, so nothing of the session's own watch shows.
+
+Save it with `python3 <skill-dir>/config.py set hud <value>`. With the `html` display, or outside Claude Code, do not ask it and save nothing: an unset `hud` reads as `on`.
 
 Open location, four choices:
 
@@ -92,9 +99,9 @@ When the user picks `more fonts`, list these in plain text, one line each with i
 - `gowun-batang` — Gowun Batang 700 serif
 - `black-han-sans` — Black Han Sans poster
 
-Save the answers with `python3 <skill-dir>/config.py set open <value>`, `python3 <skill-dir>/config.py set view <value>`, `python3 <skill-dir>/config.py set theme <value>`, and `python3 <skill-dir>/config.py set font <value>`. Calling the skill with `setup` asks all four questions again.
+Save the answers with `python3 <skill-dir>/config.py set open <value>`, `python3 <skill-dir>/config.py set view <value>`, `python3 <skill-dir>/config.py set theme <value>`, and `python3 <skill-dir>/config.py set font <value>`. Calling the skill with `setup` asks all four questions again, and the HUD question when the display answer is `band` or `statusline`.
 
-- First run: on an ordinary run that is not `-c`, `-o`, `--open`, `off`, or `setup`, run `python3 <skill-dir>/config.py get open`, `python3 <skill-dir>/config.py get view`, `python3 <skill-dir>/config.py get theme`, and `python3 <skill-dir>/config.py get font` first. Ask only for the ones that print `unset`, save them, then continue the original work. The display question is skipped outside Claude Code, as above.
+- First run: on an ordinary run that is not `-c`, `-o`, `--open`, `off`, or `setup`, run `python3 <skill-dir>/config.py get open`, `python3 <skill-dir>/config.py get view`, `python3 <skill-dir>/config.py get theme`, `python3 <skill-dir>/config.py get font`, and `python3 <skill-dir>/config.py get hud` first. Ask only for the ones that print `unset`, save them, then continue the original work. The display question is skipped outside Claude Code, and the HUD question is asked only when the display answer is `band` or `statusline`.
 
 ## Gather the facts
 
@@ -214,7 +221,7 @@ After the first render, update the JSON and rerun `render.py` whenever an item c
 
 The plugin's hooks (`hooks/hooks.json`) keep a status band on the page fresh on their own: waiting for permission, waiting for input, last tool, background tasks, compactions. `render.py` links the page to this session through `CLAUDE_CODE_SESSION_ID`; nothing to do for that. After a context compaction the session-start hook tells you the data file path; keep using it. A skill-folder or Orca install loads that same `hooks/hooks.json` through the folder's own manifest; only a session with no hooks at all — a host that does not load the plugin, such as Codex — shows no status band and is listed as `untracked` or `done`.
 
-Under a `band` or `statusline` view the mod draws its own session state (a running turn, a wait, the last tool, compactions) from the session's events, and the checklist fields from the same state file, so the renders above are what keeps the checklist fresh. Nothing else to do for it.
+Under a `band` or `statusline` view the mod draws its own session state (a running turn, a wait, the last tool, compactions) from the session's events, and the checklist fields from the same state file, so the renders above are what keeps the checklist fresh. With `hud off` it draws the checklist fields alone. Nothing else to do for it.
 
 Every render also rewrites the hub page (`/tmp/deadhd-hub.html`), which lists this machine's sessions; the page's `허브 ↗` button opens it.
 

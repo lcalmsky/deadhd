@@ -2623,6 +2623,28 @@ class ConfigScriptTest(unittest.TestCase):
         self.assertEqual(self.run_config('set', 'view', 'band').returncode, 0)
         self.assertEqual(self.run_config('get', 'open').stdout.strip(), 'desktop')
 
+    def test_hud_get_reports_unset_when_file_missing(self):
+        r = self.run_config('get', 'hud')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), 'unset')
+
+    def test_hud_set_then_get_returns_value(self):
+        r = self.run_config('set', 'hud', 'off')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('saved: hud=off', r.stdout)
+        self.assertEqual(self.run_config('get', 'hud').stdout.strip(), 'off')
+
+    def test_hud_set_invalid_value_exits_2(self):
+        r = self.run_config('set', 'hud', 'maybe')
+        self.assertEqual(r.returncode, 2)
+        self.assertIn('maybe', r.stderr)
+        self.assertFalse(os.path.exists(self.path))
+
+    def test_hud_set_preserves_view_value(self):
+        self.assertEqual(self.run_config('set', 'view', 'band').returncode, 0)
+        self.assertEqual(self.run_config('set', 'hud', 'off').returncode, 0)
+        self.assertEqual(self.run_config('get', 'view').stdout.strip(), 'band')
+
     def test_unknown_key_exits_2(self):
         self.assertEqual(self.run_config('get', 'nope').returncode, 2)
         self.assertEqual(self.run_config('set', 'nope', 'dark').returncode, 2)

@@ -164,6 +164,8 @@ const WORDS: Record<
 const live = atom({ plugin: 'deadhd', key: 'state' } as const, null)
 const collapsed = atom({ plugin: 'deadhd', key: 'collapsed' } as const, false)
 const shown = atom({ plugin: 'deadhd', key: 'view' } as const, DEFAULT_VIEW)
+/** Whether the config asks the mod to draw the HUD it watches; an unset config reads as on. */
+const hudOn = atom({ plugin: 'deadhd', key: 'hud-on' } as const, true)
 
 /** What the mod watched of this session by itself, before any state file is there to read. */
 const seen = atom({ plugin: 'deadhd', key: 'hud' } as const, EMPTY_HUD)
@@ -1210,6 +1212,26 @@ async function viewOf($: EngineInterface, state: DeadhdState | null): Promise<De
   return resolveView(state?.view ?? null, await configView($))
 }
 
+/** Whether a config's `hud` value asks for the session HUD; only `off` turns it off. */
+export function resolveHud(configHud: unknown): boolean {
+  return configHud !== 'off'
+}
+
+/** Whether the deadhd config file asks for the session HUD, by the rule config.py writes it. */
+async function configHud($: EngineInterface): Promise<boolean> {
+  const file = await configPath($)
+
+  if (file === null) {
+    return true
+  }
+
+  try {
+    return resolveHud(record(JSON.parse(await $.fs.read(file))).hud)
+  } catch {
+    return true
+  }
+}
+
 /**
  * The skill folder beside this module. It is the plugin root for a
  * skill-folder install and `${root}/skills/deadhd` for a marketplace one;
@@ -1332,15 +1354,22 @@ async function refresh($: EngineInterface): Promise<void> {
     const view = await viewOf($, fresh)
     const previous = await read($, live)
     const previousView = await read($, shown)
+    const watching = await configHud($)
+    const previousHud = await read($, hudOn)
 
     if (JSON.stringify(previous) !== JSON.stringify(fresh)) {
       await update($, live, () => fresh)
     }
 
-    // The view is re-read every interval, so a change in the config reaches the
-    // lines without a restart; the hook reads this atom rather than the file.
+    // The view and the HUD are re-read every interval, so a change in the config
+    // reaches the lines without a restart; the hooks read these atoms rather than
+    // the file.
     if (previousView !== view) {
       await update($, shown, () => view)
+    }
+
+    if (previousHud !== watching) {
+      await update($, hudOn, () => watching)
     }
 
     if (fresh !== null && previous !== null && needsAttention(fresh, previous)) {
@@ -1356,7 +1385,13 @@ async function refresh($: EngineInterface): Promise<void> {
     const mode = view === 'band' ? 'band' : 'status'
     const folded = await read($, collapsed)
     const now = await $.clock.now()
-    const line = paintText(fresh, await read($, seen), now, folded, view)
+    // With the HUD off the config asks for no line until the skill has written
+    // the checklist; once it is there the line draws from the state file's own
+    // values, with the watched pieces left out.
+    const line =
+      fresh === null && !watching
+        ? ''
+        : paintText(fresh, watching ? await read($, seen) : EMPTY_HUD, now, folded, view)
     const before = painted[mode]
 
     painted[mode] = line
@@ -1535,7 +1570,14 @@ export const register: Register = on => {
     }
 
     const state = await read($, live)
-    const hud = await read($, seen)
+    const watching = await read($, hudOn)
+
+    // With the HUD off the config asks for no line before the checklist is there.
+    if (state === null && !watching) {
+      return next(e)
+    }
+
+    const hud = watching ? await read($, seen) : EMPTY_HUD
     const folded = await read($, collapsed)
     const now = await $.clock.now()
     const words = WORDS[state?.lang ?? 'ko']
@@ -1603,7 +1645,14 @@ export const register: Register = on => {
     }
 
     const state = await read($, live)
-    const hud = await read($, seen)
+    const watching = await read($, hudOn)
+
+    // With the HUD off the config asks for no line before the checklist is there.
+    if (state === null && !watching) {
+      return next(e)
+    }
+
+    const hud = watching ? await read($, seen) : EMPTY_HUD
     const { Box, Text, Button } = $.ui.resolve(e)
     const words = WORDS[state?.lang ?? 'ko']
     const open = (): void => {

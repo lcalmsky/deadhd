@@ -70,6 +70,8 @@ The same progress can be shown three ways. The band and the status line are show
 
 The checklist's state file is written when `/deadhd` runs. Before that the mod watches the session's own events and draws the **session state** (`● working Nm in` / `⌨️ waiting for input Nm in`) and the **last tool** (`🔧 tool Ns ago`). The status line adds the **compactions** it watched (`🗜 compacted N`). That is why the session's state shows the moment it starts, with nothing left in the conversation. There is no page yet, so the `Open` button is not drawn either; running `/deadhd` adds the checklist fields above to the same line.
 
+Turn this HUD off with `python3 ~/.claude/skills/deadhd/config.py set hud off`, or in `/deadhd setup`. The session state, the wait for input, and the last tool are then not drawn: the line starts once `/deadhd` has written the checklist. Turning it back on reaches the line without a restart.
+
 **The band** grows a second row when a step is stuck. `/deadhd-band` folds it back to the session state with the `Open` and `Expand` buttons.
 
 <p align="center"><img src="docs/band.en.png" alt="The band, the session HUD, and a second row for a stuck step" width="800"></p>
@@ -223,7 +225,7 @@ If you use [Orca](https://onorca.dev), open the [share link](https://share.onorc
 | `/deadhd` | Opens the progress page in a browser tab (same as `-h`) |
 | `/deadhd -o` | Publishes as an Orca artifact (a web page with a shareable link). Requires an orca CLI login; falls back to a browser tab on failure |
 | `/deadhd -c` | Publishes as a Claude artifact |
-| `/deadhd setup` | Chooses the default open location, display, theme, and font again |
+| `/deadhd setup` | Chooses the default open location, display, theme, and font again. Choosing the band or the status line asks next whether to draw the session HUD |
 | `/deadhd hub` | Opens the hub page that gathers this machine's sessions |
 | `/deadhd --open <mode>` | Opens in a different location for this run only |
 | `/deadhd --view <display>` | Draws in a different display for this run only |
@@ -241,7 +243,7 @@ While the band or the status line is showing in Claude Code:
 
 ## Settings
 
-On the first run, it asks once for the open location, the display, the theme, and the font, and the chosen values are reused from the next run on. `/deadhd setup` lets you choose them again at any time. The config file is `~/.config/deadhd/config.json`, created under `XDG_CONFIG_HOME` when that is set.
+On the first run, it asks once for the open location, the display, the theme, and the font, and the chosen values are reused from the next run on. Choosing the band or the status line as the display asks next whether to draw the session HUD. `/deadhd setup` lets you choose them again at any time. The config file is `~/.config/deadhd/config.json`, created under `XDG_CONFIG_HOME` when that is set.
 
 The open location uses these values.
 
@@ -253,6 +255,15 @@ The open location uses these values.
 | `desktop` | Does not open the page; prints only the path. Press that path in the Claude desktop app to open it in the in-app browser panel. You can press the printed http address instead |
 
 The display is one of `band` (recommended), `statusline`, and `html` ([Display views](#display-views)). The theme and font values are in [Themes and fonts](#themes-and-fonts).
+
+Under the band or the status line, `hud` decides whether the session HUD is drawn from the moment the session starts.
+
+| Value | Behavior |
+|---|---|
+| `on` | Drawn as the session starts: the running turn, the wait for input, and the last tool show before `/deadhd` has run |
+| `off` | Drawn from the run that wrote the checklist. The watch still runs, so turning it on shows the current values at once |
+
+Turn it off with `python3 ~/.claude/skills/deadhd/config.py set hud off`. An unset value reads as `on`.
 
 If `~/.config/deadhd/writing-rules.md` exists, page sentences follow that file's rules. Without it, the default rules apply (noun-phrase titles, field terminology, no personification). You can symlink it to your own writing guide.
 
@@ -307,7 +318,7 @@ A session where no hooks run at all (somewhere that does not load this plugin, s
 | `/tmp/deadhd-<slug>.html` | Progress page |
 | `/tmp/deadhd-hub.html` | Hub page |
 | `/tmp/deadhd-state/<session ID>.json` | Session state. Written by the hooks and `render.py`. Files older than 7 days are cleaned up |
-| `~/.config/deadhd/config.json` | Settings (open location, display, theme, font) |
+| `~/.config/deadhd/config.json` | Settings (open location, display, session HUD, theme, font) |
 | `~/.config/deadhd/history.jsonl` | Estimate and actual history |
 | `~/.config/deadhd/writing-rules.md` | Writing rules (optional) |
 

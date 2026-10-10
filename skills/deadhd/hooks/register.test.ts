@@ -17,6 +17,7 @@ import {
   EMPTY_HUD,
   formatLine,
   normalize,
+  resolveHud,
   resolveView,
   statusLine,
 } from './register'
@@ -140,9 +141,9 @@ const RUNNING = '● 작업 중 4분째'
 /** The session's own state as the mod watches it with no turn behind it yet. */
 const IDLE = '⌨️ 입력 대기 0분째'
 
-/** The config file that names a view with no state file written yet. */
-const configOf = (view: string): Record<string, string> => ({
-  [CONFIG_PATH]: JSON.stringify({ view }),
+/** The config file that names a view with no state file written yet, and any other key a test sets. */
+const configOf = (view: string, extra: Record<string, string> = {}): Record<string, string> => ({
+  [CONFIG_PATH]: JSON.stringify({ view, ...extra }),
 })
 
 /** The sample with a state-file field or a summary field put where a test wants it. */
@@ -1508,6 +1509,117 @@ describe('the view', () => {
     expect(textOf(await hint.drawn())).toContain(STATUS_MARK)
 
     await hint.unmount()
+  })
+})
+
+describe('the HUD setting', () => {
+  test('reads off as off, and an unset or unknown value as on', () => {
+    expect(resolveHud('off')).toBe(false)
+    expect(resolveHud('on')).toBe(true)
+    expect(resolveHud(undefined)).toBe(true)
+    expect(resolveHud(null)).toBe(true)
+    expect(resolveHud('maybe')).toBe(true)
+  })
+
+  test('draws the HUD over the checklist while the config leaves hud unset', async ($, on) => {
+    const { clock } = statusWorld(
+      on,
+      { ...filesOf(statusState()), [CONFIG_PATH]: JSON.stringify({ view: 'statusline' }) },
+      ENGINE_HINT,
+      START,
+    )
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+
+    expect(textOf(rowsOf(await ui.drawn())[0])).toBe(`${LONG_ROW_RUNNING} 열기접기`)
+
+    await ui.unmount()
+  })
+
+  test('draws no band before the checklist when the config turns the HUD off', async ($, on) => {
+    const { clock } = worldOf(on, configOf('band', { hud: 'off' }), START)
+
+    on('ui.render', () => ENGINE_OWN)
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+
+    expect(textOf(await ui.drawn())).toBe('(the engine drew its own)')
+
+    await ui.unmount()
+  })
+
+  test('draws no status line before the checklist when the config turns the HUD off', async ($, on) => {
+    statusWorld(on, configOf('statusline', { hud: 'off' }), ENGINE_OWN, START)
+
+    await $.session.start(SESSION)
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+
+    expect(textOf(await ui.drawn())).toBe('(the engine drew its own)')
+
+    await ui.unmount()
+  })
+
+  test('draws the checklist alone when the config turns the HUD off', async ($, on) => {
+    const { clock } = statusWorld(
+      on,
+      { ...filesOf(statusState()), [CONFIG_PATH]: JSON.stringify({ hud: 'off' }) },
+      ENGINE_HINT,
+      START,
+    )
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+
+    // 상태 파일이 그대로이므로 체크리스트 줄은 서고, mod 가 지켜본 조각만 빠진다.
+    expect(textOf(rowsOf(await ui.drawn())[0])).toBe(`${LONG_ROW} 열기접기`)
+
+    await ui.unmount()
+  })
+
+  test('draws the band from the state file alone when the config turns the HUD off', async ($, on) => {
+    const { clock } = worldOf(on, { ...filesOf(), [CONFIG_PATH]: JSON.stringify({ hud: 'off' }) }, START)
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+
+    expect(textOf(rowsOf(await ui.drawn())[0])).toBe(
+      `${STATUS_MARK} · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · 막힘 1 · 남음 2 열기접기`,
+    )
+
+    await ui.unmount()
+  })
+
+  test('stops drawing the HUD on the next refresh when the config turns it off', async ($, on) => {
+    const files: Record<string, string> = { ...configOf('band') }
+
+    const { clock } = worldOf(on, files, START)
+
+    on('ui.render', () => ENGINE_OWN)
+
+    await startsRunning($, clock)
+
+    const before = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+
+    expect(textOf(await before.drawn())).toContain(RUNNING)
+
+    await before.unmount()
+
+    files[CONFIG_PATH] = JSON.stringify({ view: 'band', hud: 'off' })
+
+    await clock.advance(5000)
+
+    const after = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+
+    expect(textOf(await after.drawn())).toBe('(the engine drew its own)')
+
+    await after.unmount()
   })
 })
 
