@@ -20,11 +20,11 @@ A status page for the task running in this session. The reader glanced away for 
 - `-h` (default): open the page in a browser tab beside the terminal. Naming it also opens the page and keeps it updated under a `band` or `statusline` default (see Where it shows).
 - `-o`: publish as an Orca artifact (a shareable web page) with the `orca` CLI. Without it, or when publishing fails, fall back to `-h` and say so.
 - `-c`: publish as a Claude artifact with the `Artifact` tool. Without that tool, fall back to `-h` and say so.
-- `setup`: ask for the default open location, the display, the theme, and the heading font, and save them (see Setup). After saving, reply in one line and stop.
+- `setup`: read `<skill-dir>/references/setup.md` and follow it: ask for the default open location, the display, the theme, and the heading font, and save them. After saving, reply in one line and stop.
 - `--open <mode>`: use this mode for this run only, instead of the saved default. Pass it to open.sh as `--mode <mode>`.
 - `--view <value>`: draw in this view and record it as this session's view, instead of the one the state file or the saved default has. One of `html`, `band`, `statusline`. Pass it to render.py as `--view <value>`. The session keeps it until another `--view` changes it.
-- `--theme <theme>`: render with this theme for this run only, instead of the saved one. One of `system`, `light`, `dark`, `neon`, `synthwave`, `matrix`, `nord`, `paper`, `sakura`, `ink`. Pass it to render.py as `--theme <theme>`.
-- `--font <preset>`: render with this heading font preset for this run only, instead of the saved one. One of `default`, `pretendard`, `noto-sans`, `plex-sans`, `gothic-a1`, `nanum-gothic`, `noto-serif`, `nanum-myeongjo`, `hahmlet`, `gowun-batang`, `do-hyeon`, `black-han-sans`. Pass it to render.py as `--font <preset>`.
+- `--theme <theme>`: render with this theme for this run only, instead of the saved one. One of the values listed in `argument-hint`. Pass it to render.py as `--theme <theme>`.
+- `--font <preset>`: render with this heading font preset for this run only, instead of the saved one. One of the values listed in `argument-hint`. Pass it to render.py as `--font <preset>`.
 
 ## Where it shows
 
@@ -40,69 +40,9 @@ On a `band` or `statusline` view the skill does not call `open.sh`. Reply with o
 
 ## Setup
 
-Ask once, then save the answers as the defaults. There are four questions: the default open location, the default display, the default theme, and the default heading font. Ask with the `AskUserQuestion` tool when it is available, otherwise ask in plain text; when the tool is available, put all four questions in a single call (the tool allows at most four). The display answer decides whether a fifth question follows (see Session HUD).
+On an ordinary run that is not `-c`, `-o`, `--open`, `off`, or `setup`, run `python3 <skill-dir>/config.py get open`, `python3 <skill-dir>/config.py get view`, `python3 <skill-dir>/config.py get theme`, `python3 <skill-dir>/config.py get font`, and `python3 <skill-dir>/config.py get hud` first. When any of them prints `unset`, read `<skill-dir>/references/setup.md` and follow it to ask and save, then continue the original work.
 
-Display, three choices:
-
-- `band` (recommended): a one-line band above the prompt. Lightest of the three, and no browser tab.
-- `statusline`: a hint line under the prompt, with more fields on the line.
-- `html`: the browser page, as before.
-
-Save it with `python3 <skill-dir>/config.py set view <value>`. Outside Claude Code (no `CLAUDE_CODE_SESSION_ID`) skip this question and leave the view at `html`, which is also what a session with no saved view and no state file draws.
-
-Session HUD, asked as a second `AskUserQuestion` call right after the first one, and only when the display answer is `band` or `statusline`. Two choices:
-
-- `on` (recommended): the session state, the wait and the last tool are drawn from the session's own events, so they show before `/deadhd` has run.
-- `off`: the line is drawn from the run that has written the checklist, so nothing of the session's own watch shows.
-
-Save it with `python3 <skill-dir>/config.py set hud <value>`. With the `html` display, or outside Claude Code, do not ask it and save nothing: an unset `hud` reads as `on`.
-
-Open location, four choices:
-
-- `auto` (recommended): an Orca tab when the session runs inside Orca, otherwise the system browser.
-- `orca`: an Orca tab.
-- `browser`: the system browser.
-- `desktop`: print the path in chat; press it in the Claude desktop app to open the page in the in-app browser.
-
-Theme, four choices:
-
-- `system` (recommended): follow the operating system's light and dark setting.
-- `dark`: always the dark theme.
-- `light`: always the light theme.
-- `more themes`: show the extra themes below and take the answer by name.
-
-`AskUserQuestion` allows at most four choices, which is why `more themes` and `more fonts` are among them. When the user picks `more themes`, list these in plain text, one line each with its description, and take the theme name as the answer:
-
-- `neon` — cyberpunk neon: near-black violet with cyan, magenta, and fluorescent yellow.
-- `synthwave` — 80s sunset: deep violet under a pink-and-orange gradient.
-- `matrix` — green terminal: monochrome green on black, every glyph monospaced.
-- `nord` — calm arctic: muted northern palette, easy on the eyes over a long session.
-- `paper` — warm paper, light: cream stock with a serif heading, reads like a document.
-- `sakura` — cherry blossom, light: pink light theme with a handwritten heading.
-- `ink` — monochrome: pure white on pure black; states are told apart by fill, outline, and hatching instead of color.
-
-Heading font, four choices:
-
-- `default` (recommended): the heading font the theme already uses.
-- `pretendard`: clean sans, tight.
-- `do-hyeon`: bold display sans, tight.
-- `more fonts`: show the rest by name.
-
-When the user picks `more fonts`, list these in plain text, one line each with its description, and take the font name as the answer:
-
-- `noto-sans` — Noto Sans KR 900
-- `plex-sans` — IBM Plex Sans KR 700
-- `gothic-a1` — Gothic A1 900
-- `nanum-gothic` — Nanum Gothic 800
-- `noto-serif` — Noto Serif KR 900
-- `nanum-myeongjo` — Nanum Myeongjo 800
-- `hahmlet` — Hahmlet 900 serif
-- `gowun-batang` — Gowun Batang 700 serif
-- `black-han-sans` — Black Han Sans poster
-
-Save the answers with `python3 <skill-dir>/config.py set open <value>`, `python3 <skill-dir>/config.py set view <value>`, `python3 <skill-dir>/config.py set theme <value>`, and `python3 <skill-dir>/config.py set font <value>`. Calling the skill with `setup` asks all four questions again, and the HUD question when the display answer is `band` or `statusline`.
-
-- First run: on an ordinary run that is not `-c`, `-o`, `--open`, `off`, or `setup`, run `python3 <skill-dir>/config.py get open`, `python3 <skill-dir>/config.py get view`, `python3 <skill-dir>/config.py get theme`, `python3 <skill-dir>/config.py get font`, and `python3 <skill-dir>/config.py get hud` first. Ask only for the ones that print `unset`, save them, then continue the original work. The display question is skipped outside Claude Code, and the HUD question is asked only when the display answer is `band` or `statusline`.
+Called with `setup`, read `<skill-dir>/references/setup.md` and follow it.
 
 ## Gather the facts
 
@@ -149,22 +89,7 @@ Each item:
 
 ### `board`
 
-Use `board` when four or more work units run at once: an epic's subtasks, several delegated workers (a DeepSeek lane, a subagent, this leader session). Keep `items` short as the program-level steps — planning, subtask progress, audit — and put the subtasks in `board.lanes`. A page without `board` draws only the flow, exactly as before.
-
-- `stages`: the stage names in order, e.g. `["분석", "설계", "구현", "검증", "배포", "회귀", "보고"]`. Optional. Without it every lane shows its `stage` string in one column. Values must not repeat.
-- `lanes`: one entry per work unit, in the order they should read. At least one.
-  - `id`: the ticket key or work-unit id, unique in the board. `label`: a short noun phrase.
-  - `state`: `done` (finished), `now` (a worker is on it), `waiting` (held by `dependsOn`), `left` (not started), `blocked` (failed or waiting on the user). Any number of lanes may be `now`.
-  - `stage`: the stage it is in now. When `stages` is present it must be one of them; leave it out for a lane that has not started.
-  - `worker`: who runs it, e.g. `deepseek:impl-205`, `subagent:sonnet`, `leader`. A lane without it is grouped under `Unassigned`.
-  - `dependsOn`: the ids of the lanes this one waits for. The row shows them as `↳ … waiting`.
-  - `startedAt`, `doneAt`: same rule as on an item — a real time only, never invented.
-  - `lastSignal`: the last time a tool result in this session showed that worker's output: a result file update, a completion notice, a log line. Never invent it, and refresh it every time you look. The page prints it as `N ago` and turns the lane `stalled` once the silence passes `stallAfter`.
-  - `stallAfter`: minutes of silence before a `now` lane counts as stalled. Defaults to 10. The page decides this in the browser, so a lane you stopped updating still shows up as stalled.
-  - `estimate`: minutes left, as on a `now` item.
-  - `note`: a few words under the current stage dot, e.g. `code-reviewer`.
-  - `body`: the text the row expands to, one or two sentences.
-  - `evidence`: chips, as on an item. `log`: the lane's own transitions, `{"at": …, "text": …}` each; the page shows the eight newest of all lanes together.
+When four or more work units run in parallel, use `board`; read `<skill-dir>/references/board.md` and follow it for its fields.
 
 Link rules:
 
