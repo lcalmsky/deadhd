@@ -56,6 +56,7 @@ Other install methods are in [Installation](#installation).
 | [Hub](#hub) | Gathers this machine's sessions on one page, sorted by state |
 | [Lane board](#lane-board) | Shows work units running in parallel as a task × stage table |
 | [Ten themes and twelve fonts](#themes-and-fonts) | Pick the page theme and the heading font |
+| [Menu bar](#using-it-with-pulse) | Optional. Install the separate Pulse app and it reads the same state files to show the checklist and waiting sessions in the macOS menu bar |
 
 ### Progress page and status band
 
@@ -176,6 +177,31 @@ A preset bundles the family, weight, and letter spacing, and the default `defaul
 | `black-han-sans` | Black Han Sans | 400 · 0 |
 
 </details>
+
+### Using it with Pulse
+
+<table width="100%">
+<tr>
+<td width="42%" valign="top"><img src="docs/pulse.en.png" alt="deadhd steps expanded inside a working row of the Pulse popover" width="360"></td>
+<td valign="top">
+
+[Pulse](https://github.com/lcalmsky/pulse) is a separate app that shows Claude Code sessions in the macOS menu bar. It reads the same state files deadhd writes, so **working rows carry the checklist** even when the terminal is out of view.
+
+- **Progress** draws `4/6` and a step bar. A blocked step is painted orange
+- **Current step** shows the step name and `~N min left`
+- **Steps** clicking the step line expands the previous, current, and next steps inside the row
+- **Progress page** the document button opens the deadhd progress page in a browser
+
+Pulse raises a card under the menu bar when a session waits for you or finishes, and clicking a row jumps to that session's Orca terminal. deadhd works fully without it; Pulse only adds the menu bar as one more place to look. Install it with Homebrew.
+
+```sh
+brew tap lcalmsky/pulse https://github.com/lcalmsky/pulse
+brew install pulse
+```
+
+</td>
+</tr>
+</table>
 
 ## Installation
 
@@ -351,6 +377,7 @@ python3 -m unittest skills/deadhd/test_render.py
 ```
 
 The fourteen example images are regenerated on a machine with Chrome via the commands below. Every image is captured at 2× scale and 1600px wide, and shown in the README at `width="800"`.
+`docs/pulse.png` and `docs/pulse.en.png` are not captured here; they are copies of `docs/images/deadhd-steps.png` and `deadhd-steps.en.png` from the [Pulse repository](https://github.com/lcalmsky/pulse).
 
 ```bash
 python3 docs/capture_themes.py && python3 docs/capture_themes.py --lang en   # themes.png, themes.en.png

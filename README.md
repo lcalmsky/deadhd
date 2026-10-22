@@ -56,6 +56,7 @@ Claude Code 에서 플러그인을 설치합니다.
 | [허브](#허브) | 이 컴퓨터에서 도는 세션을 한 장에 모아 상태 순으로 정렬합니다 |
 | [레인 보드](#레인-보드) | 병렬로 도는 작업 단위를 작업 × 단계 표로 보여 줍니다 |
 | [테마 10종과 글꼴 12종](#테마와-글꼴) | 페이지 테마와 제목 글꼴을 고릅니다 |
+| [메뉴 막대](#pulse-와-함께-쓰기) | 선택 사항. 별도 앱 Pulse 를 설치하면 같은 상태 파일을 읽어 macOS 메뉴 막대에서도 체크리스트와 입력 대기를 봅니다 |
 
 ### 진행 페이지와 상태 띠
 
@@ -176,6 +177,31 @@ Claude Code 에서 플러그인을 설치합니다.
 | `black-han-sans` | Black Han Sans | 400 · 0 |
 
 </details>
+
+### Pulse 와 함께 쓰기
+
+<table width="100%">
+<tr>
+<td width="42%" valign="top"><img src="docs/pulse.png" alt="Pulse 팝오버의 진행 중 세션 행에 펼쳐진 deadhd 단계" width="360"></td>
+<td valign="top">
+
+[Pulse](https://github.com/lcalmsky/pulse) 는 Claude Code 세션을 macOS 메뉴 막대에서 보는 별도 앱입니다. deadhd 가 쓰는 상태 파일을 그대로 읽으므로, 터미널을 보고 있지 않을 때도 **진행 중인 세션 행에 체크리스트가 붙습니다.**
+
+- **진행률** `4/6` 과 단계 막대를 그리고, 막힌 단계는 주황으로 칠합니다
+- **지금 단계** 단계 이름과 `약 N분 남음` 을 보여 줍니다
+- **단계 펼침** 단계 줄을 누르면 직전·지금·다음 단계가 행 안에 펼쳐집니다
+- **진행 페이지** 문서 버튼으로 deadhd 진행 페이지를 브라우저에서 엽니다
+
+세션이 답을 기다리거나 끝나면 메뉴 막대 아래에 카드를 띄우고, 행을 누르면 Orca 터미널의 그 세션으로 이동합니다. deadhd 는 Pulse 없이도 모든 기능이 동작하며, Pulse 는 메뉴 막대를 한 곳 더하는 선택 사항입니다. Homebrew 로 설치합니다.
+
+```sh
+brew tap lcalmsky/pulse https://github.com/lcalmsky/pulse
+brew install pulse
+```
+
+</td>
+</tr>
+</table>
 
 ## 설치
 
@@ -351,6 +377,7 @@ python3 -m unittest skills/deadhd/test_render.py
 ```
 
 예시 그림 열네 장은 Chrome 을 설치한 환경에서 다음 명령으로 다시 만듭니다. 모든 그림은 2배율, 폭 1600px 로 찍고 README 에서 `width="800"` 으로 보여 줍니다.
+`docs/pulse.png` 와 `docs/pulse.en.png` 는 캡처하지 않고 [Pulse 저장소](https://github.com/lcalmsky/pulse) 의 `docs/images/deadhd-steps.png`·`deadhd-steps.en.png` 를 복사한 것입니다.
 
 ```bash
 python3 docs/capture_themes.py && python3 docs/capture_themes.py --lang en   # themes.png, themes.en.png

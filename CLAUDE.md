@@ -36,6 +36,8 @@ python3 docs/capture_board.py && python3 docs/capture_board.py --lang en     # b
 python3 docs/capture_mods.py && python3 docs/capture_mods.py --lang en       # band.png, band.en.png, statusline.png, statusline.en.png
 ```
 
+`docs/pulse.png`·`docs/pulse.en.png` 는 캡처하지 않는다. Pulse 저장소(`~/git-repo/pulse`)의 `docs/images/deadhd-steps.png`·`deadhd-steps.en.png` 사본이라, Pulse 쪽 그림이 바뀌면 다시 복사한다.
+
 화면에 보이는 새 기능을 추가하면 그 기능이 그림에 드러나도록 데모 데이터나 캡처 스크립트를 고쳐 README 예시 그림에 반드시 넣는다.
 
 Chrome 을 직접 `--screenshot` 으로 부르지 않는다. 헤드리스 Chrome 은 파일을 다 쓴 뒤에도 끝나지 않을 때가 있어서, 프로세스 종료를 기다리면 멈춘다. 스크립트의 `chrome_shot` 은 파일 크기가 멈추면 Chrome 을 끝낸다.
