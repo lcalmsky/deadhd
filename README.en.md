@@ -82,7 +82,7 @@ Turn this HUD off with `python3 ~/.claude/skills/deadhd/config.py set hud off`, 
 
 <p align="center"><img src="docs/band.en.png" alt="The band, the session HUD, and a second row for a stuck step" width="800"></p>
 
-**The status line** carries the same state file with more fields. The ticket key and the pull request of the step in progress are links you can press. When the row is wider than the terminal, the title is cut first and gets a `…`; if it still does not fit, the less important fields go first, and the session state and the done count always stay. The `Open` button at the end of the row opens the page. `/deadhd-statusline` folds it back to the session state alone.
+**The status line** carries the same state file with more fields. The ticket key and the pull request of the step in progress are links you can press. When the row is wider than the terminal, the title is cut first and gets a `…`; if it still does not fit, the less important fields go first, and the session state and the done count always stay. The `Open` button at the end of the row opens the page. `/deadhd-statusline` folds it back to the session state alone. If it sits flush against another plugin's status line, `python3 ~/.claude/skills/deadhd/config.py set divider on` draws a rule above it.
 
 <p align="center"><img src="docs/statusline.en.png" alt="The status line under the prompt" width="800"></p>
 
@@ -196,8 +196,11 @@ Pulse raises a card under the menu bar when a session waits for you or finishes,
 
 ```sh
 brew tap lcalmsky/pulse https://github.com/lcalmsky/pulse
-brew install pulse
+brew trust lcalmsky/pulse
+brew install lcalmsky/pulse/pulse
 ```
+
+Homebrew 7 and later read a third-party tap only after `brew trust`, and the short name `pulse` resolves to an official cask of the same name, so the install names it in full.
 
 </td>
 </tr>
@@ -295,6 +298,15 @@ Under the band or the status line, `hud` decides whether the session HUD is draw
 | `off` | Drawn from the run that wrote the checklist. The watch still runs, so turning it on shows the current values at once |
 
 Turn it off with `python3 ~/.claude/skills/deadhd/config.py set hud off`. An unset value reads as `on`.
+
+When another plugin's status line sits right above this one, `divider` draws a rule over it.
+
+| Value | Behavior |
+|---|---|
+| `on` | Draws a `── progress ───…` rule above the status line, setting it apart from another plugin's status line |
+| `off` | Draws no rule. Another line can sit flush against the status line |
+
+Turn it on with `python3 ~/.claude/skills/deadhd/config.py set divider on`. An unset value reads as `off`, and it draws in the status line view only.
 
 If `~/.config/deadhd/writing-rules.md` exists, page sentences follow that file's rules. Without it, the default rules apply (noun-phrase titles, field terminology, no personification). You can symlink it to your own writing guide.
 

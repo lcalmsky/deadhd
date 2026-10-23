@@ -82,7 +82,7 @@ Claude Code 에서 플러그인을 설치합니다.
 
 <p align="center"><img src="docs/band.png" alt="밴드와 세션 HUD, 막힘 둘째 줄이 붙은 모습" width="800"></p>
 
-**상태줄**은 같은 상태 파일을 더 많은 항목으로 담습니다. 티켓 키와 진행 중인 단계의 PR 은 누르면 열리는 링크입니다. 터미널 폭을 넘으면 제목부터 잘려 `…` 이 붙고, 그래도 넘치면 덜 중요한 항목부터 빠지며 세션 상태와 완료 수는 끝까지 남습니다. 줄 끝의 `열기` 버튼으로 페이지를 엽니다. `/deadhd-statusline` 으로 접으면 세션 상태 한 조각만 남습니다.
+**상태줄**은 같은 상태 파일을 더 많은 항목으로 담습니다. 티켓 키와 진행 중인 단계의 PR 은 누르면 열리는 링크입니다. 터미널 폭을 넘으면 제목부터 잘려 `…` 이 붙고, 그래도 넘치면 덜 중요한 항목부터 빠지며 세션 상태와 완료 수는 끝까지 남습니다. 줄 끝의 `열기` 버튼으로 페이지를 엽니다. `/deadhd-statusline` 으로 접으면 세션 상태 한 조각만 남습니다. 다른 상태줄 플러그인의 줄 바로 밑에 붙어 보이면 `python3 ~/.claude/skills/deadhd/config.py set divider on` 으로 그 줄 위에 구분선을 켤 수 있습니다.
 
 <p align="center"><img src="docs/statusline.png" alt="프롬프트 아래 상태줄" width="800"></p>
 
@@ -196,8 +196,11 @@ Claude Code 에서 플러그인을 설치합니다.
 
 ```sh
 brew tap lcalmsky/pulse https://github.com/lcalmsky/pulse
-brew install pulse
+brew trust lcalmsky/pulse
+brew install lcalmsky/pulse/pulse
 ```
+
+Homebrew 7 부터는 비공식 tap 을 `brew trust` 로 한 번 신뢰해야 formula 를 읽고, 같은 이름의 공식 cask 가 있어 `lcalmsky/pulse/pulse` 처럼 전체 이름으로 설치합니다.
 
 </td>
 </tr>
@@ -295,6 +298,15 @@ Claude Code 에서 밴드나 상태줄로 보고 있으면 다음 명령도 씁�
 | `off` | `/deadhd` 를 실행해 체크리스트가 생긴 뒤부터 그립니다. 관측은 그대로 하므로 켜면 바로 맞게 보입니다 |
 
 `python3 ~/.claude/skills/deadhd/config.py set hud off` 로 끕니다. 값이 없으면 `on` 입니다.
+
+다른 플러그인의 상태줄과 붙어 보이면 상태줄 위에 구분선을 그립니다.
+
+| 값 | 동작 |
+|---|---|
+| `on` | 상태줄 위에 `── 진행 ───…` 구분선을 그립니다. 다른 플러그인의 상태줄과 구분됩니다 |
+| `off` | 구분선을 그리지 않습니다. 상태줄 바로 위에 다른 줄이 붙어 보일 수 있습니다 |
+
+`python3 ~/.claude/skills/deadhd/config.py set divider on` 으로 켭니다. 값이 없으면 `off` 이고, 상태줄 보기에서만 그립니다.
 
 `~/.config/deadhd/writing-rules.md` 를 두면 페이지 문장을 쓸 때 그 파일의 작성 규칙을 따릅니다. 없으면 기본 규칙(제목은 명사구, 분야 용어 사용, 의인화 금지)을 씁니다. 자기 작성 가이드 파일에 심볼릭 링크로 연결해도 됩니다.
 
