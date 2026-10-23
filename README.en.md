@@ -76,13 +76,13 @@ The same progress can be shown three ways. The band and the status line are show
 
 The checklist's state file is written when `/deadhd` runs. Before that the mod watches the session's own events and draws the **session state** (`● working Nm in` / `⌨️ waiting for input Nm in`) and the **last tool** (`🔧 tool Ns ago`). The status line adds the **compactions** it watched (`🗜 compacted N`). That is why the session's state shows the moment it starts, with nothing left in the conversation. There is no page yet, so the `Enable` button stands where `Open` does; pressing it sends Claude a request to show the checklist. Running `/deadhd` does the same.
 
-Turn this HUD off with `python3 ~/.claude/skills/deadhd/config.py set hud off`, or in `/deadhd setup`. The session state, the wait for input, and the last tool are then not drawn: the line starts once `/deadhd` has written the checklist. Turning it back on reaches the line without a restart.
+Turn this HUD off with `python3 <skill-dir>/config.py set hud off` (the path is under [Settings](#settings)), or in `/deadhd setup`. The session state, the wait for input, and the last tool are then not drawn: the line starts once `/deadhd` has written the checklist. Turning it back on reaches the line without a restart.
 
 **The band** grows a second row when a step is stuck. `/deadhd-band` folds it back to the session state with the `Open` and `Expand` buttons.
 
 <p align="center"><img src="docs/band.en.png" alt="The band, the session HUD, and a second row for a stuck step" width="800"></p>
 
-**The status line** carries the same state file with more fields. The ticket key and the pull request of the step in progress are links you can press. When the row is wider than the terminal, the title is cut first and gets a `…`; if it still does not fit, the less important fields go first, and the session state and the done count always stay. The `Open` button at the end of the row opens the page. `/deadhd-statusline` folds it back to the session state alone. If it sits flush against another plugin's status line, `python3 ~/.claude/skills/deadhd/config.py set divider on` draws a rule above it.
+**The status line** carries the same state file with more fields. The ticket key and the pull request of the step in progress are links you can press. When the row is wider than the terminal, the title is cut first and gets a `…`; if it still does not fit, the less important fields go first, and the session state and the done count always stay. The `Open` button at the end of the row opens the page. `/deadhd-statusline` folds it back to the session state alone. If it sits flush against another plugin's status line, `python3 <skill-dir>/config.py set divider on` (the path is under [Settings](#settings)) draws a rule above it.
 
 <p align="center"><img src="docs/statusline.en.png" alt="The status line under the prompt" width="800"></p>
 
@@ -277,7 +277,7 @@ While the band or the status line is showing in Claude Code:
 
 ## Settings
 
-On the first run, it asks once for the open location, the display, the theme, and the font, and the chosen values are reused from the next run on. Choosing the band or the status line as the display asks next whether to draw the session HUD. `/deadhd setup` lets you choose them again at any time. The config file is `~/.config/deadhd/config.json`, created under `XDG_CONFIG_HOME` when that is set.
+On the first run, it asks once for the open location, the display, the theme, and the font, and the chosen values are reused from the next run on. Choosing the band or the status line as the display asks next whether to draw the session HUD. `/deadhd setup` lets you choose them again at any time. The config file is `~/.config/deadhd/config.json`, created under `XDG_CONFIG_HOME` when that is set. In the commands below, `<skill-dir>` is `~/.claude/skills/deadhd` for a skill-folder install; for a plugin install it is the `installPath` of `deadhd@deadhd` in `~/.claude/plugins/installed_plugins.json` followed by `/skills/deadhd` (for example `~/.claude/plugins/cache/deadhd/deadhd/1.13.2/skills/deadhd`). The plugin path changes with each version, so `/deadhd setup` changes the same values without looking it up.
 
 The open location uses these values.
 
@@ -297,7 +297,7 @@ Under the band or the status line, `hud` decides whether the session HUD is draw
 | `on` | Drawn as the session starts: the running turn, the wait for input, and the last tool show before `/deadhd` has run |
 | `off` | Drawn from the run that wrote the checklist. The watch still runs, so turning it on shows the current values at once |
 
-Turn it off with `python3 ~/.claude/skills/deadhd/config.py set hud off`. An unset value reads as `on`.
+Turn it off with `python3 <skill-dir>/config.py set hud off`. An unset value reads as `on`.
 
 When another plugin's status line sits right above this one, `divider` draws a rule over it.
 
@@ -306,7 +306,7 @@ When another plugin's status line sits right above this one, `divider` draws a r
 | `on` | Draws a `── progress ───…` rule above the status line, setting it apart from another plugin's status line |
 | `off` | Draws no rule. Another line can sit flush against the status line |
 
-Turn it on with `python3 ~/.claude/skills/deadhd/config.py set divider on`. An unset value reads as `off`, and it draws in the status line view only.
+Turn it on with `python3 <skill-dir>/config.py set divider on`. An unset value reads as `off`, and it draws in the status line view only.
 
 If `~/.config/deadhd/writing-rules.md` exists, page sentences follow that file's rules. Without it, the default rules apply (noun-phrase titles, field terminology, no personification). You can symlink it to your own writing guide.
 
@@ -317,7 +317,7 @@ If `~/.config/deadhd/writing-rules.md` exists, page sentences follow that file's
 - **When you talk in English, the page's fixed labels are shown in English too.** This is set by the data's `lang` field; without it the page is Korean.
 - **The expected completion time is calculated from the last time the data file was modified.** So a hook re-render that leaves the data alone does not push the estimate back. An estimate that has already passed gets ` (overdue)`. The `tomorrow` or date notation is decided from the time you are viewing the page, so it changes on its own after midnight.
 - **An open tab reloads every 15 seconds.** Newly completed steps play a completion effect, and the status band refreshes on the same cycle.
-- **The page is opened over a static server bound to 127.0.0.1 (`serve.py`)**, because an in-app browser such as Orca blocks `file://` navigation from inside a page. The server starts on its own the first time you open a page and stays after the session ends. It serves only `deadhd-*.html` from `/tmp`, does not follow symbolic links, and checks the `Host` header so an outside site cannot read it. To stop it, run `python3 ~/.claude/skills/deadhd/serve.py --stop` (the same path inside the plugin cache when installed as a plugin).
+- **The page is opened over a static server bound to 127.0.0.1 (`serve.py`)**, because an in-app browser such as Orca blocks `file://` navigation from inside a page. The server starts on its own the first time you open a page and stays after the session ends. It serves only `deadhd-*.html` from `/tmp`, does not follow symbolic links, and checks the `Host` header so an outside site cannot read it. To stop it, run `python3 <skill-dir>/serve.py --stop` (the path described under [Settings](#settings)).
 - **The hub is built by reading this machine's session state files only.** `render.py` rewrites the hub file whenever a session page renders and on every hook event.
 
 ### Waiting-for-you notifications and calibrated ETA
