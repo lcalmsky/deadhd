@@ -40,13 +40,14 @@ WORDS = {
         'blocked': '막힘', 'left': '남음', 'allDone': '완료', 'ask': '할 일', 'next': '다음', 'eta': '예상',
         'background': '백그라운드', 'compacted': '압축', 'collapse': '접기', 'expand': '펼치기',
         'open': '열기', 'enable': '켜기', 'permission': '권한 승인 대기', 'input': '입력 대기',
-        'running': '작업 중', 'stale': '낡음', 'toolRunning': '실행 중',
+        'running': '작업 중', 'stale': '낡음', 'toolRunning': '실행 중', 'progress': '진행',
     },
     'en': {
         'blocked': 'blocked', 'left': 'left', 'allDone': 'all done', 'ask': 'your move', 'next': 'next', 'eta': 'ETA',
         'background': 'background', 'compacted': 'compacted', 'collapse': 'Collapse',
         'expand': 'Expand', 'open': 'Open', 'enable': 'Enable', 'permission': 'waiting for permission',
         'input': 'waiting for input', 'running': 'working', 'stale': 'stale', 'toolRunning': 'running',
+        'progress': 'progress',
     },
 }
 
@@ -518,6 +519,12 @@ def segments_text(parts):
 
 def format_line(state, now, max_cols, hud=None):
     return segments_text(status_line(state, now, max_cols, hud))
+
+
+def divider_line(label, cells):
+    """`── <낱말> ` 뒤를 `─` 로 채워 `cells` 칸을 만든다."""
+    head = '── %s ' % label
+    return [(head + '─' * max(0, cells - cell_width(head)), 'subtle', False)]
 
 
 def read_steps(data):
@@ -1078,6 +1085,7 @@ def main(argv):
                 ],
                 'statusline': [
                     (talk['statusCap'], terminal(talk_lines + under_input + [
+                        row(divider_line(words['progress'], TERM_COLS)),
                         control_row(status, [(words['open'], True), (words['collapse'], False)]),
                     ])),
                     (talk['hudCap'], terminal(talk_lines + under_input + [

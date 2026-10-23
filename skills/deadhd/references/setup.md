@@ -1,6 +1,6 @@
 ## Setup
 
-Ask once, then save the answers as the defaults. There are four questions: the default open location, the default display, the default theme, and the default heading font. Ask with the `AskUserQuestion` tool when it is available, otherwise ask in plain text; when the tool is available, put all four questions in a single call (the tool allows at most four). The display answer decides whether a fifth question follows (see Session HUD).
+Ask once, then save the answers as the defaults. There are four questions: the default open location, the default display, the default theme, and the default heading font. Ask with the `AskUserQuestion` tool when it is available, otherwise ask in plain text; when the tool is available, put all four questions in a single call (the tool allows at most four). The display answer decides whether more questions follow (see Session HUD and Divider).
 
 Display, three choices:
 
@@ -16,6 +16,13 @@ Session HUD, asked as a second `AskUserQuestion` call right after the first one,
 - `off`: the line is drawn from the run that has written the checklist, so nothing of the session's own watch shows.
 
 Save it with `python3 <skill-dir>/config.py set hud <value>`. With the `html` display, or outside Claude Code, do not ask it and save nothing: an unset `hud` reads as `on`.
+
+Divider, asked right after the session HUD question and only when the display answer is `statusline`. Two choices:
+
+- `off` (recommended): no rule above the line.
+- `on`: a `── progress ───…` rule as the first row above the line, so it reads apart from another status line plugin drawn right above it.
+
+Save it with `python3 <skill-dir>/config.py set divider <value>`. With the `band` or `html` display, or outside Claude Code, do not ask it and save nothing: an unset `divider` reads as `off`.
 
 Open location, four choices:
 
@@ -60,6 +67,6 @@ When the user picks `more fonts`, list these in plain text, one line each with i
 - `gowun-batang` — Gowun Batang 700 serif
 - `black-han-sans` — Black Han Sans poster
 
-Save the answers with `python3 <skill-dir>/config.py set open <value>`, `python3 <skill-dir>/config.py set view <value>`, `python3 <skill-dir>/config.py set theme <value>`, and `python3 <skill-dir>/config.py set font <value>`. Calling the skill with `setup` asks all four questions again, and the HUD question when the display answer is `band` or `statusline`.
+Save the answers with `python3 <skill-dir>/config.py set open <value>`, `python3 <skill-dir>/config.py set view <value>`, `python3 <skill-dir>/config.py set theme <value>`, `python3 <skill-dir>/config.py set font <value>`, and `python3 <skill-dir>/config.py set divider <value>`. Calling the skill with `setup` asks all four questions again, the HUD question when the display answer is `band` or `statusline`, and the divider question when the display answer is `statusline`.
 
-- First run: on an ordinary run that is not `-c`, `-o`, `--open`, `off`, or `setup`, run `python3 <skill-dir>/config.py get open`, `python3 <skill-dir>/config.py get view`, `python3 <skill-dir>/config.py get theme`, `python3 <skill-dir>/config.py get font`, and `python3 <skill-dir>/config.py get hud` first. Ask only for the ones that print `unset`, save them, then continue the original work. The display question is skipped outside Claude Code, and the HUD question is asked only when the display answer is `band` or `statusline`.
+- First run: on an ordinary run that is not `-c`, `-o`, `--open`, `off`, or `setup`, run `python3 <skill-dir>/config.py get open`, `python3 <skill-dir>/config.py get view`, `python3 <skill-dir>/config.py get theme`, `python3 <skill-dir>/config.py get font`, `python3 <skill-dir>/config.py get hud`, and `python3 <skill-dir>/config.py get divider` first. Ask only for the ones that print `unset`, save them, then continue the original work. The display question is skipped outside Claude Code, the HUD question is asked only when the display answer is `band` or `statusline`, and the divider question only when the display answer is `statusline`.

@@ -104,6 +104,7 @@ const WORDS: Record<
     running: string
     stale: string
     toolRunning: string
+    progress: string
     opened: string
     noPage: string
     openFailed: string
@@ -138,6 +139,7 @@ const WORDS: Record<
     running: '작업 중',
     stale: '낡음',
     toolRunning: '실행 중',
+    progress: '진행',
     opened: 'HTML 페이지를 열었어요',
     noPage: '아직 HTML 페이지가 없어요',
     openFailed: 'HTML 페이지를 열지 못했어요',
@@ -171,6 +173,7 @@ const WORDS: Record<
     running: 'working',
     stale: 'stale',
     toolRunning: 'running',
+    progress: 'progress',
     opened: 'Opened the HTML.',
     noPage: 'No HTML page yet.',
     openFailed: 'Could not open the HTML',
@@ -184,6 +187,8 @@ const collapsed = atom({ plugin: 'deadhd', key: 'collapsed' } as const, false)
 const shown = atom({ plugin: 'deadhd', key: 'view' } as const, DEFAULT_VIEW)
 /** Whether the config asks the mod to draw the HUD it watches; an unset config reads as on. */
 const hudOn = atom({ plugin: 'deadhd', key: 'hud-on' } as const, true)
+/** Whether the config asks for a rule above the status line; an unset config reads as off. */
+const dividerOn = atom({ plugin: 'deadhd', key: 'divider-on' } as const, false)
 
 /** What the mod watched of this session by itself, before any state file is there to read. */
 const seen = atom({ plugin: 'deadhd', key: 'hud' } as const, EMPTY_HUD)
@@ -1124,6 +1129,13 @@ function foldedSegments(
     : [{ text: STATUS_MARK, tone: 'claude', bold: true }, { text: ' ', tone: 'plain' }, ...session.parts]
 }
 
+/** The rule drawn above the status line, filled with `─` to `cells` cells. */
+function dividerText(label: string, cells: number): string {
+  const head = `── ${label} `
+
+  return head + '─'.repeat(Math.max(0, cells - cellWidth(head)))
+}
+
 /** The data file's items in lane·column order; a column the data leaves out follows its lane's last. */
 const readSteps = (data: unknown): DeadhdStep[] => {
   const board = record(data)
@@ -1389,6 +1401,26 @@ async function configHud($: EngineInterface): Promise<boolean> {
   }
 }
 
+/** Whether a config's `divider` value asks for a rule above the status line; only `on` turns it on. */
+export function resolveDivider(configDivider: unknown): boolean {
+  return configDivider === 'on'
+}
+
+/** Whether the deadhd config file asks for a rule above the status line, by the rule config.py writes it. */
+async function configDivider($: EngineInterface): Promise<boolean> {
+  const file = await configPath($)
+
+  if (file === null) {
+    return false
+  }
+
+  try {
+    return resolveDivider(record(JSON.parse(await $.fs.read(file))).divider)
+  } catch {
+    return false
+  }
+}
+
 /**
  * The skill folder beside this module. It is the plugin root for a
  * skill-folder install and `${root}/skills/deadhd` for a marketplace one;
@@ -1535,20 +1567,26 @@ async function refresh($: EngineInterface): Promise<void> {
     const previousView = await read($, shown)
     const watching = await configHud($)
     const previousHud = await read($, hudOn)
+    const ruled = await configDivider($)
+    const previousDivider = await read($, dividerOn)
 
     if (JSON.stringify(previous) !== JSON.stringify(drawn)) {
       await update($, live, () => drawn)
     }
 
-    // The view and the HUD are re-read every interval, so a change in the config
-    // reaches the lines without a restart; the hooks read these atoms rather than
-    // the file.
+    // The view, the HUD and the divider are re-read every interval, so a change in
+    // the config reaches the lines without a restart; the hooks read these atoms
+    // rather than the file.
     if (previousView !== view) {
       await update($, shown, () => view)
     }
 
     if (previousHud !== watching) {
       await update($, hudOn, () => watching)
+    }
+
+    if (previousDivider !== ruled) {
+      await update($, dividerOn, () => ruled)
     }
 
     if (drawn !== null && previous !== null && needsAttention(drawn, previous)) {
@@ -1575,7 +1613,8 @@ async function refresh($: EngineInterface): Promise<void> {
 
     painted[mode] = line
 
-    if (before !== undefined && before !== line) {
+    // The rule is drawn above the status line alone, so only that mode repaints for it.
+    if (before !== undefined && (before !== line || (mode === 'status' && previousDivider !== ruled))) {
       $.ui.invalidate('ui.render')
     }
   } catch {
@@ -1787,45 +1826,53 @@ export const register: Register = on => {
     // The engine's hint keeps its own tree, drawn under the deadhd line.
     const hint = await next(e)
     const { Box, Text, Button, Link } = $.ui.resolve(e)
+    // A rule above the line keeps it apart from another plugin's status line drawn above it.
+    const rule = (await read($, dividerOn)) ? dividerText(words.progress, cols - HINT_INSET) : null
     const open = (): void => {
       void openText($, state).then(message => $.ui.toast(message))
     }
     const enable = (): void => {
       void askToEnable($, state)
     }
+    const rows = [
+      ...(rule === null
+        ? []
+        : [
+            <Box key="divider">
+              <Text {...paint('subtle')}>{rule}</Text>
+            </Box>,
+          ]),
+      <Box key="line">
+        {parts.map((part, index) => {
+          const piece = (
+            <Text key={`part-${index}`} bold={part.bold === true} {...paint(part.tone)}>
+              {index === parts.length - 1 ? `${part.text} ` : part.text}
+            </Text>
+          )
 
-    return (
-      <Box flexDirection="column">
-        <Box>
-          {parts.map((part, index) => {
-            const piece = (
-              <Text key={`part-${index}`} bold={part.bold === true} {...paint(part.tone)}>
-                {index === parts.length - 1 ? `${part.text} ` : part.text}
-              </Text>
-            )
+          return part.href === undefined ? (
+            piece
+          ) : (
+            <Link key={`part-${index}`} href={part.href}>
+              {piece}
+            </Link>
+          )
+        })}
+        {state === null ? (
+          <Button key="enable" label={words.enable} variant="primary" onPress={enable} />
+        ) : (
+          <Button key="open" label={words.open} variant="primary" onPress={open} />
+        )}
+        {folded ? (
+          <Button key="expand" label={words.expand} onPress={() => update($, collapsed, () => false)} />
+        ) : (
+          <Button key="collapse" label={words.collapse} onPress={() => update($, collapsed, () => true)} />
+        )}
+      </Box>,
+      hint,
+    ]
 
-            return part.href === undefined ? (
-              piece
-            ) : (
-              <Link key={`part-${index}`} href={part.href}>
-                {piece}
-              </Link>
-            )
-          })}
-          {state === null ? (
-            <Button key="enable" label={words.enable} variant="primary" onPress={enable} />
-          ) : (
-            <Button key="open" label={words.open} variant="primary" onPress={open} />
-          )}
-          {folded ? (
-            <Button key="expand" label={words.expand} onPress={() => update($, collapsed, () => false)} />
-          ) : (
-            <Button key="collapse" label={words.collapse} onPress={() => update($, collapsed, () => true)} />
-          )}
-        </Box>
-        {hint}
-      </Box>
-    )
+    return <Box flexDirection="column">{rows}</Box>
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {

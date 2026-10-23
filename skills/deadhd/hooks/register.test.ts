@@ -17,6 +17,7 @@ import {
   EMPTY_HUD,
   formatLine,
   normalize,
+  resolveDivider,
   resolveHud,
   resolveView,
   statusLine,
@@ -2060,6 +2061,167 @@ describe('the HUD setting', () => {
     const after = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
 
     expect(textOf(await after.drawn())).toBe('(the engine drew its own)')
+
+    await after.unmount()
+  })
+})
+
+describe('the divider setting', () => {
+  /** The config that names the status line, with any other key a test sets. */
+  const statusConfig = (extra: Record<string, string> = {}): Record<string, string> => ({
+    ...filesOf(statusState()),
+    [CONFIG_PATH]: JSON.stringify({ view: 'statusline', ...extra }),
+  })
+
+  test('reads on as on, and an unset or unknown value as off', () => {
+    expect(resolveDivider('on')).toBe(true)
+    expect(resolveDivider('off')).toBe(false)
+    expect(resolveDivider(undefined)).toBe(false)
+    expect(resolveDivider(null)).toBe(false)
+    expect(resolveDivider('maybe')).toBe(false)
+  })
+
+  test('draws no rule while the config leaves divider unset', async ($, on) => {
+    const { clock } = statusWorld(on, statusConfig(), ENGINE_HINT, START)
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+    const rows = rowsOf(await ui.drawn())
+
+    expect(rows).toHaveLength(2)
+    expect(textOf(rows[0])).toBe(`${LONG_ROW_RUNNING} 열기접기`)
+
+    await ui.unmount()
+  })
+
+  test('draws the rule as the first row, filled to the hint slot', async ($, on) => {
+    const { clock } = statusWorld(on, statusConfig({ divider: 'on' }), ENGINE_HINT, START)
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({
+      ...MOUNT_HINT,
+      surface: 'terminal',
+      viewport: { columns: 120, rows: 24 },
+    })
+    const rows = rowsOf(await ui.drawn())
+    const rule = textOf(rows[0])
+
+    expect(rows).toHaveLength(3)
+    expect(rule.startsWith('── 진행 ')).toBe(true)
+    // 120칸에서 들여쓰기 4칸을 뺀 만큼을 채운다.
+    expect(cellWidth(rule)).toBe(116)
+
+    const painted = await paintedOf(ui)
+
+    expect(painted.find(one => one.text.startsWith('── 진행'))?.color).toBe('subtle')
+
+    await ui.unmount()
+  })
+
+  test('keeps the long row and the engine hint under the rule', async ($, on) => {
+    const { clock } = statusWorld(on, statusConfig({ divider: 'on' }), ENGINE_HINT, START)
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+    const rows = rowsOf(await ui.drawn())
+
+    expect(textOf(rows[1])).toBe(`${LONG_ROW_RUNNING} 열기접기`)
+    expect(textOf(rows[2])).toBe('? for shortcuts')
+
+    await ui.unmount()
+  })
+
+  test('writes the rule in English when the state says en', async ($, on) => {
+    const { clock } = statusWorld(
+      on,
+      {
+        ...filesOf(statusState({}, { lang: 'en' })),
+        [CONFIG_PATH]: JSON.stringify({ view: 'statusline', divider: 'on' }),
+      },
+      ENGINE_HINT,
+      START,
+    )
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+
+    expect(textOf(rowsOf(await ui.drawn())[0])).toMatch(/^── progress ─+$/)
+
+    await ui.unmount()
+  })
+
+  test('keeps the rule above the folded row', async ($, on) => {
+    const { clock } = statusWorld(on, statusConfig({ divider: 'on' }), ENGINE_HINT, START)
+
+    await startsRunning($, clock)
+    await $.command.run(statusRun)
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+    const rows = rowsOf(await ui.drawn())
+
+    expect(textOf(rows[0]).startsWith('── 진행 ')).toBe(true)
+    expect(textOf(rows[1])).toBe(`${STATUS_MARK} ${RUNNING} 열기펼치기`)
+
+    await ui.unmount()
+  })
+
+  test('draws no rule in the band', async ($, on) => {
+    const { clock } = worldOf(
+      on,
+      { ...filesOf(), [CONFIG_PATH]: JSON.stringify({ view: 'band', divider: 'on' }) },
+      START,
+    )
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+
+    expect(textOf(await ui.drawn())).not.toContain('── 진행')
+    expect(textOf(rowsOf(await ui.drawn())[0])).toContain(STATUS_MARK)
+
+    await ui.unmount()
+  })
+
+  test('draws nothing in the html view', async ($, on) => {
+    worldOf(on, {
+      ...filesOf(stateOf({ view: 'html' })),
+      [CONFIG_PATH]: JSON.stringify({ divider: 'on' }),
+    }).below = ENGINE_OWN
+    pinsNothing(on)
+
+    await $.session.start(SESSION)
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+
+    expect(textOf(await ui.drawn())).toBe('(the engine drew its own)')
+
+    await ui.unmount()
+  })
+
+  test('draws the rule on the next refresh when the config turns it on', async ($, on) => {
+    const files = statusConfig()
+
+    const { clock } = statusWorld(on, files, ENGINE_HINT, START)
+
+    await startsRunning($, clock)
+
+    const before = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+
+    expect(rowsOf(await before.drawn())).toHaveLength(2)
+
+    await before.unmount()
+
+    files[CONFIG_PATH] = JSON.stringify({ view: 'statusline', divider: 'on' })
+
+    await clock.advance(5000)
+
+    const after = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+
+    expect(textOf(rowsOf(await after.drawn())[0]).startsWith('── 진행 ')).toBe(true)
 
     await after.unmount()
   })

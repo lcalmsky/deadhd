@@ -40,7 +40,7 @@ On a `band` or `statusline` view the skill does not call `open.sh`. Reply with o
 
 ## Setup
 
-On an ordinary run that is not `-c`, `-o`, `--open`, `off`, or `setup`, run `python3 <skill-dir>/config.py get open`, `python3 <skill-dir>/config.py get view`, `python3 <skill-dir>/config.py get theme`, `python3 <skill-dir>/config.py get font`, and `python3 <skill-dir>/config.py get hud` first. When any of them prints `unset`, read `<skill-dir>/references/setup.md` and follow it to ask and save, then continue the original work.
+On an ordinary run that is not `-c`, `-o`, `--open`, `off`, or `setup`, run `python3 <skill-dir>/config.py get open`, `python3 <skill-dir>/config.py get view`, `python3 <skill-dir>/config.py get theme`, `python3 <skill-dir>/config.py get font`, `python3 <skill-dir>/config.py get hud`, and `python3 <skill-dir>/config.py get divider` first. When any of them prints `unset`, read `<skill-dir>/references/setup.md` and follow it to ask and save, then continue the original work.
 
 Called with `setup`, read `<skill-dir>/references/setup.md` and follow it.
 
