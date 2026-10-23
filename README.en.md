@@ -283,7 +283,7 @@ The open location uses these values.
 
 | Value | Behavior |
 |---|---|
-| `auto` | Opens an Orca tab when running inside Orca, otherwise the system browser |
+| `auto` | Opens an Orca tab in this session's Orca workspace and brings it to the front when running inside Orca, otherwise the system browser |
 | `orca` | Opens an Orca tab when the `orca` command is available |
 | `browser` | Skips Orca and opens the system browser |
 | `desktop` | Does not open the page; prints only the path. Press that path in the Claude desktop app to open it in the in-app browser panel. You can press the printed http address instead |

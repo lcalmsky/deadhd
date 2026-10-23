@@ -2664,6 +2664,59 @@ class OpenScriptTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn('opened: orca-tab', r.stdout)
 
+    def test_dry_tab_create_targets_session_workspace(self):
+        page = self.write_file('page.html')
+        wt = 'repo-1::/work/app::workspace:2'
+        r = self.run_open(page, worktree_id=wt, path_prefix=self.fake_orca_dir())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('--worktree id:' + wt, r.stdout)
+
+    def test_dry_mode_orca_without_worktree_id_omits_worktree(self):
+        page = self.write_file('page.html')
+        r = self.run_open(page, path_prefix=self.fake_orca_dir(), mode='orca')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn('--worktree', r.stdout)
+
+    def logging_orca_dir(self, created):
+        d = os.path.join(self.tmp, 'logbin')
+        os.makedirs(d, exist_ok=True)
+        log = os.path.join(self.tmp, 'orca.log')
+        path = os.path.join(d, 'orca')
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write('#!/bin/sh\n'
+                    'echo "$*" >> ' + shlex.quote(log) + '\n'
+                    'if [ "$1 $2" = "tab create" ]; then printf %s '
+                    + shlex.quote(created) + '; fi\n')
+        os.chmod(path, 0o755)
+        return d, log
+
+    def test_tab_create_then_switch_brings_tab_forward(self):
+        page = self.write_file('page.html')
+        wt = 'repo-1::/work/app::workspace:2'
+        d, log = self.logging_orca_dir(
+            json.dumps({'ok': True, 'result': {'browserPageId': 'page-7'}}))
+        r = self.run_open(page, worktree_id=wt, path_prefix=d, dry=False,
+                          env_extra=self.serve_env()[2])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('opened: orca-tab', r.stdout)
+        with open(log, encoding='utf-8') as f:
+            calls = f.read().splitlines()
+        self.assertEqual(len(calls), 2, calls)
+        self.assertTrue(calls[0].startswith('tab create'), calls)
+        self.assertIn('--worktree id:' + wt, calls[0])
+        self.assertEqual(calls[1], 'tab switch --page page-7 --focus --json')
+
+    def test_tab_create_without_page_id_skips_switch(self):
+        page = self.write_file('page.html')
+        d, log = self.logging_orca_dir('not json')
+        r = self.run_open(page, worktree_id='wt-1', path_prefix=d, dry=False,
+                          env_extra=self.serve_env()[2])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('opened: orca-tab', r.stdout)
+        with open(log, encoding='utf-8') as f:
+            calls = f.read().splitlines()
+        self.assertEqual(len(calls), 1, calls)
+
     def test_dry_without_worktree_id_skips_orca(self):
         page = self.write_file('page.html')
         r = self.run_open(page, path_prefix=self.fake_orca_dir())

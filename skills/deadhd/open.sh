@@ -81,13 +81,28 @@ if [ -z "$dry" ]; then
   fi
 fi
 
+# 칸을 지정하지 않으면 Orca 는 cwd 로 칸을 고르는데, 한 폴더에 작업 공간이 여럿이면
+# `::workspace:…` 꼬리가 없는 기본 칸에 탭이 열린다. 이 세션의 칸을 직접 넘긴다.
 open_orca_tab() {
+  set -- tab create --url "$url" --json
+  if [ -n "${ORCA_WORKTREE_ID:-}" ]; then
+    set -- "$@" --worktree "id:$ORCA_WORKTREE_ID"
+  fi
   if [ -n "$dry" ]; then
-    echo "dry: orca tab create --url $url --json"
+    echo "dry: orca $*"
     echo "opened: orca-tab $abs"
     return 0
   fi
-  if orca tab create --url "$url" --json >/dev/null 2>&1; then
+  if created=$(orca "$@" 2>/dev/null); then
+    page=$(printf '%s' "$created" | python3 -c 'import json, sys
+try:
+    print(json.load(sys.stdin)["result"]["browserPageId"])
+except Exception:
+    pass' 2>/dev/null)
+    if [ -n "$page" ]; then
+      orca tab switch --page "$page" --focus --json >/dev/null 2>&1 \
+        || echo "skip: orca-tab tab switch 실패" >&2
+    fi
     echo "opened: orca-tab $abs"
     echo "url: $url"
     return 0
