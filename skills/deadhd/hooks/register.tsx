@@ -92,6 +92,8 @@ const WORDS: Record<
     enable: string
     enablePrompt: string
     enableSent: string
+    enableWaiting: string
+    enableQueued: string
     enableFailed: string
     folded: string
     unfolded: string
@@ -127,6 +129,8 @@ const WORDS: Record<
     enable: '켜기',
     enablePrompt: 'deadhd 스킬로 이 세션의 체크리스트를 띄워 줘.',
     enableSent: '체크리스트를 켜 달라고 보냈어요',
+    enableWaiting: '지금 작업이 끝나면 체크리스트를 켤게요',
+    enableQueued: '이미 켜 달라고 보냈어요. 지금 작업이 끝나면 실행돼요',
     enableFailed: '체크리스트를 켜 달라고 보내지 못했어요',
     folded: '밴드를 접었어요',
     unfolded: '밴드를 펼쳤어요',
@@ -161,6 +165,8 @@ const WORDS: Record<
     enable: 'Enable',
     enablePrompt: "Show this session's checklist with the deadhd skill.",
     enableSent: 'Asked Claude to show the checklist.',
+    enableWaiting: 'The checklist will start once the current work finishes.',
+    enableQueued: 'Already asked. It runs once the current work finishes.',
     enableFailed: 'Could not ask Claude to show the checklist.',
     folded: 'Band collapsed.',
     unfolded: 'Band expanded.',
@@ -189,6 +195,8 @@ const shown = atom({ plugin: 'deadhd', key: 'view' } as const, DEFAULT_VIEW)
 const hudOn = atom({ plugin: 'deadhd', key: 'hud-on' } as const, true)
 /** Whether the config asks for a rule above the status line; an unset config reads as off. */
 const dividerOn = atom({ plugin: 'deadhd', key: 'divider-on' } as const, false)
+/** The enable button's mark while its prompt is queued; null when nothing is pending. */
+const asked = atom({ plugin: 'deadhd', key: 'enable-asked' } as const, null)
 
 /** What the mod watched of this session by itself, before any state file is there to read. */
 const seen = atom({ plugin: 'deadhd', key: 'hud' } as const, EMPTY_HUD)
@@ -1533,15 +1541,50 @@ async function openText($: EngineInterface, state: DeadhdState | null): Promise<
  * Asks the model to run this skill, so a session the skill has not made a
  * checklist for yet gets one. The button standing where `열기` does calls this;
  * the prompt is queued and runs once the session is idle.
+ *
+ * The queue cannot be read back, so the mark in `asked` stands from before the
+ * submit until the queued prompt's own turn has run. A press while the mark
+ * stands answers from it instead of queueing the prompt a second time; a submit
+ * that did not enter clears the mark, so the next press asks again. `working`
+ * only picks the words: a press while a turn runs waits for its end.
  */
-async function askToEnable($: EngineInterface, state: DeadhdState | null): Promise<void> {
+async function askToEnable(
+  $: EngineInterface,
+  state: DeadhdState | null,
+  working: boolean,
+): Promise<void> {
   const words = WORDS[state?.lang ?? 'ko']
+  let marked: { started: boolean } | null = null
+
+  // Reading and setting the mark in one update, so two quick presses cannot both
+  // find it empty. An unreadable mark is no mark: the press still asks.
+  await watch(() =>
+    update($, asked, held => {
+      marked = held
+
+      return held ?? { started: false }
+    }),
+  )
+
+  if (marked !== null) {
+    $.ui.toast(words.enableQueued)
+
+    return
+  }
 
   try {
     const entered = await $.prompt.submit({ text: words.enablePrompt })
 
-    $.ui.toast(entered.drop === undefined ? words.enableSent : words.enableFailed)
+    if (entered.drop !== undefined) {
+      await watch(() => update($, asked, () => null))
+      $.ui.toast(words.enableFailed)
+
+      return
+    }
+
+    $.ui.toast(working ? words.enableWaiting : words.enableSent)
   } catch {
+    await watch(() => update($, asked, () => null))
     $.ui.toast(words.enableFailed)
   }
 }
@@ -1563,6 +1606,11 @@ async function refresh($: EngineInterface): Promise<void> {
     // A session turned off draws like one with no state file at all: the checklist
     // drops out and the button standing where `열기` does asks to turn it back on.
     const drawn = fresh !== null && fresh.off ? null : fresh
+    // The checklist is there: the call the enable button asked for has landed,
+    // so the mark that stood for it is spent.
+    if (drawn !== null && (await read($, asked)) !== null) {
+      await watch(() => update($, asked, () => null))
+    }
     const previous = await read($, live)
     const previousView = await read($, shown)
     const watching = await configHud($)
@@ -1687,6 +1735,13 @@ export const register: Register = on => {
       // A turn beginning is this loop running again, whatever a call left behind.
       await update($, seen, held => ({ ...held, turnAt: at, endedAt: null, running: 0 }))
     })
+
+    // The queued enable prompt runs as the main loop's own turn: its start
+    // says the queue has emptied, and its end spends the mark. Apart from the
+    // HUD's write, so a clock that cannot be read never keeps the mark standing.
+    if (e.agentId === undefined) {
+      await watch(() => update($, asked, held => (held === null ? null : { started: true })))
+    }
     void refresh($)
 
     return ran
@@ -1703,6 +1758,9 @@ export const register: Register = on => {
 
         await update($, seen, held => ({ ...held, turnAt: null, endedAt: at, running: 0 }))
       })
+      // A turn that began after the press was the queued prompt: its end
+      // spends the mark, so the next press asks again.
+      await watch(() => update($, asked, held => (held?.started === true ? null : held)))
       void refresh($)
     }
 
@@ -1832,7 +1890,7 @@ export const register: Register = on => {
       void openText($, state).then(message => $.ui.toast(message))
     }
     const enable = (): void => {
-      void askToEnable($, state)
+      void askToEnable($, state, e.props.isWorking)
     }
     const rows = [
       ...(rule === null
@@ -1899,7 +1957,7 @@ export const register: Register = on => {
       void openText($, state).then(message => $.ui.toast(message))
     }
     const enable = (): void => {
-      void askToEnable($, state)
+      void askToEnable($, state, e.props.isWorking)
     }
 
     if (await read($, collapsed)) {

@@ -509,6 +509,98 @@ describe('the band', () => {
     await ui.unmount()
   })
 
+  test('asks once when the enable button is pressed twice', async ($, on) => {
+    const { clock, submitted, toasts } = worldOf(on, configOf('band'), START)
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+
+    await ui.press({ key: 'enable' })
+    await ui.press({ key: 'enable' })
+
+    expect(submitted).toEqual(['deadhd 스킬로 이 세션의 체크리스트를 띄워 줘.'])
+    expect(toasts).toEqual([
+      '체크리스트를 켜 달라고 보냈어요',
+      '이미 켜 달라고 보냈어요. 지금 작업이 끝나면 실행돼요',
+    ])
+
+    await ui.unmount()
+  })
+
+  test('says the checklist will start after the current work when the session is working', async ($, on) => {
+    const { clock, toasts } = worldOf(on, configOf('band'), START)
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({
+      ...MOUNT,
+      props: { ...BAND, isWorking: true },
+      surface: 'terminal',
+    })
+
+    await ui.press({ key: 'enable' })
+
+    expect(toasts).toEqual(['지금 작업이 끝나면 체크리스트를 켤게요'])
+
+    await ui.unmount()
+  })
+
+  test('holds the mark until the queued prompt has run its own turn', async ($, on) => {
+    const { clock, submitted } = worldOf(on, configOf('band'), START)
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+
+    await ui.press({ key: 'enable' })
+    // 누른 시점에 돌던 턴은 대기 프롬프트의 턴이 아니다: 그 complete 로는 풀리지 않는다.
+    await $.turn.complete(TURN_END)
+    await ui.press({ key: 'enable' })
+
+    expect(submitted).toHaveLength(1)
+
+    // 대기 프롬프트의 턴이 시작·종료되면 표지가 풀린다.
+    await $.turn.start({ ...TURN, turnId: 'turn-2' })
+    await $.turn.complete({ ...TURN_END, turnId: 'turn-2' })
+    await ui.press({ key: 'enable' })
+
+    expect(submitted).toHaveLength(2)
+
+    await ui.unmount()
+  })
+
+  test('asks again when the previous submit did not enter', async ($, on) => {
+    const asked: string[] = []
+
+    // 엔진이 submit 을 거절한다: 표지가 남아 다음 누름을 막으면 안 된다.
+    on('prompt.submit', {}, ($, e) => {
+      asked.push(e.text)
+
+      return { drop: 'busy' }
+    })
+
+    const { clock, toasts } = worldOf(on, configOf('band'), START)
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+
+    await ui.press({ key: 'enable' })
+    await ui.press({ key: 'enable' })
+
+    expect(asked).toEqual([
+      'deadhd 스킬로 이 세션의 체크리스트를 띄워 줘.',
+      'deadhd 스킬로 이 세션의 체크리스트를 띄워 줘.',
+    ])
+    expect(toasts).toEqual([
+      '체크리스트를 켜 달라고 보내지 못했어요',
+      '체크리스트를 켜 달라고 보내지 못했어요',
+    ])
+
+    await ui.unmount()
+  })
+
   test('with nothing naming the band the engine keeps the row it draws', async ($, on) => {
     worldOf(on, {}).below = ENGINE_OWN
 
@@ -1198,7 +1290,8 @@ describe('the status hint', () => {
       expect(rows).toHaveLength(2)
       // 버튼 두 개는 줄 뒤에 나란히 붙는다.
       expect(textOf(rows[0])).toBe(`${LONG_ROW_RUNNING} 열기접기`)
-      expect(rows[1]).toEqual(ENGINE_HINT)
+      // 엔진이 훅을 떠나는 트리에 붙이는 소유 표지(`part`)는 비교에서 뺀다.
+      expect(rows[1]).toMatchObject(ENGINE_HINT)
 
       await ui.unmount()
     })
@@ -1467,7 +1560,8 @@ describe('the status hint', () => {
     expect(drawn).not.toContain('열기')
     expect(drawn).toContain('켜기')
     expect(drawn).toContain('접기')
-    expect(rows[1]).toEqual(ENGINE_HINT)
+    // 엔진이 훅을 떠나는 트리에 붙이는 소유 표지(`part`)는 비교에서 뺀다.
+    expect(rows[1]).toMatchObject(ENGINE_HINT)
 
     await ui.unmount()
   })

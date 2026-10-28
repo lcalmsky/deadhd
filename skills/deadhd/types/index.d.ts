@@ -143,6 +143,11 @@ declare module 'claude-code' {
       hud: DeadhdHud
       /** Whether the config asks for the HUD; an unset or unknown `hud` value reads as on. */
       'hud-on': boolean
+      /**
+       * The enable button's mark while the prompt it submitted is queued: null
+       * when nothing is pending, else whether the main loop has started a turn since.
+       */
+      'enable-asked': { started: boolean } | null
     }
   }
 }
