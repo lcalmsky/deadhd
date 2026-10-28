@@ -529,7 +529,7 @@ describe('the band', () => {
   })
 
   test('says the checklist will start after the current work when the session is working', async ($, on) => {
-    const { clock, toasts } = worldOf(on, configOf('band'), START)
+    const { clock, submitted, toasts } = worldOf(on, configOf('band'), START)
 
     await startsRunning($, clock)
 
@@ -541,7 +541,10 @@ describe('the band', () => {
 
     await ui.press({ key: 'enable' })
 
-    expect(toasts).toEqual(['지금 작업이 끝나면 체크리스트를 켤게요'])
+    expect(submitted).toEqual([
+      'deadhd 스킬로 이 세션의 체크리스트를 띄워 줘. 이 요청은 앞 작업이 도는 동안 켜기 버튼으로 예약됐어. 그 작업이 끝나 남은 일이 없으면 켜지 말고 한 줄로만 알려 줘.',
+    ])
+    expect(toasts).toEqual(['지금 작업이 끝나면 체크리스트를 켤게요. 남은 일이 없으면 켜지 않아요'])
 
     await ui.unmount()
   })

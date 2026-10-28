@@ -91,6 +91,7 @@ const WORDS: Record<
     open: string
     enable: string
     enablePrompt: string
+    enableQueuedPrompt: string
     enableSent: string
     enableWaiting: string
     enableQueued: string
@@ -128,8 +129,9 @@ const WORDS: Record<
     open: '열기',
     enable: '켜기',
     enablePrompt: 'deadhd 스킬로 이 세션의 체크리스트를 띄워 줘.',
+    enableQueuedPrompt: 'deadhd 스킬로 이 세션의 체크리스트를 띄워 줘. 이 요청은 앞 작업이 도는 동안 켜기 버튼으로 예약됐어. 그 작업이 끝나 남은 일이 없으면 켜지 말고 한 줄로만 알려 줘.',
     enableSent: '체크리스트를 켜 달라고 보냈어요',
-    enableWaiting: '지금 작업이 끝나면 체크리스트를 켤게요',
+    enableWaiting: '지금 작업이 끝나면 체크리스트를 켤게요. 남은 일이 없으면 켜지 않아요',
     enableQueued: '이미 켜 달라고 보냈어요. 지금 작업이 끝나면 실행돼요',
     enableFailed: '체크리스트를 켜 달라고 보내지 못했어요',
     folded: '밴드를 접었어요',
@@ -164,8 +166,9 @@ const WORDS: Record<
     open: 'Open',
     enable: 'Enable',
     enablePrompt: "Show this session's checklist with the deadhd skill.",
+    enableQueuedPrompt: "Show this session's checklist with the deadhd skill. This request was queued with the Enable button while the previous work was running. If that work has finished and nothing is left to do, do not turn the checklist on; say so in one line.",
     enableSent: 'Asked Claude to show the checklist.',
-    enableWaiting: 'The checklist will start once the current work finishes.',
+    enableWaiting: 'The checklist will start once the current work finishes, unless nothing is left to do.',
     enableQueued: 'Already asked. It runs once the current work finishes.',
     enableFailed: 'Could not ask Claude to show the checklist.',
     folded: 'Band collapsed.',
@@ -1546,7 +1549,9 @@ async function openText($: EngineInterface, state: DeadhdState | null): Promise<
  * submit until the queued prompt's own turn has run. A press while the mark
  * stands answers from it instead of queueing the prompt a second time; a submit
  * that did not enter clears the mark, so the next press asks again. `working`
- * only picks the words: a press while a turn runs waits for its end.
+ * picks the words: a press while a turn runs waits for its end, so its prompt
+ * says it was queued and the skill leaves the checklist off when nothing is
+ * left by then.
  */
 async function askToEnable(
   $: EngineInterface,
@@ -1573,7 +1578,9 @@ async function askToEnable(
   }
 
   try {
-    const entered = await $.prompt.submit({ text: words.enablePrompt })
+    const entered = await $.prompt.submit({
+      text: working ? words.enableQueuedPrompt : words.enablePrompt,
+    })
 
     if (entered.drop !== undefined) {
       await watch(() => update($, asked, () => null))

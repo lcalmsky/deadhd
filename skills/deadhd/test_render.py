@@ -3087,6 +3087,18 @@ class SkillDocTest(unittest.TestCase):
             with self.subTest(needle=needle):
                 self.assertNotIn(needle, text)
 
+    def test_the_skill_cites_the_queued_prompt_markers(self):
+        # SKILL.md 가 인용한 두 표지는 register.tsx 의 예약 문구 안에 있어야 한다.
+        # 한쪽만 바뀌면 스킬이 예약된 요청을 알아보지 못한다.
+        with open(os.path.join(HERE, 'SKILL.md'), encoding='utf-8') as f:
+            skill = f.read()
+        with open(os.path.join(HERE, 'hooks', 'register.tsx'), encoding='utf-8') as f:
+            queued = '\n'.join(line for line in f if 'enableQueuedPrompt:' in line)
+        for marker in ('앞 작업이 도는 동안 켜기 버튼으로 예약됐어', 'queued with the Enable button'):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, skill)
+                self.assertIn(marker, queued)
+
 
 class ReplyTailTest(unittest.TestCase):
     """state.reply_tail 이 마지막 응답에서 마지막 줄만 골라 다듬는지 확인한다."""
