@@ -68,12 +68,43 @@ export type Tone =
 
 /**
  * One drawn piece of a line: `text` is what shows, `tone` what colors it, and
- * `href` the address the piece links to when it has one.
+ * `href` the address the piece links to when it has one. `chip` marks a piece
+ * drawn on the grey chip background, padding included.
  */
-export type Segment = { text: string; tone: Tone; bold?: boolean; href?: string }
+export type Segment = { text: string; tone: Tone; bold?: boolean; href?: string; chip?: boolean }
 
-/** One field of a line: its pieces drawn side by side, a separator before the next field. */
+/** One field of a line: its pieces drawn side by side, with a gap before the next field. */
 type Field = { tag: string; parts: Segment[] }
+
+/**
+ * The fields drawn as a grey chip, one cell of padding on each side. The line's
+ * own mark, its progress and its title are drawn plain; every other field a
+ * line can carry is a chip.
+ */
+const CHIP_FIELDS: ReadonlySet<string> = new Set([
+  'current',
+  'next',
+  'eta',
+  'etaBand',
+  'ago',
+  'agoQuiet',
+  'stuck',
+  'left',
+  'leftCount',
+  'allDone',
+  'pr',
+  'blocked',
+  'ask',
+  'background',
+  'compacted',
+  'session',
+  'tool',
+])
+
+const isChip = (tag: string): boolean => CHIP_FIELDS.has(tag)
+
+/** Cells a chip's own padding takes, one on each side. */
+const CHIP_PAD = 1
 
 const WORDS: Record<
   DeadhdLang,
@@ -345,6 +376,62 @@ const control = (
   </Button>
 )
 
+/**
+ * One line's segments as drawn elements: a chip's run becomes one Text on the
+ * grey chip background, the pieces inside it keeping their own tone, and a
+ * linked piece inside a chip keeps its Link. The space before the controls is
+ * drawn outside every chip, so a chip takes exactly the cells counted for it.
+ */
+const lineElements = (
+  ui: Pick<Elements['terminal'], 'Text' | 'Link'>,
+  parts: readonly Segment[],
+  prefix: string,
+): RenderElement[] => {
+  const { Text, Link } = ui
+  const inline = (part: Segment, key: string): RenderElement =>
+    part.href === undefined ? (
+      <Text key={key} bold={part.bold === true} {...paint(part.tone)}>
+        {part.text}
+      </Text>
+    ) : (
+      <Link key={key} href={part.href}>
+        <Text bold={part.bold === true} {...paint(part.tone)}>
+          {part.text}
+        </Text>
+      </Link>
+    )
+  const nodes: RenderElement[] = []
+  let at = 0
+
+  while (at < parts.length) {
+    const part = parts[at]!
+
+    if (part.chip !== true) {
+      nodes.push(inline(part, `${prefix}-${at}`))
+      at += 1
+      continue
+    }
+
+    const start = at
+    const cells: RenderElement[] = []
+
+    while (at < parts.length && parts[at]!.chip === true) {
+      cells.push(inline(parts[at]!, `${prefix}-${at}`))
+      at += 1
+    }
+
+    nodes.push(
+      <Text key={`${prefix}-chip-${start}`} backgroundColor="subtle">
+        {cells}
+      </Text>,
+    )
+  }
+
+  nodes.push(<Text key={`${prefix}-tail`}> </Text>)
+
+  return nodes
+}
+
 const record = (value: unknown): Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -542,7 +629,7 @@ const sessionField = (
   const words = WORDS[lang]
 
   if (state !== null && state.status === 'waiting_permission') {
-    return sessionPiece('🔐', words.permission, 'warning', state.since, now, lang)
+    return sessionPiece('⚑', words.permission, 'warning', state.since, now, lang)
   }
 
   // `●`, not the `▶` the run's own current step carries: one row draws both, so
@@ -555,7 +642,7 @@ const sessionField = (
   // state file's own word for the wait stands where it names one.
   const from = hud.endedAt ?? hud.startedAt ?? (state !== null && state.status === 'idle' ? state.since : null)
 
-  return from === null ? null : sessionPiece('⌨️', words.input, 'merged', from, now, lang)
+  return from === null ? null : sessionPiece('❯', words.input, 'merged', from, now, lang)
 }
 
 /** The tool the main loop called last, or the one it runs now; a subagent's own calls are not its own. */
@@ -565,14 +652,14 @@ const toolField = (hud: DeadhdHud, now: number, lang: DeadhdLang): Field | null 
   }
 
   if (hud.running > 0) {
-    return { tag: 'tool', parts: [{ text: `🔧 ${hud.tool} ${WORDS[lang].toolRunning}`, tone: 'ide', bold: true }] }
+    return { tag: 'tool', parts: [{ text: `⚙ ${hud.tool} ${WORDS[lang].toolRunning}`, tone: 'ide', bold: true }] }
   }
 
   const seconds = secondsBetween(hud.toolAt, now)
 
   return seconds === null
     ? null
-    : { tag: 'tool', parts: [{ text: `🔧 ${hud.tool} ${toolAgo(seconds, lang)}`, tone: 'subtle' }] }
+    : { tag: 'tool', parts: [{ text: `⚙ ${hud.tool} ${toolAgo(seconds, lang)}`, tone: 'subtle' }] }
 }
 
 /** The compaction piece: the count the mod watched, the state file's own standing in for its miss. */
@@ -584,7 +671,7 @@ const compactedField = (state: DeadhdState | null, hud: DeadhdHud, lang: DeadhdL
     ? null
     : {
         tag: 'compacted',
-        parts: [{ text: `🗜 ${WORDS[lang].compacted} ${compactions}`, tone: 'remember' }],
+        parts: [{ text: `⇊ ${WORDS[lang].compacted} ${compactions}`, tone: 'remember' }],
       }
 }
 
@@ -670,14 +757,14 @@ const bandRun = (state: DeadhdState, hud: DeadhdHud, now: number): Field[] => {
   if (state.next !== null) {
     fields.push({
       tag: 'next',
-      parts: [{ text: `⏭ ${words.next} ${state.next.label}`, tone: 'inactive' }],
+      parts: [{ text: `› ${words.next} ${state.next.label}`, tone: 'inactive' }],
     })
   }
 
   const eta = clockOf(state.eta)
 
   if (eta !== null) {
-    fields.push({ tag: 'etaBand', parts: [{ text: `⏱ ${words.eta} ${eta}`, tone: 'planMode' }] })
+    fields.push({ tag: 'etaBand', parts: [{ text: `◷ ${words.eta} ${eta}`, tone: 'planMode' }] })
   }
 
   const behind = minutesBetween(state.updatedAt, now)
@@ -717,7 +804,7 @@ const bandAlertFields = (state: DeadhdState): Field[] => {
     fields.push({
       tag: 'blocked',
       parts: [
-        { text: `⛔ ${words.blocked}: `, tone: 'error', bold: true },
+        { text: `✕ ${words.blocked}: `, tone: 'error', bold: true },
         { text: note, tone: 'error', bold: true },
       ],
     })
@@ -781,7 +868,7 @@ const statusRun = (state: DeadhdState, hud: DeadhdHud, now: number): Field[] => 
     fields.push({
       tag: 'pr',
       parts: [
-        { text: '🔀 ', tone: 'permission' },
+        { text: '⎇ ', tone: 'permission' },
         { text: state.pr.text, tone: 'permission', href: state.pr.href },
       ],
     })
@@ -790,14 +877,14 @@ const statusRun = (state: DeadhdState, hud: DeadhdHud, now: number): Field[] => 
   if (state.next !== null) {
     fields.push({
       tag: 'next',
-      parts: [{ text: `⏭ ${words.next} ${state.next.label}`, tone: 'inactive' }],
+      parts: [{ text: `› ${words.next} ${state.next.label}`, tone: 'inactive' }],
     })
   }
 
   const eta = clockOf(state.eta)
 
   if (eta !== null) {
-    fields.push({ tag: 'eta', parts: [{ text: `⏱ ${words.eta} ${eta}`, tone: 'planMode' }] })
+    fields.push({ tag: 'eta', parts: [{ text: `◷ ${words.eta} ${eta}`, tone: 'planMode' }] })
   }
 
   const behind = minutesBetween(state.updatedAt, now)
@@ -808,7 +895,7 @@ const statusRun = (state: DeadhdState, hud: DeadhdHud, now: number): Field[] => 
 
   if (state.blocked > 0) {
     const parts: Segment[] = [
-      { text: `⛔ ${words.blocked} ${state.blocked}`, tone: 'error', bold: true },
+      { text: `✕ ${words.blocked} ${state.blocked}`, tone: 'error', bold: true },
     ]
 
     if (state.stuck !== null) {
@@ -819,13 +906,13 @@ const statusRun = (state: DeadhdState, hud: DeadhdHud, now: number): Field[] => 
   }
 
   if (state.left > 0) {
-    fields.push({ tag: 'left', parts: [{ text: `⏳ ${words.left} ${state.left}`, tone: 'text' }] })
+    fields.push({ tag: 'left', parts: [{ text: `☐ ${words.left} ${state.left}`, tone: 'text' }] })
   }
 
   if (state.background > 0) {
     fields.push({
       tag: 'background',
-      parts: [{ text: `🧵 ${words.background} ${state.background}`, tone: 'ide' }],
+      parts: [{ text: `⇶ ${words.background} ${state.background}`, tone: 'ide' }],
     })
   }
 
@@ -882,25 +969,43 @@ const updatePiece = (minutes: number, lang: DeadhdLang, busy: boolean): Segment 
   const body = ago(minutes, lang)
 
   if (busy && minutes > 30) {
-    return { text: `🛑 ${WORDS[lang].stale} ${body}`, tone: 'error' }
+    return { text: `⊘ ${WORDS[lang].stale} ${body}`, tone: 'error' }
   }
 
   if (busy && minutes > 10) {
-    return { text: `⚠️ ${body}`, tone: 'warning' }
+    return { text: `⚠ ${body}`, tone: 'warning' }
   }
 
-  return { text: `🔄 ${body}`, tone: 'subtle' }
+  return { text: `↻ ${body}`, tone: 'subtle' }
 }
 
 const fieldWidth = (field: Field): number =>
   field.parts.reduce((cells, part) => cells + cellWidth(part.text), 0)
 
-/** Cells the whole line takes, its separators counted. */
-const lineWidth = (fields: readonly Field[]): number =>
-  fields.length === 0
-    ? 0
-    : fields.reduce((cells, field) => cells + fieldWidth(field), 0) +
-      (fields.length - 1) * cellWidth(SEP)
+/** The gap between two fields: a chip's padding stands in for the separator beside it. */
+const gapOf = (left: Field, right: Field): string =>
+  isChip(left.tag) || isChip(right.tag) ? ' ' : SEP
+
+/** Cells the whole line takes: its pieces, every chip's padding and the gaps between fields. */
+const lineWidth = (fields: readonly Field[]): number => {
+  let cells = 0
+
+  fields.forEach((field, index) => {
+    cells += fieldWidth(field)
+
+    if (isChip(field.tag)) {
+      cells += CHIP_PAD * 2
+    }
+
+    const before = fields[index - 1]
+
+    if (before !== undefined) {
+      cells += cellWidth(gapOf(before, field))
+    }
+  })
+
+  return cells
+}
 
 /** Cuts a field's last piece to the cells left for it, or drops that piece when none are. */
 const cutLast = (field: Field, room: number): void => {
@@ -953,7 +1058,7 @@ const STUCK_KEEP = 8
  * Brings a line inside `maxCols` cells, giving way in the order the fields can
  * spare it: the title's body first, then what the mod watched of the session by
  * itself (the compaction and background counts, then the last tool), the next step,
- * the band's quiet age piece (`🔄`, which goes before the step's label; an age loud
+ * the band's quiet age piece (`↻`, which goes before the step's label; an age loud
  * enough to warn or read stale keeps the last-write age's own place below), the
  * band's estimate (`etaBand`, which goes just after that quiet age), the
  * second row's blocked label down to the few cells it keeps while an ask sits
@@ -1095,17 +1200,34 @@ const fit = (fields: Field[], maxCols: number): Field[] => {
   return fields.filter(field => field.parts.length > 0)
 }
 
-/** One line's fields as the pieces a drawing lays out, a separator between the fields. */
+/**
+ * One line's fields as the pieces a drawing lays out, the gaps between fields
+ * and every chip's padding included. A chip's pieces carry `chip`, so a drawing
+ * paints one background behind them as a run.
+ */
 const flatten = (fields: readonly Field[]): Segment[] => {
   const parts: Segment[] = []
 
   fields.forEach((field, index) => {
-    if (index > 0) {
-      parts.push({ text: SEP, tone: 'subtle' })
+    const before = fields[index - 1]
+
+    if (before !== undefined) {
+      parts.push({ text: gapOf(before, field), tone: 'subtle' })
+    }
+
+    const chip = isChip(field.tag)
+    const pad: Segment = { text: ' '.repeat(CHIP_PAD), tone: 'plain', chip: true }
+
+    if (chip) {
+      parts.push(pad)
     }
 
     for (const part of field.parts) {
-      parts.push(part)
+      parts.push(chip ? { ...part, chip: true } : part)
+    }
+
+    if (chip) {
+      parts.push(pad)
     }
   })
 
@@ -1165,9 +1287,7 @@ function foldedSegments(
 ): Segment[] {
   const session = sessionField(state, hud, now, state?.lang ?? 'ko')
 
-  return session === null
-    ? [{ text: STATUS_MARK, tone: 'claude', bold: true }]
-    : [{ text: STATUS_MARK, tone: 'claude', bold: true }, { text: ' ', tone: 'plain' }, ...session.parts]
+  return flatten(session === null ? [markField()] : [markField(), session])
 }
 
 /** The rule drawn above the status line, filled with `─` to `cells` cells. */
@@ -1921,7 +2041,7 @@ export const register: Register = on => {
     // The engine's hint keeps its own tree, drawn under the deadhd line.
     const hint = await next(e)
     const ui = $.ui.resolve(e)
-    const { Box, Text, Link } = ui
+    const { Box, Text } = ui
     // A rule above the line keeps it apart from another plugin's status line drawn above it.
     const rule = (await read($, dividerOn)) ? dividerText(words.progress, cols - HINT_INSET) : null
     const open = (): void => {
@@ -1939,21 +2059,7 @@ export const register: Register = on => {
             </Box>,
           ]),
       <Box key="line">
-        {parts.map((part, index) => {
-          const piece = (
-            <Text key={`part-${index}`} bold={part.bold === true} {...paint(part.tone)}>
-              {index === parts.length - 1 ? `${part.text} ` : part.text}
-            </Text>
-          )
-
-          return part.href === undefined ? (
-            piece
-          ) : (
-            <Link key={`part-${index}`} href={part.href}>
-              {piece}
-            </Link>
-          )
-        })}
+        {lineElements(ui, parts, 'part')}
         {state === null
           ? control(ui, 'enable', words.enable, enable)
           : control(ui, 'open', words.open, open)}
@@ -1986,7 +2092,7 @@ export const register: Register = on => {
 
     const hud = watching ? await read($, seen) : EMPTY_HUD
     const ui = $.ui.resolve(e)
-    const { Box, Text } = ui
+    const { Box } = ui
     const words = WORDS[state?.lang ?? 'ko']
     const open = (): void => {
       void openText($, state).then(message => $.ui.toast(message))
@@ -2000,11 +2106,7 @@ export const register: Register = on => {
       const below = await next(e)
       const line = (
         <Box>
-          {folded.map((part, index) => (
-            <Text key={`folded-${index}`} bold={part.bold === true} {...paint(part.tone)}>
-              {index === folded.length - 1 ? `${part.text} ` : part.text}
-            </Text>
-          ))}
+          {lineElements(ui, folded, 'folded')}
           {state === null
             ? control(ui, 'enable', words.enable, enable)
             : control(ui, 'open', words.open, open)}
@@ -2042,11 +2144,7 @@ export const register: Register = on => {
     const below = await next(e)
     const rows = [
       <Box key="band-line">
-        {line.map((part, index) => (
-          <Text key={`part-${index}`} bold={part.bold === true} {...paint(part.tone)}>
-            {index === line.length - 1 ? `${part.text} ` : part.text}
-          </Text>
-        ))}
+        {lineElements(ui, line, 'part')}
         {state === null
           ? control(ui, 'enable', words.enable, enable)
           : control(ui, 'open', words.open, open)}
@@ -2060,13 +2158,7 @@ export const register: Register = on => {
 
       if (alerts.length > 0) {
         rows.push(
-          <Box key="band-alerts">
-            {alerts.map((part, index) => (
-              <Text key={`alert-${index}`} bold={part.bold === true} {...paint(part.tone)}>
-                {index === alerts.length - 1 ? `${part.text} ` : part.text}
-              </Text>
-            ))}
-          </Box>,
+          <Box key="band-alerts">{lineElements(ui, alerts, 'alert')}</Box>,
         )
       }
     }

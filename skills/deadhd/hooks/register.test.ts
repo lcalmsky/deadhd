@@ -143,7 +143,7 @@ const TURN_END: TurnCompleteInput = {
 const RUNNING = '● 작업 중 4분째'
 
 /** The session's own state as the mod watches it with no turn behind it yet. */
-const IDLE = '⌨️ 입력 대기 0분째'
+const IDLE = '❯ 입력 대기 0분째'
 
 /** The config file that names a view with no state file written yet, and any other key a test sets. */
 const configOf = (view: string, extra: Record<string, string> = {}): Record<string, string> => ({
@@ -374,8 +374,8 @@ const buttonsOf = (node: unknown): { props: Record<string, unknown>; children: u
   return [...own, ...(element.children ?? []).flatMap(buttonsOf)]
 }
 
-/** One Text of a drawn line, as the colors and the dim flag under test read it. */
-type Painted = { text: string; color: unknown; bold: unknown; dim: unknown }
+/** One Text of a drawn line, as the colors, the chip background and the dim flag under test read it. */
+type Painted = { text: string; color: unknown; bold: unknown; dim: unknown; background: unknown }
 
 const paintedOf = async (ui: {
   findAll: (query: { type: string }) => Promise<readonly { text: string; props: Record<string, unknown> }[]>
@@ -385,11 +385,36 @@ const paintedOf = async (ui: {
     color: one.props.color,
     bold: one.props.bold,
     dim: one.props.dimColor,
+    background: one.props.backgroundColor,
   }))
 
-/** The piece whose words are `text`; a trailing space before the button is not part of it. */
+/**
+ * The piece whose words are `text`; a trailing space before the button is not
+ * part of it. A chip's own Text holds its pieces and shows their words too, so
+ * the innermost Text wins.
+ */
 const pieceOf = (painted: readonly Painted[], text: string): Painted | undefined =>
+  painted.find(one => one.text.trim() === text && one.background === undefined) ??
   painted.find(one => one.text.trim() === text)
+
+/** The chips a drawn tree holds, by the words they show; a button's own block is not a chip. */
+const chipsIn = (node: unknown): string[] => {
+  if (node === null || typeof node !== 'object') {
+    return []
+  }
+
+  const element = elementOf(node)
+
+  if (element.type === 'Button') {
+    return []
+  }
+
+  if (element.type === 'Text' && element.props?.backgroundColor === 'subtle') {
+    return [textOf(element)]
+  }
+
+  return (element.children ?? []).flatMap(chipsIn)
+}
 
 /** Answers the pinned-status call a statusline start makes, drawing nothing. */
 const pinsNothing = (on: On): void => {
@@ -411,7 +436,7 @@ const MOUNT_HINT = { plugin: PLUGIN, component: 'PromptHint', props: HINT } as c
 const STATUS_MARK = '◆'
 
 /** The pull request the sample's running step carries, as the row draws it. */
-const PR_PIECE = '🔀 app-api#512'
+const PR_PIECE = '⎇ app-api#512'
 
 /** The pull request's own words: the part the link wraps, the mark left outside it. */
 const PR_TEXT = 'app-api#512'
@@ -419,14 +444,27 @@ const PR_TEXT = 'app-api#512'
 /** The mark and the count as one piece: no separator falls between them. */
 const MARK_COUNT = `${STATUS_MARK} ✓ 3/6`
 
+/** One field as a chip draws it: one cell of padding on each side. */
+const chip = (text: string): string => ` ${text} `
+
+/** The gap between two fields: chips carry their own padding, so it is one cell. */
+const GAP = ' '
+
 /** The whole long row the sample draws, piece by piece. */
 const LONG_ROW =
-  `${STATUS_MARK} ✓ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · ` +
-  '▶ 실제 화면 확인 4분째 · 🔀 app-api#512 · ⏭ 다음 정리 · ⏱ 예상 16:20 · 🔄 2분 전 · ' +
-  '⛔ 막힘 1: 배포 검증 · ⏳ 남음 2 · 🧵 백그라운드 2 · 🗜 압축 1'
+  `${MARK_COUNT} ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차` +
+  `${GAP}${chip('▶ 실제 화면 확인 4분째')}` +
+  `${GAP}${chip(PR_PIECE)}` +
+  `${GAP}${chip('› 다음 정리')}` +
+  `${GAP}${chip('◷ 예상 16:20')}` +
+  `${GAP}${chip('↻ 2분 전')}` +
+  `${GAP}${chip('✕ 막힘 1: 배포 검증')}` +
+  `${GAP}${chip('☐ 남음 2')}` +
+  `${GAP}${chip('⇶ 백그라운드 2')}` +
+  `${GAP}${chip('⇊ 압축 1')}`
 
 /** The same row with the session's own state, which trails the run's own pieces. */
-const LONG_ROW_RUNNING = `${LONG_ROW} · ${RUNNING}`
+const LONG_ROW_RUNNING = `${LONG_ROW}${GAP}${chip(RUNNING)}`
 
 /** A control as textOf reads it: its label, then the glyph it draws on its block. */
 const controlText = (label: string, glyph: string): string => `${label} ${glyph} `
@@ -459,10 +497,10 @@ describe('the band', () => {
       expect(drawn).toContain('▓▓▓░░░ 3/6')
       expect(drawn).toContain('▶ 실제 화면 확인 4분째')
       // 조용한 나이 조각이 단계 이름보다 먼저 빠지므로 이 폭에서는 나이가 서지 않는다.
-      expect(drawn).not.toContain('🔄 2분 전')
+      expect(drawn).not.toContain('↻ 2분 전')
       // 다음 단계는 이 폭에서 빠지고, 예상은 남는다.
-      expect(drawn).not.toContain('⏭ 다음 정리')
-      expect(drawn).toContain('⏱ 예상 16:20')
+      expect(drawn).not.toContain('› 다음 정리')
+      expect(drawn).toContain('◷ 예상 16:20')
       expect(drawn).toContain('막힘 1')
       expect(drawn).toContain('남음 2')
       expect(drawn).toContain(RUNNING)
@@ -483,7 +521,7 @@ describe('the band', () => {
     const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
     const drawn = textOf(await ui.drawn())
 
-    expect(drawn).toContain(`${STATUS_MARK} · ${RUNNING}`)
+    expect(drawn).toContain(`${STATUS_MARK}${GAP}${chip(RUNNING)}`)
     // 상태 파일이 없으니 체크리스트도, 열 페이지도 없다. 열 자리에 켜기 버튼이 선다.
     expect(drawn).not.toContain('막힘')
     expect(drawn).not.toContain('열기')
@@ -503,7 +541,7 @@ describe('the band', () => {
     const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
     const drawn = textOf(await ui.drawn())
 
-    expect(drawn).toContain(`${STATUS_MARK} · ${RUNNING}`)
+    expect(drawn).toContain(`${STATUS_MARK}${GAP}${chip(RUNNING)}`)
     // 체크리스트가 빠지고 열기 자리에 켜기 버튼이 선다. 상태 파일이 없는 세션과 같다.
     expect(drawn).not.toContain('막힘')
     expect(drawn).not.toContain('실제 화면 확인')
@@ -678,9 +716,9 @@ describe('the band', () => {
     const rows = rowsOf(await ui.drawn())
 
     // 권한 대기는 엔진의 다이얼로그라 관측되지 않는다: 상태 파일의 말이 그대로 나온다.
-    expect(textOf(rows[0])).toContain('🔐 권한 승인 대기 4분째')
+    expect(textOf(rows[0])).toContain('⚑ 권한 승인 대기 4분째')
     expect(textOf(rows[0])).not.toContain(RUNNING)
-    expect(textOf(rows[1])).toContain('⛔ 막힘: 배포 검증 (권한 대기)')
+    expect(textOf(rows[1])).toContain('✕ 막힘: 배포 검증 (권한 대기)')
 
     await ui.unmount()
   })
@@ -722,7 +760,7 @@ describe('the band', () => {
     // 둘째 줄이 사라도 세션 상태는 첫 줄에 남는다.
     expect(rowsOf(await ui.drawn())).toHaveLength(1)
     expect(drawn).toContain('막힘 1')
-    expect(drawn).toContain('🔐 권한 승인 대기 4분째')
+    expect(drawn).toContain('⚑ 권한 승인 대기 4분째')
     expect(drawn).not.toContain('막힘:')
 
     await ui.unmount()
@@ -772,7 +810,7 @@ describe('the band', () => {
     const summary = textOf(await folded.drawn())
 
     // 접힌 줄은 표지와 세션 상태 한 조각만 남긴다.
-    expect(summary).toContain(`${STATUS_MARK} ${RUNNING}`)
+    expect(summary).toContain(`${STATUS_MARK}${GAP}${chip(RUNNING)}`)
     expect(summary).not.toContain('/deadhd-band')
     expect(summary).toContain('열기')
     expect(summary).toContain('펼치기')
@@ -801,7 +839,7 @@ describe('the band', () => {
     const folded = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
     const summary = textOf(await folded.drawn())
 
-    expect(summary).toContain(`${STATUS_MARK} ${RUNNING}`)
+    expect(summary).toContain(`${STATUS_MARK}${GAP}${chip(RUNNING)}`)
     expect(summary).toContain('펼치기')
     expect(summary).not.toContain('열기')
     expect(summary).toContain('켜기')
@@ -857,7 +895,7 @@ describe('the band', () => {
     const after = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
     const drawn = textOf(await after.drawn())
 
-    expect(drawn).toContain(`${STATUS_MARK} ⌨️ 입력 대기 0분째`)
+    expect(drawn).toContain(`${STATUS_MARK}${GAP}${chip('❯ 입력 대기 0분째')}`)
     expect(drawn).toContain('펼치기')
     expect(drawn).not.toContain('막힘')
 
@@ -901,11 +939,11 @@ describe('the band', () => {
     const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
     const painted = await paintedOf(ui)
 
-    expect(pieceOf(painted, '⛔ 막힘:')).toMatchObject({ color: 'error', bold: true })
+    expect(pieceOf(painted, '✕ 막힘:')).toMatchObject({ color: 'error', bold: true })
     expect(pieceOf(painted, '배포 검증 (권한 대기)')).toMatchObject({ color: 'error', bold: true })
     // 상태 파일이 idle 이라 해도 관측한 턴이 그 위에 선다.
     expect(pieceOf(painted, RUNNING)).toMatchObject({ color: 'suggestion', bold: true })
-    expect(pieceOf(painted, '⌨️ 입력 대기 4분째')).toBeUndefined()
+    expect(pieceOf(painted, '❯ 입력 대기 4분째')).toBeUndefined()
 
     await ui.unmount()
   })
@@ -964,7 +1002,7 @@ describe('the band', () => {
     const folded = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
     const summary = textOf(await folded.drawn())
 
-    expect(summary).toContain(`${STATUS_MARK} ${RUNNING}`)
+    expect(summary).toContain(`${STATUS_MARK}${GAP}${chip(RUNNING)}`)
     expect(summary).toContain('현타 줄')
     expect(summary.indexOf(STATUS_MARK)).toBeLessThan(summary.indexOf('현타 줄'))
 
@@ -1000,7 +1038,7 @@ describe('the band', () => {
     const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
     const drawn = textOf(await ui.drawn())
 
-    expect(drawn).toContain(`${STATUS_MARK} · ${RUNNING}`)
+    expect(drawn).toContain(`${STATUS_MARK}${GAP}${chip(RUNNING)}`)
     expect(drawn).toContain('켜기')
     expect(drawn).toContain('현타 줄')
     expect(drawn.indexOf(STATUS_MARK)).toBeLessThan(drawn.indexOf('현타 줄'))
@@ -1012,8 +1050,13 @@ describe('the band', () => {
 describe('the band line', () => {
   test('carries the progress, the current step, the next step, the estimate, the age and the counts', () => {
     expect(line(bandLine(STATE, NOW, 200))).toBe(
-      `${STATUS_MARK} · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · ⏭ 다음 정리 · ⏱ 예상 16:20 · ` +
-        '🔄 2분 전 · 막힘 1 · 남음 2',
+      `${STATUS_MARK} · ▓▓▓░░░ 3/6` +
+        `${GAP}${chip('▶ 실제 화면 확인 4분째')}` +
+        `${GAP}${chip('› 다음 정리')}` +
+        `${GAP}${chip('◷ 예상 16:20')}` +
+        `${GAP}${chip('↻ 2분 전')}` +
+        `${GAP}${chip('막힘 1')}` +
+        `${GAP}${chip('남음 2')}`,
     )
   })
 
@@ -1063,7 +1106,7 @@ describe('the band line', () => {
     // Past the step, the left count is the next piece the band's row spares.
     // The mark leaves the row's other pieces 31 cells before not one of the
     // step's own is left.
-    expect(line(bandLine(long, NOW, 31))).toBe(`${STATUS_MARK} · ▓▓▓░░░ 3/6 · 막힘 1`)
+    expect(line(bandLine(long, NOW, 31))).toBe(`${STATUS_MARK} · ▓▓▓░░░ 3/6${GAP}${chip('막힘 1')}`)
   })
 
   test('fits the row in 60 and 40 cells, as the status line does', () => {
@@ -1082,7 +1125,7 @@ describe('the band line', () => {
       const drawn = line(bandLine(STATE, NOW, maxCols))
 
       // 다음 단계와 예상은 단계 이름보다 먼저 빠지므로, 둘 중 하나가 서 있는 폭에는 이름이 온전하다.
-      if (drawn.includes('⏭') || drawn.includes('⏱')) {
+      if (drawn.includes('›') || drawn.includes('◷')) {
         expect(drawn).toContain('▶ 실제 화면 확인')
       }
     }
@@ -1095,12 +1138,152 @@ describe('the band line', () => {
     for (let maxCols = 20; maxCols <= 80; maxCols++) {
       const drawn = line(bandLine(STATE, NOW, maxCols))
 
-      if (drawn.includes('⏱') && !drawn.includes('⏭')) estimateAlone.push(maxCols)
-      if (drawn.includes('⏭') && !drawn.includes('⏱')) nextAlone.push(maxCols)
+      if (drawn.includes('◷') && !drawn.includes('›')) estimateAlone.push(maxCols)
+      if (drawn.includes('›') && !drawn.includes('◷')) nextAlone.push(maxCols)
     }
 
     expect(estimateAlone.length).toBeGreaterThan(0)
     expect(nextAlone).toEqual([])
+  })
+})
+
+describe('the single-tone symbols and the grey chips', () => {
+  /** The emoji the lines drew before the symbols took their places. */
+  const EMOJI = ['⏭', '⏱', '🔄', '⏳', '🧵', '⌨️', '🔐', '🔧', '🗜', '🔀', '⛔', '🛑', '⚠️']
+
+  const expectNoEmoji = (drawn: string): void => {
+    for (const one of EMOJI) {
+      expect([one, drawn.includes(one)]).toEqual([one, false])
+    }
+  }
+
+  test('draws no emoji on the long row', async ($, on) => {
+    const { clock } = statusWorld(on, filesOf(statusState()), ENGINE_HINT, START)
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+
+    expectNoEmoji(textOf(await ui.drawn()))
+
+    await ui.unmount()
+  })
+
+  test('draws no emoji on the band or its alert row', async ($, on) => {
+    const { clock } = worldOf(on, filesOf(), START)
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+
+    expectNoEmoji(textOf(await ui.drawn()))
+
+    await ui.unmount()
+  })
+
+  test('draws no emoji on the folded row', async ($, on) => {
+    const { clock } = worldOf(on, filesOf(), START)
+
+    await startsRunning($, clock)
+    await $.command.run(run)
+
+    const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+
+    expectNoEmoji(textOf(await ui.drawn()))
+    // 접힌 줄의 세션 상태도 칩이다. 접기 버튼의 바탕은 칩이 아니다.
+    expect(chipsIn(await ui.drawn()).map(one => one.trim())).toEqual([RUNNING])
+
+    await ui.unmount()
+  })
+
+  test('draws the run and session pieces as chips and the mark, count and title plain', async ($, on) => {
+    const { clock } = statusWorld(on, filesOf(statusState()), ENGINE_HINT, START)
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+    const drawn = await ui.drawn()
+    const painted = await paintedOf(ui)
+
+    expect(chipsIn(drawn).map(one => one.trim())).toEqual([
+      '▶ 실제 화면 확인 4분째',
+      PR_PIECE,
+      '› 다음 정리',
+      '◷ 예상 16:20',
+      '↻ 2분 전',
+      '✕ 막힘 1: 배포 검증',
+      '☐ 남음 2',
+      '⇶ 백그라운드 2',
+      '⇊ 압축 1',
+      RUNNING,
+    ])
+    expect(pieceOf(painted, STATUS_MARK)?.background).toBeUndefined()
+    expect(pieceOf(painted, '✓ 3/6')?.background).toBeUndefined()
+    expect(pieceOf(painted, 'CAS-1161')?.background).toBeUndefined()
+    expect(pieceOf(painted, '콘솔 dev 회귀 3회차')?.background).toBeUndefined()
+    // 칩 안의 조각은 제 색을 그대로 쓴다.
+    expect(pieceOf(painted, '▶ 실제 화면 확인')?.color).toBe('suggestion')
+
+    await ui.unmount()
+  })
+
+  test('sets the dot only between the plain fields, never beside a chip', () => {
+    for (const parts of [bandLine(STATE, NOW, 200), statusLine(STATE, NOW, 240)]) {
+      const dots = parts.flatMap((part, at) => (part.text === ' · ' ? [at] : []))
+
+      // 표지·진행과 제목 사이 한 곳에만 구분점이 선다.
+      expect(dots).toHaveLength(1)
+
+      for (const at of dots) {
+        expect(parts[at - 1]?.chip).not.toBe(true)
+        expect(parts[at + 1]?.chip).not.toBe(true)
+      }
+
+      // 칩은 한 칸 여백으로 열고 닫는다.
+      let at = 0
+
+      while (at < parts.length) {
+        if (parts[at]?.chip !== true) {
+          at += 1
+          continue
+        }
+
+        const run: { text: string }[] = []
+
+        while (at < parts.length && parts[at]?.chip === true) {
+          run.push(parts[at]!)
+          at += 1
+        }
+
+        expect(run[0]?.text).toBe(' ')
+        expect(run[run.length - 1]?.text).toBe(' ')
+        expect(run.length).toBeGreaterThan(2)
+      }
+    }
+  })
+
+  test('keeps every drawn row inside the cells it was given, with a long title and every field', () => {
+    const long = { ...STATE!, title: '아주 긴 제목이 여기에 들어 있다 '.repeat(6) }
+    const watched = {
+      ...EMPTY_HUD,
+      startedAt: '2026-10-09T15:34:53+09:00',
+      turnAt: '2026-10-09T15:34:53+09:00',
+      tool: 'Bash',
+      toolAt: '2026-10-09T15:38:41+09:00',
+      compactions: 1,
+    }
+
+    // 40칸 아래로는 줄이 반드시 지켜야 하는 조각(표지·진행·세션 상태)만으로도 예산을 넘는다.
+    for (let maxCols = 40; maxCols <= 240; maxCols++) {
+      expect([maxCols, cellWidth(line(statusLine(long, NOW, maxCols, watched))) <= maxCols]).toEqual([
+        maxCols,
+        true,
+      ])
+      expect([maxCols, cellWidth(line(bandLine(long, NOW, maxCols, watched))) <= maxCols]).toEqual([
+        maxCols,
+        true,
+      ])
+    }
   })
 })
 
@@ -1116,7 +1299,7 @@ describe('the freshness piece', () => {
     const parts = bandLine(STATE, NOW, 200)
 
     expect(parts.findIndex(one => one.text.includes('▶'))).toBeGreaterThanOrEqual(0)
-    expect(parts.findIndex(one => one.text.includes('🔄'))).toBeGreaterThan(
+    expect(parts.findIndex(one => one.text.includes('↻'))).toBeGreaterThan(
       parts.findIndex(one => one.text.includes('▶')),
     )
   })
@@ -1129,7 +1312,7 @@ describe('the freshness piece', () => {
     for (let maxCols = 20; maxCols <= 100; maxCols++) {
       const drawn = line(bandLine(written, NOW, maxCols))
 
-      if (drawn.includes('🔄')) {
+      if (drawn.includes('↻')) {
         quiet.push(drawn)
       }
     }
@@ -1153,34 +1336,34 @@ describe('the freshness piece', () => {
 
     // 낡음 조각은 조용한 나이와 달리 먼저 빠지지 않는다: 이름이 깎이는 폭에도 아직 서 있다.
     expect(shortened.length).toBeGreaterThan(0)
-    expect(shortened.every(one => one.includes('🛑 낡음 45분 전'))).toBe(true)
+    expect(shortened.every(one => one.includes('⊘ 낡음 45분 전'))).toBe(true)
   })
 
   test("names the age as 낡음 while the session works and falls behind", () => {
     const parts = bandLine(behind(45), NOW, 200)
 
-    expect(pieceIn(parts, '🛑 낡음 45분 전')?.tone).toBe('error')
-    expect(formatLine(behind(45), NOW, 240)).toContain('🛑 낡음 45분 전')
+    expect(pieceIn(parts, '⊘ 낡음 45분 전')?.tone).toBe('error')
+    expect(formatLine(behind(45), NOW, 240)).toContain('⊘ 낡음 45분 전')
   })
 
   test('keeps the age quiet while the session waits on the person', () => {
     // startedAt 만 있고 도는 턴도 끝난 턴도 없으면 입력 대기다. 상태 파일이 낡아도 경고는 없다.
     const waiting = { ...EMPTY_HUD, startedAt: new Date(START).toISOString() }
 
-    expect(line(bandLine(behind(45), NOW, 200, waiting))).toContain('🔄 45분 전')
-    expect(formatLine(behind(45), NOW, 240, waiting)).toContain('🔄 45분 전')
+    expect(line(bandLine(behind(45), NOW, 200, waiting))).toContain('↻ 45분 전')
+    expect(formatLine(behind(45), NOW, 240, waiting)).toContain('↻ 45분 전')
   })
 
   test('keeps the age quiet once the checklist is done', () => {
     const done = behind(45, {}, { allDone: true })
 
-    expect(line(bandLine(done, NOW, 200))).toContain('🔄 45분 전')
+    expect(line(bandLine(done, NOW, 200))).toContain('↻ 45분 전')
   })
 
   test('keeps the age quiet while the person has to approve something', () => {
     const permission = behind(45, { status: 'waiting_permission' })
 
-    expect(line(bandLine(permission, NOW, 200))).toContain('🔄 45분 전')
+    expect(line(bandLine(permission, NOW, 200))).toContain('↻ 45분 전')
   })
 
   test('keeps a step run of time whole when the row is cut', () => {
@@ -1248,7 +1431,7 @@ describe('the band alerts', () => {
   test('names the stuck step', () => {
     const waiting = { ...STATE!, status: 'waiting_permission' }
 
-    expect(line(bandAlertLine(waiting, NOW, 200))).toBe('⛔ 막힘: 배포 검증 (권한 대기)')
+    expect(line(bandAlertLine(waiting, NOW, 200))).toBe(chip('✕ 막힘: 배포 검증 (권한 대기)'))
   })
 
   test('is empty while the session works and no step is stuck', () => {
@@ -1267,7 +1450,7 @@ describe('the band alerts', () => {
     const stuck = normalize(SAMPLE, board)
 
     expect(line(bandAlertLine(stuck, NOW, 200))).toBe(
-      '⛔ 막힘: 배포 검증 (권한 대기) · 할 일: 권한을 승인해 주세요',
+      `${chip('✕ 막힘: 배포 검증 (권한 대기)')}${GAP}${chip('할 일: 권한을 승인해 주세요')}`,
     )
 
     for (const maxCols of [40, 60]) {
@@ -1291,7 +1474,7 @@ describe('the band alerts', () => {
       expect(cellWidth(drawn)).toBeLessThanOrEqual(maxCols)
 
       if (drawn.includes('할 일')) {
-        expect(drawn).toMatch(/⛔ 막힘: \S/)
+        expect(drawn).toMatch(/✕ 막힘: \S/)
       }
     }
   })
@@ -1379,12 +1562,12 @@ describe('the status hint', () => {
     const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
     const drawn = textOf(await ui.drawn())
 
-    expect(drawn).toContain(`${STATUS_MARK} ${RUNNING}`)
+    expect(drawn).toContain(`${STATUS_MARK}${GAP}${chip(RUNNING)}`)
     // 접힌 줄은 명령 이름 대신 버튼 두 개로 되돌아가는 길을 알린다.
     expect(drawn).toContain('열기')
     expect(drawn).toContain('펼치기')
     expect(drawn).not.toContain('/deadhd-statusline')
-    expect(drawn).not.toContain('⏳ 남음 2')
+    expect(drawn).not.toContain('☐ 남음 2')
 
     await ui.unmount()
   })
@@ -1445,16 +1628,16 @@ describe('the status hint', () => {
         bold: true,
       })
       expect(pieceOf(painted, '4분째')).toMatchObject({ color: 'suggestion', bold: true })
-      expect(pieceOf(painted, '🔀')).toMatchObject({ color: 'permission' })
+      expect(pieceOf(painted, '⎇')).toMatchObject({ color: 'permission' })
       expect(pieceOf(painted, PR_TEXT)).toMatchObject({ color: 'permission' })
-      expect(pieceOf(painted, '⏭ 다음 정리')?.color).toBe('inactive')
-      expect(pieceOf(painted, '⏱ 예상 16:20')?.color).toBe('planMode')
-      expect(pieceOf(painted, '🔄 2분 전')?.color).toBe('subtle')
-      expect(pieceOf(painted, '⛔ 막힘 1')).toMatchObject({ color: 'error', bold: true })
+      expect(pieceOf(painted, '› 다음 정리')?.color).toBe('inactive')
+      expect(pieceOf(painted, '◷ 예상 16:20')?.color).toBe('planMode')
+      expect(pieceOf(painted, '↻ 2분 전')?.color).toBe('subtle')
+      expect(pieceOf(painted, '✕ 막힘 1')).toMatchObject({ color: 'error', bold: true })
       expect(pieceOf(painted, ': 배포 검증')).toMatchObject({ color: 'error', bold: true })
-      expect(pieceOf(painted, '⏳ 남음 2')?.color).toBe('text')
-      expect(pieceOf(painted, '🧵 백그라운드 2')?.color).toBe('ide')
-      expect(pieceOf(painted, '🗜 압축 1')?.color).toBe('remember')
+      expect(pieceOf(painted, '☐ 남음 2')?.color).toBe('text')
+      expect(pieceOf(painted, '⇶ 백그라운드 2')?.color).toBe('ide')
+      expect(pieceOf(painted, '⇊ 압축 1')?.color).toBe('remember')
       expect(pieceOf(painted, RUNNING)).toMatchObject({ color: 'suggestion', bold: true })
       expect(separators.length).toBeGreaterThan(0)
       expect(separators.every(one => one.color === 'subtle')).toBe(true)
@@ -1475,7 +1658,7 @@ describe('the status hint', () => {
     const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
     const painted = await paintedOf(ui)
 
-    expect(pieceOf(painted, '⚠️ 11분 전')?.color).toBe('warning')
+    expect(pieceOf(painted, '⚠ 11분 전')?.color).toBe('warning')
 
     await ui.unmount()
   })
@@ -1496,7 +1679,7 @@ describe('the status hint', () => {
 
     expect(textOf(rows[0])).toBe(`${LONG_ROW_RUNNING} ${OPENING}${COLLAPSING}`)
     expect(textOf(rows[1])).toBe('x'.repeat(200))
-    expect(pieceOf(painted, '⏳ 남음 2')).toBeDefined()
+    expect(pieceOf(painted, '☐ 남음 2')).toBeDefined()
 
     await ui.unmount()
   })
@@ -1515,7 +1698,7 @@ describe('the status hint', () => {
     // 기호로 그린 버튼의 칸을 세야 한다. textOf 는 접근성 이름인 label 까지 읽는다.
     expect(cellWidth(faceOf(rows[0]))).toBeLessThanOrEqual(240)
     expect(textOf(rows[0])).toContain('…')
-    expect(pieceOf(painted, '⏳ 남음 2')).toBeDefined()
+    expect(pieceOf(painted, '☐ 남음 2')).toBeDefined()
     // The button is drawn outside the budget, so the row keeps it however tight it gets.
     expect(textOf(rows[0])).toContain('열기')
     expect(faceOf(rows[0])).toContain('⧉')
@@ -1549,9 +1732,9 @@ describe('the status hint', () => {
     expect(whole).toContain('▶ 실제 화면 확인')
     expect(whole).toContain(PR_PIECE)
     expect(cut).not.toContain('▶ 실제 화면 확인')
-    expect(cut).not.toContain('🗜 압축 1')
+    expect(cut).not.toContain('⇊ 압축 1')
     expect(cut).toContain(PR_PIECE)
-    expect(cut).toContain('⏳ 남음 2')
+    expect(cut).toContain('☐ 남음 2')
     expect(cut).toContain('✓ 3/6')
     expect(cellWidth(cut)).toBeLessThan(cellWidth(whole))
     // The hint line is drawn indented, so of the screen's 120 cells the four of
@@ -1576,8 +1759,8 @@ describe('the status hint', () => {
     const row = faceOf(rowsOf(await ui.drawn())[0])
 
     // 120칸에서 들여쓰기 4칸과 3칸짜리 버튼 두 개, 그 앞 여백 한 칸씩을 뺀 108칸이 줄의 몫이다.
-    // 버튼 자리를 걷어내면 줄 끝 여백 한 칸을 뺀 107칸이 남는다.
-    expect(cellWidth(row.replace(/\s+⧉\s+−\s*$/, '').trimEnd())).toBe(107)
+    // 버튼 자리를 걷어내면 끝 칩의 여백 한 칸을 뺀 106칸이 남는다.
+    expect(cellWidth(row.replace(/\s+⧉\s+−\s*$/, '').trimEnd())).toBe(106)
     // 줄에 붙은 여백과 기호 버튼까지 더해도 화면 안에 남는다.
     expect(cellWidth(row)).toBeLessThanOrEqual(120)
 
@@ -1594,7 +1777,7 @@ describe('the status hint', () => {
     const rows = rowsOf(await ui.drawn())
     const drawn = textOf(rows[0])
 
-    expect(drawn).toContain(`${STATUS_MARK} · ${RUNNING}`)
+    expect(drawn).toContain(`${STATUS_MARK}${GAP}${chip(RUNNING)}`)
     // 상태 파일이 없으니 체크리스트도, 열 페이지도 없다. 열 자리에 켜기 버튼이 선다.
     expect(drawn).not.toContain('남음')
     expect(drawn).not.toContain('열기')
@@ -1728,8 +1911,8 @@ describe('the control buttons', () => {
     const row = faceOf(rowsOf(await ui.drawn())[0])
 
     // 본문 100칸에서 3칸짜리 버튼 두 개와 그 앞 여백 한 칸씩을 뺀 92칸이 줄의 몫이다.
-    // 버튼 자리를 걷어내면 줄 끝 여백 한 칸을 뺀 91칸이 남는다.
-    expect(cellWidth(row.replace(/\s+⧉\s+−\s*$/, '').trimEnd())).toBe(91)
+    // 버튼 자리를 걷어내면 끝 칩의 여백 한 칸을 뺀 89칸이 남는다.
+    expect(cellWidth(row.replace(/\s+⧉\s+−\s*$/, '').trimEnd())).toBe(89)
     expect(cellWidth(row)).toBeLessThanOrEqual(100)
 
     await ui.unmount()
@@ -1756,7 +1939,7 @@ describe('the session the mod watches', () => {
 
     const working = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
 
-    expect(textOf(await working.drawn())).toContain('🔧 Bash 실행 중')
+    expect(textOf(await working.drawn())).toContain('⚙ Bash 실행 중')
 
     await working.unmount()
 
@@ -1766,7 +1949,7 @@ describe('the session the mod watches', () => {
 
     const after = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
 
-    expect(textOf(await after.drawn())).toContain('🔧 Bash 12초 전')
+    expect(textOf(await after.drawn())).toContain('⚙ Bash 12초 전')
 
     await after.unmount()
   })
@@ -1782,7 +1965,7 @@ describe('the session the mod watches', () => {
 
     const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
 
-    expect(textOf(await ui.drawn())).not.toContain('🔧')
+    expect(textOf(await ui.drawn())).not.toContain('⚙')
 
     await ui.unmount()
   })
@@ -1797,7 +1980,7 @@ describe('the session the mod watches', () => {
     const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
 
     // 상태 파일은 1 이라고 적고 있지만, 이 세션이 본 것은 2 다.
-    expect(textOf(await ui.drawn())).toContain('🗜 압축 2')
+    expect(textOf(await ui.drawn())).toContain('⇊ 압축 2')
 
     await ui.unmount()
   })
@@ -1832,7 +2015,7 @@ describe('the session the mod watches', () => {
     const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
 
     // 지켜보던 도구를 본 시각은 방금으로 남는다(넘어진 적기가 그것을 되돌리지 않는다).
-    expect(textOf(await ui.drawn())).toContain('🔧 Read 0초 전')
+    expect(textOf(await ui.drawn())).toContain('⚙ Read 0초 전')
 
     await ui.unmount()
   })
@@ -1870,7 +2053,7 @@ describe('the session the mod watches', () => {
 
     // 훅도 끝까지 돈다: 넘어진 적기가 건너뛰어 실행 중 셈이 서지 않아도, 마지막 호출을 본
     // 시각은 이 호출의 끝으로 다시 맞춰진다(훅이 통째로 건너뛰어지면 24초 전에 멈춘다).
-    expect(textOf(await ui.drawn())).toContain('🔧 Read 12초 전')
+    expect(textOf(await ui.drawn())).toContain('⚙ Read 12초 전')
 
     await ui.unmount()
   })
@@ -1905,7 +2088,7 @@ describe('the session the mod watches', () => {
     const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
 
     // 거절당한 호출이 「실행 중」으로 남으면 줄이 영영 그렇게 말한다.
-    expect(textOf(await ui.drawn())).toContain('🔧 Bash 12초 전')
+    expect(textOf(await ui.drawn())).toContain('⚙ Bash 12초 전')
 
     await ui.unmount()
   })
@@ -1931,7 +2114,7 @@ describe('the session the mod watches', () => {
 
     const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
 
-    expect(textOf(await ui.drawn())).toContain('🔧 Bash 12초 전')
+    expect(textOf(await ui.drawn())).toContain('⚙ Bash 12초 전')
 
     await ui.unmount()
 
@@ -1972,7 +2155,7 @@ describe('the session the mod watches', () => {
     expect(row).toContain(RUNNING)
     expect(row).toContain('✓ 3/6')
     expect(row).not.toContain('남음 2')
-    expect(row).not.toContain('🗜')
+    expect(row).not.toContain('⇊')
 
     await ui.unmount()
   })
@@ -1996,7 +2179,7 @@ describe('the status line command', () => {
     const folded = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
     const shut = textOf(await folded.drawn())
 
-    expect(shut).toContain(`${STATUS_MARK} ${RUNNING} ${OPENING}${EXPANDING}`)
+    expect(shut).toContain(`${STATUS_MARK}${GAP}${chip(RUNNING)} ${OPENING}${EXPANDING}`)
     expect(shut).not.toContain('접기')
 
     await folded.press({ key: 'expand' })
@@ -2004,7 +2187,7 @@ describe('the status line command', () => {
 
     const opened = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
 
-    expect(textOf(await opened.drawn())).toContain('⏳ 남음 2')
+    expect(textOf(await opened.drawn())).toContain('☐ 남음 2')
     // 버튼이 바꾸는 것은 /deadhd-statusline 이 토글하는 것과 같은 접힘 상태다.
     expect((await $.command.run(statusRun)).text).toBe('상태줄을 접었어요')
 
@@ -2021,8 +2204,8 @@ describe('the status line command', () => {
     const folded = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
     const drawn = textOf(await folded.drawn())
 
-    expect(drawn).toContain(`${STATUS_MARK} ${RUNNING}`)
-    expect(drawn).not.toContain('⏳ 남음 2')
+    expect(drawn).toContain(`${STATUS_MARK}${GAP}${chip(RUNNING)}`)
+    expect(drawn).not.toContain('☐ 남음 2')
     // The engine's own hint stays under the line whether or not it is folded.
     expect(drawn).toContain('? for shortcuts')
 
@@ -2041,7 +2224,7 @@ describe('the status line command', () => {
 
     const folded = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
 
-    expect(textOf(await folded.drawn())).toContain(`${STATUS_MARK} ${RUNNING}`)
+    expect(textOf(await folded.drawn())).toContain(`${STATUS_MARK}${GAP}${chip(RUNNING)}`)
 
     await folded.unmount()
 
@@ -2053,7 +2236,7 @@ describe('the status line command', () => {
 
     const after = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
 
-    expect(textOf(await after.drawn())).toContain('⛔ 막힘 2')
+    expect(textOf(await after.drawn())).toContain('✕ 막힘 2')
 
     await after.unmount()
   })
@@ -2251,8 +2434,12 @@ describe('the HUD setting', () => {
     const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
 
     expect(textOf(rowsOf(await ui.drawn())[0])).toBe(
-      `${STATUS_MARK} · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · ⏱ 예상 16:20 · 🔄 2분 전 · ` +
-        `막힘 1 · 남음 2 ${OPENING}${COLLAPSING}`,
+      `${STATUS_MARK} · ▓▓▓░░░ 3/6` +
+        `${GAP}${chip('▶ 실제 화면 확인 4분째')}` +
+        `${GAP}${chip('◷ 예상 16:20')}` +
+        `${GAP}${chip('↻ 2분 전')}` +
+        `${GAP}${chip('막힘 1')}` +
+        `${GAP}${chip('남음 2')} ${OPENING}${COLLAPSING}`,
     )
 
     await ui.unmount()
@@ -2383,7 +2570,7 @@ describe('the divider setting', () => {
     const rows = rowsOf(await ui.drawn())
 
     expect(textOf(rows[0]).startsWith('── 진행 ')).toBe(true)
-    expect(textOf(rows[1])).toBe(`${STATUS_MARK} ${RUNNING} ${OPENING}${EXPANDING}`)
+    expect(textOf(rows[1])).toBe(`${STATUS_MARK}${GAP}${chip(RUNNING)} ${OPENING}${EXPANDING}`)
 
     await ui.unmount()
   })
@@ -2471,7 +2658,7 @@ describe('formatLine', () => {
   })
 
   test('names the next left step after the current one, not before it', () => {
-    expect(formatLine(STATE, NOW, 240)).toContain('⏭ 다음 정리')
+    expect(formatLine(STATE, NOW, 240)).toContain('› 다음 정리')
   })
 
   test('draws the calibrated estimate when the summary carries one, else the raw one', () => {
@@ -2479,27 +2666,33 @@ describe('formatLine', () => {
     const calibrated = normalize(stateOf({}, { etaCalibrated: '2026-10-09T16:48:00+09:00' }), BOARD)
 
     expect(raw?.eta).toBe('2026-10-09T16:20:00+09:00')
-    expect(formatLine(raw, NOW, 240)).toContain('⏱ 예상 16:20')
+    expect(formatLine(raw, NOW, 240)).toContain('◷ 예상 16:20')
 
     // render.py 가 보정값을 실으면 그쪽이 실제 완료 예상이다. 형식은 둘 다 같다.
     expect(calibrated?.eta).toBe('2026-10-09T16:48:00+09:00')
-    expect(formatLine(calibrated, NOW, 240)).toContain('⏱ 예상 16:48')
+    expect(formatLine(calibrated, NOW, 240)).toContain('◷ 예상 16:48')
   })
 
   test('leaves the estimate out when the summary carries neither', () => {
     const none = normalize(stateOf({}, { eta: null }), BOARD)
 
     expect(none?.eta).toBeNull()
-    expect(formatLine(none, NOW, 240)).not.toContain('⏱')
+    expect(formatLine(none, NOW, 240)).not.toContain('◷')
   })
 
   test('draws from the summary alone when the data file is gone', () => {
     const alone = normalize(stateOf({ data: '' }))
 
     expect(formatLine(alone, NOW, 240)).toBe(
-      `${STATUS_MARK} ✓ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · ` +
-        '▶ 실제 화면 확인 · 🔀 app-api#512 · ⏱ 예상 16:20 · 🔄 2분 전 · ⛔ 막힘 1 · ⏳ 남음 2 · ' +
-        '🧵 백그라운드 2 · 🗜 압축 1',
+      `${MARK_COUNT} ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차` +
+        `${GAP}${chip('▶ 실제 화면 확인')}` +
+        `${GAP}${chip(PR_PIECE)}` +
+        `${GAP}${chip('◷ 예상 16:20')}` +
+        `${GAP}${chip('↻ 2분 전')}` +
+        `${GAP}${chip('✕ 막힘 1')}` +
+        `${GAP}${chip('☐ 남음 2')}` +
+        `${GAP}${chip('⇶ 백그라운드 2')}` +
+        `${GAP}${chip('⇊ 압축 1')}`,
     )
   })
 
@@ -2511,7 +2704,7 @@ describe('formatLine', () => {
     const cut = formatLine(long, NOW, full - 1)
 
     expect(cut).toContain('…')
-    expect(cut).toContain('⏭ 다음 정리')
+    expect(cut).toContain('› 다음 정리')
     expect(cut).toContain('배포 검증')
 
     // What the mod watched by itself goes before the run's own pieces: the two
@@ -2520,18 +2713,18 @@ describe('formatLine', () => {
     const keyed = cellWidth(formatLine({ ...STATE!, title: '' }, NOW, 240))
     const dropped = formatLine(long, NOW, keyed - 20)
 
-    expect(dropped).not.toContain('🧵 백그라운드 2')
-    expect(dropped).not.toContain('🗜 압축 1')
-    expect(dropped).toContain('아주 긴…')
-    expect(dropped).toContain('⏭ 다음 정리')
+    expect(dropped).not.toContain('⇶ 백그라운드 2')
+    expect(dropped).not.toContain('⇊ 압축 1')
+    expect(dropped).toContain('아주…')
+    expect(dropped).toContain('› 다음 정리')
     expect(dropped).toContain('배포 검증')
 
     // Past those, the next step is the piece that goes, and the last write stays.
     const tighter = formatLine(long, NOW, keyed - 45)
 
-    expect(tighter).not.toContain('⏭')
-    expect(tighter).toContain('⏱ 예상 16:20')
-    expect(tighter).toContain('🔄 2분 전')
+    expect(tighter).not.toContain('›')
+    expect(tighter).toContain('◷ 예상 16:20')
+    expect(tighter).toContain('↻ 2분 전')
 
     // Anywhere between, the row keeps inside the cells it was given.
     expect(cellWidth(formatLine(long, NOW, keyed - 15))).toBeLessThanOrEqual(keyed - 15)
@@ -2552,7 +2745,7 @@ describe('formatLine', () => {
   })
 
   test('gives up the pull request before the count, the title taking the cells it leaves', () => {
-    const withPr = `${MARK_COUNT} ▓▓▓░░░ · CAS-1161 · ${PR_PIECE}`
+    const withPr = `${MARK_COUNT} ▓▓▓░░░ · CAS-1161${GAP}${chip(PR_PIECE)}`
 
     expect(formatLine(STATE, NOW, cellWidth(withPr))).toBe(withPr)
 
@@ -2571,23 +2764,23 @@ describe('formatLine', () => {
     const english = formatLine(normalize(stateOf({}, { lang: 'en' }), BOARD), NOW, 240)
 
     expect(english).toContain('▶ 실제 화면 확인 4m in')
-    expect(english).toContain('⏭ next 정리')
-    expect(english).toContain('⏱ ETA 16:20')
-    expect(english).toContain('🔄 2m ago')
-    expect(english).toContain('⛔ blocked 1: 배포 검증')
-    expect(english).toContain('⏳ left 2')
-    expect(english).toContain('🧵 background 2')
-    expect(english).toContain('🗜 compacted 1')
+    expect(english).toContain('› next 정리')
+    expect(english).toContain('◷ ETA 16:20')
+    expect(english).toContain('↻ 2m ago')
+    expect(english).toContain('✕ blocked 1: 배포 검증')
+    expect(english).toContain('☐ left 2')
+    expect(english).toContain('⇶ background 2')
+    expect(english).toContain('⇊ compacted 1')
   })
 
   test('warns, then stops, as the last write falls behind', () => {
     const written = (minutes: number): typeof SAMPLE =>
       stateOf({}, { dataAt: new Date(NOW - minutes * 60000).toISOString() })
 
-    expect(formatLine(normalize(written(10), BOARD), NOW, 240)).toContain('🔄 10분 전')
-    expect(formatLine(normalize(written(11), BOARD), NOW, 240)).toContain('⚠️ 11분 전')
-    expect(formatLine(normalize(written(30), BOARD), NOW, 240)).toContain('⚠️ 30분 전')
-    expect(formatLine(normalize(written(31), BOARD), NOW, 240)).toContain('🛑 낡음 31분 전')
+    expect(formatLine(normalize(written(10), BOARD), NOW, 240)).toContain('↻ 10분 전')
+    expect(formatLine(normalize(written(11), BOARD), NOW, 240)).toContain('⚠ 11분 전')
+    expect(formatLine(normalize(written(30), BOARD), NOW, 240)).toContain('⚠ 30분 전')
+    expect(formatLine(normalize(written(31), BOARD), NOW, 240)).toContain('⊘ 낡음 31분 전')
   })
 
   test('counts from the data write, not the state write the hooks keep fresh', () => {
@@ -2596,13 +2789,13 @@ describe('formatLine', () => {
       { dataAt: new Date(NOW - 31 * 60000).toISOString() },
     )
 
-    expect(formatLine(normalize(stalled, BOARD), NOW, 240)).toContain('🛑 낡음 31분 전')
+    expect(formatLine(normalize(stalled, BOARD), NOW, 240)).toContain('⊘ 낡음 31분 전')
   })
 
   test('falls back to the state write for a state file with no data write', () => {
     const older = stateOf({ updatedAt: new Date(NOW - 31 * 60000).toISOString() }, { dataAt: undefined })
 
-    expect(formatLine(normalize(older, BOARD), NOW, 240)).toContain('🛑 낡음 31분 전')
+    expect(formatLine(normalize(older, BOARD), NOW, 240)).toContain('⊘ 낡음 31분 전')
   })
 
   test('draws the session HUD with no state file at all', () => {
@@ -2612,7 +2805,7 @@ describe('formatLine', () => {
       turnAt: '2026-10-09T15:34:53+09:00',
     }
 
-    expect(formatLine(null, NOW, 240, watched)).toBe(`${STATUS_MARK} · ● 작업 중 4분째`)
+    expect(formatLine(null, NOW, 240, watched)).toBe(`${STATUS_MARK}${GAP}${chip('● 작업 중 4분째')}`)
     // 관측한 것도 상태 파일도 없으면 표지만 남는다.
     expect(formatLine(null, NOW, 240)).toBe(STATUS_MARK)
   })
@@ -2620,7 +2813,7 @@ describe('formatLine', () => {
   test('draws the compactions it watched with no state file at all', () => {
     const watched = { ...EMPTY_HUD, compactions: 2 }
 
-    expect(formatLine(null, NOW, 240, watched)).toBe(`${STATUS_MARK} · 🗜 압축 2`)
+    expect(formatLine(null, NOW, 240, watched)).toBe(`${STATUS_MARK}${GAP}${chip('⇊ 압축 2')}`)
     // 밴드는 압축을 그리지 않는다: 상태 파일이 있는 세션과 같은 줄이어야 한다.
     expect(line(bandLine(null, NOW, 240, watched))).toBe(STATUS_MARK)
   })
@@ -2665,7 +2858,7 @@ describe('formatLine', () => {
 
     expect(row).toContain('아주')
     expect(row).toContain('…')
-    expect(row).toContain('⏳ 남음 2')
+    expect(row).toContain('☐ 남음 2')
     expect(cellWidth(row)).toBeLessThanOrEqual(keyed - 20)
   })
 })
@@ -2899,15 +3092,18 @@ describe('cellWidth', () => {
     expect(cellWidth('🙂')).toBe(2)
   })
 
-  test('counts the emoji the lines draw as two cells', () => {
-    const emoji = ['⏭', '⏱', '🔄', '⚠️', '🛑', '⛔', '⏳', '🔐', '💬', '🧵', '🗜', '⌨️']
-
-    for (const glyph of emoji) {
-      expect([glyph, cellWidth(glyph)]).toEqual([glyph, 2])
-    }
+  test('counts a symbol drawn with emoji presentation as two cells', () => {
+    expect(cellWidth('🙂')).toBe(2)
+    expect(cellWidth('⌨️')).toBe(2)
   })
 
-  test('counts the text symbols the lines draw as one cell', () => {
+  test('counts every symbol the lines draw as one cell', () => {
+    const symbols = ['›', '◷', '↻', '⚠', '⊘', '✕', '☐', '⚑', '⇶', '⇊', '❯', '⚙', '⎇']
+
+    for (const glyph of symbols) {
+      expect([glyph, cellWidth(glyph)]).toEqual([glyph, 1])
+    }
+
     for (const glyph of ['✓', '▶', '●', '↗', '▓', '░', '◇', '◐', '·']) {
       expect([glyph, cellWidth(glyph)]).toEqual([glyph, 1])
     }
@@ -2915,7 +3111,7 @@ describe('cellWidth', () => {
 
   test('reads a whole row by the same metric', () => {
     expect(cellWidth('✓ 3/6')).toBe(5)
-    expect(cellWidth('⛔ 막힘 1')).toBe(9)
+    expect(cellWidth('✕ 막힘 1')).toBe(8)
   })
 })
 

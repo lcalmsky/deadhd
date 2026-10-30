@@ -35,6 +35,17 @@ BAR_CELLS = 6
 SEP = ' · '
 STATUS_MARK = '◆'
 
+# 회색 칩으로 그리는 필드. 줄의 표지·진행·제목만 글자만 그린다(register.tsx 의 CHIP_FIELDS).
+CHIP_FIELDS = frozenset((
+    'current', 'next', 'eta', 'etaBand', 'ago', 'agoQuiet', 'stuck', 'left', 'leftCount',
+    'allDone', 'pr', 'blocked', 'ask', 'background', 'compacted', 'session', 'tool',
+))
+CHIP_PAD = 1
+
+
+def is_chip(tag):
+    return tag in CHIP_FIELDS
+
 WORDS = {
     'ko': {
         'blocked': '막힘', 'left': '남음', 'allDone': '완료', 'ask': '할 일', 'next': '다음', 'eta': '예상',
@@ -181,7 +192,7 @@ def session_field(state, hud, now, lang):
     """세션의 지금 상태. 권한 대기는 엔진 다이얼로그라 관측되지 않아 상태 파일의 말을 쓴다."""
     words = WORDS[lang]
     if state is not None and state['status'] == 'waiting_permission':
-        return session_piece('🔐', words['permission'], 'warning', state['since'], now, lang)
+        return session_piece('⚑', words['permission'], 'warning', state['since'], now, lang)
     if hud['turnAt'] is not None:
         # 현재 단계의 ▶ 와 구분되게 ● 를 쓴다. 한 줄에 둘이 함께 선다.
         return session_piece('●', words['running'], 'suggestion', hud['turnAt'], now, lang)
@@ -189,18 +200,18 @@ def session_field(state, hud, now, lang):
         state['since'] if state is not None and state['status'] == 'idle' else None)
     if frm is None:
         return None
-    return session_piece('⌨️', words['input'], 'merged', frm, now, lang)
+    return session_piece('❯', words['input'], 'merged', frm, now, lang)
 
 
 def tool_field(hud, now, lang):
     if hud['tool'] is None:
         return None
     if hud['running'] > 0:
-        return ('tool', [('🔧 %s %s' % (hud['tool'], WORDS[lang]['toolRunning']), 'ide', True)])
+        return ('tool', [('⚙ %s %s' % (hud['tool'], WORDS[lang]['toolRunning']), 'ide', True)])
     seconds = seconds_between(hud['toolAt'], now)
     if seconds is None:
         return None
-    return ('tool', [('🔧 %s %s' % (hud['tool'], tool_ago(seconds, lang)), 'subtle', False)])
+    return ('tool', [('⚙ %s %s' % (hud['tool'], tool_ago(seconds, lang)), 'subtle', False)])
 
 
 def compacted_field(state, hud, lang):
@@ -208,7 +219,7 @@ def compacted_field(state, hud, lang):
     compactions = max(hud['compactions'], 0 if state is None else state['compactions'])
     if compactions == 0:
         return None
-    return ('compacted', [('🗜 %s %d' % (WORDS[lang]['compacted'], compactions), 'remember', False)])
+    return ('compacted', [('⇊ %s %d' % (WORDS[lang]['compacted'], compactions), 'remember', False)])
 
 
 def hud_fields(state, hud, now, lang, compacted):
@@ -256,10 +267,10 @@ def band_run(state, hud, now):
     if state['current'] is not None:
         fields.append(step_field(state['current'], state['lang'], now, '▶'))
     if state['next'] is not None:
-        fields.append(('next', [('⏭ %s %s' % (words['next'], state['next']['label']), 'inactive', False)]))
+        fields.append(('next', [('› %s %s' % (words['next'], state['next']['label']), 'inactive', False)]))
     eta = clock_of(state['eta'])
     if eta is not None:
-        fields.append(('etaBand', [('⏱ %s %s' % (words['eta'], eta), 'planMode', False)]))
+        fields.append(('etaBand', [('◷ %s %s' % (words['eta'], eta), 'planMode', False)]))
     behind = minutes_between(state['updatedAt'], now)
     if behind is not None:
         piece = update_piece(behind, state['lang'], busy_now(state, hud))
@@ -279,7 +290,7 @@ def band_alert_fields(state):
     if state['stuck'] is not None:
         stuck = state['stuck']
         note = stuck['label'] if stuck['sub'] == '' else '%s (%s)' % (stuck['label'], stuck['sub'])
-        fields.append(('blocked', [('⛔ %s: ' % words['blocked'], 'error', True), (note, 'error', True)]))
+        fields.append(('blocked', [('✕ %s: ' % words['blocked'], 'error', True), (note, 'error', True)]))
         if stuck['state'] == 'blocked' and stuck['ask'] != '':
             fields.append(('ask', [('%s: ' % words['ask'], 'warning', True),
                                    (stuck['ask'], 'text', False)]))
@@ -348,26 +359,26 @@ def status_run(state, hud, now):
         fields.append(step_field(state['current'], state['lang'], now, '▶'))
     if state['pr'] is not None:
         # 아이콘은 링크 밖 조각이다. 밑줄이 아이콘과 그 뒤 공백까지 걸치지 않는다.
-        fields.append(('pr', [('🔀 ', 'permission', False),
+        fields.append(('pr', [('⎇ ', 'permission', False),
                               (state['pr']['text'], 'permission', False, state['pr']['href'])]))
     if state['next'] is not None:
-        fields.append(('next', [('⏭ %s %s' % (words['next'], state['next']['label']), 'inactive', False)]))
+        fields.append(('next', [('› %s %s' % (words['next'], state['next']['label']), 'inactive', False)]))
     eta = clock_of(state['eta'])
     if eta is not None:
-        fields.append(('eta', [('⏱ %s %s' % (words['eta'], eta), 'planMode', False)]))
+        fields.append(('eta', [('◷ %s %s' % (words['eta'], eta), 'planMode', False)]))
     behind = minutes_between(state['updatedAt'], now)
     if behind is not None:
         fields.append(('ago', [update_piece(behind, state['lang'], busy_now(state, hud))]))
     if state['blocked'] > 0:
-        parts = [('⛔ %s %d' % (words['blocked'], state['blocked']), 'error', True)]
+        parts = [('✕ %s %d' % (words['blocked'], state['blocked']), 'error', True)]
         if state['stuck'] is not None:
             parts.append((': %s' % state['stuck']['label'], 'error', True))
         fields.append(('blocked', parts))
     if state['left'] > 0:
-        fields.append(('left', [('⏳ %s %d' % (words['left'], state['left']), 'text', False)]))
+        fields.append(('left', [('☐ %s %d' % (words['left'], state['left']), 'text', False)]))
     if state['background'] > 0:
         fields.append(('background',
-                       [('🧵 %s %d' % (words['background'], state['background']), 'ide', False)]))
+                       [('⇶ %s %d' % (words['background'], state['background']), 'ide', False)]))
     return fields
 
 
@@ -375,20 +386,30 @@ def update_piece(minutes, lang, busy):
     """작업 중이 아닌 세션은 상태 파일이 아무리 낡아도 경고를 내지 않는다."""
     body = ago(minutes, lang)
     if busy and minutes > 30:
-        return '🛑 %s %s' % (WORDS[lang]['stale'], body), 'error', False
+        return '⊘ %s %s' % (WORDS[lang]['stale'], body), 'error', False
     if busy and minutes > 10:
-        return '⚠️ ' + body, 'warning', False
-    return '🔄 ' + body, 'subtle', False
+        return '⚠ ' + body, 'warning', False
+    return '↻ ' + body, 'subtle', False
 
 
 def field_width(field):
     return sum(cell_width(part[0]) for part in field[1])
 
 
+def gap_of(left, right):
+    """필드 사이의 틈. 칩이 끼면 칩의 여백이 구분점을 대신한다."""
+    return ' ' if is_chip(left[0]) or is_chip(right[0]) else SEP
+
+
 def line_width(fields):
-    if not fields:
-        return 0
-    return sum(field_width(f) for f in fields) + (len(fields) - 1) * cell_width(SEP)
+    cells = 0
+    for index, field in enumerate(fields):
+        cells += field_width(field)
+        if is_chip(field[0]):
+            cells += CHIP_PAD * 2
+        if index > 0:
+            cells += cell_width(gap_of(fields[index - 1], field))
+    return cells
 
 
 def cut_last(field, room):
@@ -486,11 +507,22 @@ def fit(fields, max_cols):
 
 
 def flatten(fields):
+    """필드들을 그리는 조각으로 편다. 칩 필드는 앞뒤 여백을 조각으로 얻고, 그 조각들에 chip 표시가 붙는다."""
     parts = []
     for index, field in enumerate(fields):
+        chip = is_chip(field[0])
         if index > 0:
-            parts.append((SEP, 'subtle', False))
-        parts.extend(field[1])
+            parts.append((gap_of(fields[index - 1], field), 'subtle', False))
+        if chip:
+            parts.append((' ' * CHIP_PAD, 'plain', False, None, True))
+        for part in field[1]:
+            if chip:
+                href = part[3] if len(part) > 3 else None
+                parts.append((part[0], part[1], part[2], href, True))
+            else:
+                parts.append(part)
+        if chip:
+            parts.append((' ' * CHIP_PAD, 'plain', False, None, True))
     return parts
 
 
@@ -510,11 +542,7 @@ def folded_segments(state, hud, now):
     """접힌 줄: 표지와 세션 상태 한 조각만."""
     lang = 'ko' if state is None else state['lang']
     session = session_field(state, hud, now, lang)
-    parts = [(STATUS_MARK, 'claude', True)]
-    if session is not None:
-        parts.append((' ', 'plain', False))
-        parts.extend(session[1])
-    return parts
+    return flatten([mark_field()] if session is None else [mark_field(), session])
 
 
 def segments_text(parts):
@@ -680,16 +708,33 @@ def href_of(part):
     return part[3] if len(part) > 3 else None
 
 
+def chip_of(part):
+    """칩 배경 위에 그리는 조각인가. register.tsx 의 Segment.chip 과 같은 표시다."""
+    return len(part) > 4 and part[4] is True
+
+
+def span_of(part):
+    return '<span style="color:%s%s%s">%s</span>' % (
+        TONES[part[1]], ';font-weight:700' if part[2] else '',
+        ';text-decoration:underline' if href_of(part) else '', esc(part[0]))
+
+
 def spans(parts, tail=''):
-    parts = list(parts)
-    if tail and parts:
-        last = parts[-1]
-        parts[-1] = (last[0] + tail,) + last[1:]
-    return ''.join('<span style="%s">%s</span>'
-                   % ('color:%s%s%s' % (TONES[part[1]], ';font-weight:700' if part[2] else '',
-                                        ';text-decoration:underline' if href_of(part) else ''),
-                      esc(part[0]))
-                   for part in parts)
+    """조각들을 HTML 로. 칩의 조각들은 회색 배경 한 span 으로 묶는다. 버튼 앞 한 칸은 칩 밖에 둔다."""
+    out, at = [], 0
+    while at < len(parts):
+        if not chip_of(parts[at]):
+            out.append(span_of(parts[at]))
+            at += 1
+            continue
+        inner = []
+        while at < len(parts) and chip_of(parts[at]):
+            inner.append(span_of(parts[at]))
+            at += 1
+        out.append('<span style="background:%s">%s</span>' % (TONES['subtle'], ''.join(inner)))
+    if tail:
+        out.append('<span>%s</span>' % esc(tail))
+    return ''.join(out)
 
 
 def row(parts, tail=''):
@@ -889,36 +934,39 @@ BOARD = {
 HUD = {'startedAt': '2026-10-09T15:34:53+09:00', 'turnAt': '2026-10-09T15:34:53+09:00',
        'endedAt': None, 'tool': 'Bash', 'toolAt': '2026-10-09T15:38:41+09:00',
        'running': 0, 'compactions': 0}
-HUD_PIECES = '● 작업 중 4분째 · 🔧 Bash 12초 전'
 # 상태 파일 없이 지켜본 압축까지 있는 세션. 그 횟수는 상태 파일과 무관하게 나온다.
 WATCHED = dict(HUD, compactions=1)
 
-BAND_EXPECT = ('◆ · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · ⏭ 다음 정리 · ⏱ 예상 16:20 · '
-               '🔄 2분 전 · 막힘 1 · 남음 2')
-ALERT_EXPECT = '⛔ 막힘: 배포 검증 (권한 대기)'
-CUT_EXPECT = '◆ · ▓▓▓░░░ 3/6 · 막힘 1'
+def chip_piece(text):
+    """칩 하나가 그리는 글자. 앞뒤 한 칸 여백이 칩의 몫이고, 칩 사이는 한 칸이 더 선다."""
+    return ' ' * CHIP_PAD + text + ' ' * CHIP_PAD
+
+
+BAND_EXPECT = ('◆ · ▓▓▓░░░ 3/6' + ' ' + chip_piece('▶ 실제 화면 확인 4분째') + ' '
+               + chip_piece('› 다음 정리') + ' ' + chip_piece('◷ 예상 16:20') + ' '
+               + chip_piece('↻ 2분 전') + ' ' + chip_piece('막힘 1') + ' ' + chip_piece('남음 2'))
+ALERT_EXPECT = chip_piece('✕ 막힘: 배포 검증 (권한 대기)')
+CUT_EXPECT = '◆ · ▓▓▓░░░ 3/6' + ' ' + chip_piece('막힘 1')
 CUT_COLS = 31
-FOLDED_EXPECT = '◆ 🔐 권한 승인 대기 4분째'
-HUD_ONLY = '◆ · %s' % HUD_PIECES
+FOLDED_EXPECT = '◆' + ' ' + chip_piece('⚑ 권한 승인 대기 4분째')
+HUD_ONLY = '◆' + ' ' + chip_piece('● 작업 중 4분째') + ' ' + chip_piece('⚙ Bash 12초 전')
 # 상태 파일 없는 상태줄. 지켜본 압축 횟수는 여기서도 나온다.
-HUD_STRIP = '◆ · 🗜 압축 1 · %s' % HUD_PIECES
+HUD_STRIP = ('◆' + ' ' + chip_piece('⇊ 압축 1') + ' ' + chip_piece('● 작업 중 4분째') + ' '
+             + chip_piece('⚙ Bash 12초 전'))
 LONG_LABEL = '아주 긴 단계 이름이 여기에 들어 있다'
-LONG_ROW = ('◆ ✓ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · '
-            '▶ 실제 화면 확인 4분째 · 🔀 app-api#512 · ⏭ 다음 정리 · ⏱ 예상 16:20 · 🔄 2분 전 · '
-            '⛔ 막힘 1: 배포 검증 · ⏳ 남음 2 · 🧵 백그라운드 2 · 🗜 압축 1')
-LONG_ROW_HUD = '%s · %s' % (LONG_ROW, HUD_PIECES)
-# 위 기대 줄들은 테스트에서 조각을 이어 붙여 만들거나 표지를 템플릿으로 넣으므로,
-# 테스트 파일에는 조각으로 있는지 본다.
-TEST_FRAGMENTS = ('▶ 실제 화면 확인 4분째 · ⏭ 다음 정리 · ⏱ 예상 16:20 · ',
-                  '⛔ 막힘: 배포 검증 (권한 대기) · 할 일: 권한을 승인해 주세요',
-                  '⛔ 막힘: 배포 검증 (권한 대기)',
-                  '· ▓▓▓░░░ 3/6 · 막힘 1',
-                  '✓ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차 · ',
-                  '⛔ 막힘 1: 배포 검증 · ⏳ 남음 2 · 🧵 백그라운드 2 · 🗜 압축 1',
-                  '🔀 app-api#512',
-                  '▶ 실제 화면 확인 4분째 · 🔀 app-api#512 · ⏭ 다음 정리 · ⏱ 예상 16:20 · 🔄 2분 전 · ',
-                  '● 작업 중 4분째', '🔧 Bash 실행 중', '🔧 Bash 12초 전', '🗜 압축 2',
-                  '· 🗜 압축 2')
+LONG_ROW = ('◆ ✓ 3/6 ▓▓▓░░░ · CAS-1161 콘솔 dev 회귀 3회차' + ' '
+            + chip_piece('▶ 실제 화면 확인 4분째') + ' ' + chip_piece('⎇ app-api#512') + ' '
+            + chip_piece('› 다음 정리') + ' ' + chip_piece('◷ 예상 16:20') + ' '
+            + chip_piece('↻ 2분 전') + ' ' + chip_piece('✕ 막힘 1: 배포 검증') + ' '
+            + chip_piece('☐ 남음 2') + ' ' + chip_piece('⇶ 백그라운드 2') + ' '
+            + chip_piece('⇊ 압축 1'))
+LONG_ROW_HUD = (LONG_ROW + ' ' + chip_piece('● 작업 중 4분째') + ' ' + chip_piece('⚙ Bash 12초 전'))
+# 위 기대 줄들은 테스트에서 조각을 이어 붙여 만들므로, 테스트 파일에는 조각으로 있는지 본다.
+TEST_FRAGMENTS = ('▶ 실제 화면 확인 4분째', '› 다음 정리', '◷ 예상 16:20', '↻ 2분 전',
+                  '✕ 막힘 1: 배포 검증', '✕ 막힘: 배포 검증 (권한 대기)', '할 일: 권한을 승인해 주세요',
+                  '☐ 남음 2', '⇶ 백그라운드 2', '⇊ 압축 1', '⎇ app-api#512',
+                  'CAS-1161 콘솔 dev 회귀 3회차', '● 작업 중 4분째', '⚙ Bash 실행 중',
+                  '⚙ Bash 12초 전', '⇊ 압축 2')
 
 
 def check_lines():
@@ -1106,8 +1154,7 @@ def main(argv):
                 f.write(page(lang, blocks))
             return html
 
-        # 글꼴의 실제 폭은 칸 모델과 어긋난다(예: ⏳ 은 두 칸보다 넓다). 줄이 블록을 넘으면
-        # 칸을 하나 줄여 다시 그린다.
+        # 글꼴의 실제 폭은 칸 모델과 어긋난다. 줄이 블록을 넘으면 칸을 하나 줄여 다시 그린다.
         for _ in range(8):
             pages = {what: write_page(what, blocks) for what, blocks in built_for(TERM_COLS).items()}
             over = max(content_marks(html)[2] for html in pages.values())

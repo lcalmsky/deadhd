@@ -143,6 +143,8 @@ declare module 'claude-code' {
       hud: DeadhdHud
       /** Whether the config asks for the HUD; an unset or unknown `hud` value reads as on. */
       'hud-on': boolean
+      /** Whether the config asks for a rule above the status line; only `divider` `on` turns it on. */
+      'divider-on': boolean
       /**
        * The enable button's mark while the prompt it submitted is queued: null
        * when nothing is pending, else whether the main loop has started a turn since.
