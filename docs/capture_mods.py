@@ -69,9 +69,13 @@ def cell_width(text):
     return sum(0 if within(ord(c), ZERO) else 2 if within(ord(c), WIDE) else 1 for c in text)
 
 
-def button_cols(label):
-    """터미널 버튼 한 개가 차지하는 칸: `[ label ]`."""
-    return cell_width(label) + 4
+# 컨트롤 하나가 그리는 기호. register.tsx 의 GLYPHS 와 같은 값이다.
+GLYPHS = {'enable': '⏵', 'open': '⧉', 'collapse': '−', 'expand': '+'}
+
+
+def button_cols(glyph):
+    """터미널 버튼 한 개가 차지하는 칸: 배경을 칠한 ` glyph ` 세 칸."""
+    return cell_width(glyph) + 2
 
 
 def count(value):
@@ -644,6 +648,8 @@ TONES = {
 
 # 엔진이 그리는 부분(대화 영역·입력칸·힌트)의 색. deadhd 의 테마 키와는 무관하다.
 TEXT, DIM, EDGE, PERMISSION = '#d8d8dc', '#7a7b82', '#3a3b44', '#e06c75'
+# inverseText: 채운 배경 위의 글자색. 터미널 바탕색과 같다.
+INVERSE = '#101012'
 
 # 페이지가 스스로 알려 주는 그림 크기와, 터미널 블록을 넘는 줄의 최대 칸 수(CSS px).
 SIZE_MARK = 'deadhd-mods-size:'
@@ -697,11 +703,11 @@ def plain(content, cls=''):
 
 
 def control_row(parts, controls):
-    """밴드·상태줄 한 줄: 조각들 끝에 터미널 버튼 `[ label ]` 을 붙인다."""
-    drawn = ''.join('<span class="btn%s">[ %s ]</span>' % (' primary' if primary else '', esc(label))
-                    for label, primary in controls)
-    text = ''.join(part[0] for part in parts) + ' ' + ' '.join('[ %s ]' % label
-                                                              for label, _ in controls)
+    """밴드·상태줄 한 줄: 조각들 끝에 배경을 칠한 기호 버튼을 붙인다."""
+    drawn = ''.join('<span class="btn%s"> %s </span>' % (' primary' if primary else '', esc(glyph))
+                    for glyph, primary in controls)
+    text = ''.join(part[0] for part in parts) + ' ' + ' '.join(' %s ' % glyph
+                                                              for glyph, _ in controls)
     return Line('<div class="row">%s%s</div>' % (spans(parts, ' '), drawn), text)
 
 
@@ -740,8 +746,8 @@ body { background: #0d0d0d; }
 .dim { color: %s; }
 .rule { color: %s; }
 .cursor { background: %s; }
-.btn { color: %s; }
-.btn.primary { color: %s; }
+.btn { background: %s; color: %s; font-weight: 700; }
+.btn.primary { background: %s; color: %s; }
 </style>
 <script>window.addEventListener('load', function () {
   var r = document.querySelector('.page').getBoundingClientRect();
@@ -752,8 +758,8 @@ body { background: #0d0d0d; }
   console.log('%s' + Math.ceil(r.width) + 'x' + Math.ceil(r.height) + ':' + over);
 });</script>
 </head><body><div class="page">%s</div></body></html>
-""" % (lang, GAP, PAD, PAGE_W, FONT, LINE, TEXT, DIM, EDGE, TEXT, TEXT, TONES['claude'],
-       SIZE_MARK, caps)
+""" % (lang, GAP, PAD, PAGE_W, FONT, LINE, TEXT, DIM, EDGE, TEXT,
+       TONES['subtle'], TEXT, TONES['claude'], INVERSE, SIZE_MARK, caps)
 
 
 def cell_page():
@@ -974,9 +980,9 @@ def main(argv):
             'foldedCap': '접힌 밴드: /deadhd-band 로 접었을 때',
             'statusCap': '상태줄: 입력칸 아래, 엔진 힌트 다음 줄',
             'hudCap': '세션 HUD(상태줄): /deadhd 를 실행하기 전. 세션 상태와 마지막 도구, 지켜본 압축 '
-                      '횟수가 보이고, 열 페이지가 없어 열기 대신 켜기 버튼이 있다.',
+                      '횟수가 보이고, 열 페이지가 없어 ⧉ 대신 ⏵ 버튼이 있다.',
             'hudBandCap': '세션 HUD(밴드): /deadhd 를 실행하기 전. 세션 상태와 마지막 도구가 보이고 '
-                          '열 페이지가 없어 열기 대신 켜기 버튼이 있다.',
+                          '열 페이지가 없어 ⧉ 대신 ⏵ 버튼이 있다.',
         },
         'en': {
             'call': 'Bash(python3 -m unittest skills/deadhd/test_render.py)',
@@ -987,9 +993,9 @@ def main(argv):
             'foldedCap': 'Folded band: after /deadhd-band',
             'statusCap': 'Status line: under the input, on the row after the engine hint',
             'hudCap': 'Session HUD (status line): before /deadhd runs. The session state, the last '
-                      'tool and the compactions it watched, with no page yet, so Enable stands where Open does.',
+                      'tool and the compactions it watched, with no page yet, so ⏵ stands where ⧉ does.',
             'hudBandCap': 'Session HUD (band): before /deadhd runs. The session state and the last '
-                          'tool, with no page yet, so Enable stands where Open does.',
+                          'tool, with no page yet, so ⏵ stands where ⧉ does.',
         },
     }[lang]
 
@@ -1056,10 +1062,10 @@ def main(argv):
             global TERM_COLS
             TERM_COLS = cols
             # register.tsx 처럼 버튼이 차지하는 칸을 줄의 예산에서 뺀다. 상태 파일이 없는
-            # 세션에는 열 페이지가 없어 열기 자리에 켜기 버튼을 그리니 그 칸도 뺀다.
-            opening = 1 + button_cols(words['open'])
-            enabling = 1 + button_cols(words['enable'])
-            toggle = 1 + button_cols(words['collapse'])
+            # 세션에는 열 페이지가 없어 ⧉ 자리에 ⏵ 버튼을 그리니 그 칸도 뺀다.
+            opening = 1 + button_cols(GLYPHS['open'])
+            enabling = 1 + button_cols(GLYPHS['enable'])
+            toggle = 1 + button_cols(GLYPHS['collapse'])
             band_room = cols - opening - toggle
             status_room = cols - opening - toggle
             only_room = cols - enabling - toggle
@@ -1073,23 +1079,23 @@ def main(argv):
             return {
                 'band': [
                     (talk['foldedCap'], terminal(talk_lines + [
-                        control_row(folded, [(words['open'], True), (words['expand'], False)]),
+                        control_row(folded, [(GLYPHS['open'], True), (GLYPHS['expand'], False)]),
                     ] + under_input)),
                     (talk['bandCap'], terminal(talk_lines + [
-                        control_row(band, [(words['open'], True), (words['collapse'], False)]),
+                        control_row(band, [(GLYPHS['open'], True), (GLYPHS['collapse'], False)]),
                         row(alerts),
                     ] + under_input)),
                     (talk['hudBandCap'], terminal(talk_lines + [
-                        control_row(band_only, [(words['enable'], True), (words['collapse'], False)]),
+                        control_row(band_only, [(GLYPHS['enable'], True), (GLYPHS['collapse'], False)]),
                     ] + under_input)),
                 ],
                 'statusline': [
                     (talk['statusCap'], terminal(talk_lines + under_input + [
                         row(divider_line(words['progress'], TERM_COLS)),
-                        control_row(status, [(words['open'], True), (words['collapse'], False)]),
+                        control_row(status, [(GLYPHS['open'], True), (GLYPHS['collapse'], False)]),
                     ])),
                     (talk['hudCap'], terminal(talk_lines + under_input + [
-                        control_row(only, [(words['enable'], True), (words['collapse'], False)]),
+                        control_row(only, [(GLYPHS['enable'], True), (GLYPHS['collapse'], False)]),
                     ])),
                 ],
             }

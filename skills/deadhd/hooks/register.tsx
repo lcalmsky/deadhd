@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, RenderElement, ThemeKey } from 'claude-code'
+import type { Elements, EngineInterface, Register, RenderElement, ThemeKey } from 'claude-code'
 
 import type {
   DeadhdHud,
@@ -191,6 +191,24 @@ const WORDS: Record<
   },
 }
 
+/** The glyph each control draws, the same in both languages; its label names the action. */
+const GLYPHS = {
+  enable: '⏵',
+  open: '⧉',
+  collapse: '−',
+  expand: '+',
+} as const
+
+type Control = keyof typeof GLYPHS
+
+/** The block a control's glyph sits on: the two actions in the accent, the fold in quiet grey. */
+const FACES: Record<Control, { backgroundColor: ThemeKey; color: ThemeKey }> = {
+  enable: { backgroundColor: 'claude', color: 'inverseText' },
+  open: { backgroundColor: 'claude', color: 'inverseText' },
+  collapse: { backgroundColor: 'subtle', color: 'text' },
+  expand: { backgroundColor: 'subtle', color: 'text' },
+}
+
 const live = atom({ plugin: 'deadhd', key: 'state' } as const, null)
 const collapsed = atom({ plugin: 'deadhd', key: 'collapsed' } as const, false)
 const shown = atom({ plugin: 'deadhd', key: 'view' } as const, DEFAULT_VIEW)
@@ -309,11 +327,23 @@ export function cellWidth(text: string): number {
   return cells
 }
 
-/** Cells a band control takes when drawn: `[ label ]`, brackets and padding included. */
-const buttonCols = (label: string): number => cellWidth(label) + 4
+/** Cells a control takes when drawn: ` glyph ` on its block, the padding included. */
+const buttonCols = (glyph: string): number => cellWidth(glyph) + 2
 
 /** The Text props a tone names: the theme key itself, or the text's own color. */
 const paint = (tone: Tone): { color?: ThemeKey } => (tone === 'plain' ? {} : { color: tone })
+
+/** One control: the glyph alone on its block, the label the name it answers to. */
+const control = (
+  { Button, Text }: Pick<Elements['terminal'], 'Button' | 'Text'>,
+  which: Control,
+  label: string,
+  onPress: () => void,
+): RenderElement => (
+  <Button key={which} label={label} plain onPress={onPress}>
+    <Text {...FACES[which]} bold>{` ${GLYPHS[which]} `}</Text>
+  </Button>
+)
 
 const record = (value: unknown): Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -1876,11 +1906,11 @@ export const register: Register = on => {
     // The two buttons and the space before each are drawn beside the text, so
     // their cells come off the budget the line's own pieces are cut to. The
     // width is the surface's own, which PromptHint's props do not carry. A
-    // session with no state file draws the `켜기` button where `열기` stands,
+    // session with no state file draws the `⏵` button where `⧉` stands,
     // and its cells come off the budget just the same.
     const cols = e.viewport?.columns ?? STATUS_COLS
-    const toggle = folded ? words.expand : words.collapse
-    const opening = 1 + buttonCols(state === null ? words.enable : words.open)
+    const toggle = folded ? GLYPHS.expand : GLYPHS.collapse
+    const opening = 1 + buttonCols(state === null ? GLYPHS.enable : GLYPHS.open)
     const room = Math.max(0, cols - HINT_INSET - opening - (1 + buttonCols(toggle)))
 
     if (room > 0) {
@@ -1890,7 +1920,8 @@ export const register: Register = on => {
     const parts = folded ? foldedSegments(state, hud, now) : statusLine(state, now, room, hud)
     // The engine's hint keeps its own tree, drawn under the deadhd line.
     const hint = await next(e)
-    const { Box, Text, Button, Link } = $.ui.resolve(e)
+    const ui = $.ui.resolve(e)
+    const { Box, Text, Link } = ui
     // A rule above the line keeps it apart from another plugin's status line drawn above it.
     const rule = (await read($, dividerOn)) ? dividerText(words.progress, cols - HINT_INSET) : null
     const open = (): void => {
@@ -1923,16 +1954,12 @@ export const register: Register = on => {
             </Link>
           )
         })}
-        {state === null ? (
-          <Button key="enable" label={words.enable} variant="primary" onPress={enable} />
-        ) : (
-          <Button key="open" label={words.open} variant="primary" onPress={open} />
-        )}
-        {folded ? (
-          <Button key="expand" label={words.expand} onPress={() => update($, collapsed, () => false)} />
-        ) : (
-          <Button key="collapse" label={words.collapse} onPress={() => update($, collapsed, () => true)} />
-        )}
+        {state === null
+          ? control(ui, 'enable', words.enable, enable)
+          : control(ui, 'open', words.open, open)}
+        {folded
+          ? control(ui, 'expand', words.expand, () => update($, collapsed, () => false))
+          : control(ui, 'collapse', words.collapse, () => update($, collapsed, () => true))}
       </Box>,
       hint,
     ]
@@ -1958,7 +1985,8 @@ export const register: Register = on => {
     }
 
     const hud = watching ? await read($, seen) : EMPTY_HUD
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const ui = $.ui.resolve(e)
+    const { Box, Text } = ui
     const words = WORDS[state?.lang ?? 'ko']
     const open = (): void => {
       void openText($, state).then(message => $.ui.toast(message))
@@ -1977,12 +2005,10 @@ export const register: Register = on => {
               {index === folded.length - 1 ? `${part.text} ` : part.text}
             </Text>
           ))}
-          {state === null ? (
-            <Button key="enable" label={words.enable} variant="primary" onPress={enable} />
-          ) : (
-            <Button key="open" label={words.open} variant="primary" onPress={open} />
-          )}
-          <Button key="expand" label={words.expand} onPress={() => update($, collapsed, () => false)} />
+          {state === null
+            ? control(ui, 'enable', words.enable, enable)
+            : control(ui, 'open', words.open, open)}
+          {control(ui, 'expand', words.expand, () => update($, collapsed, () => false))}
         </Box>
       )
 
@@ -1997,10 +2023,10 @@ export const register: Register = on => {
     }
 
     const now = await $.clock.now()
-    // A session with no state file draws the `켜기` button where `열기` stands,
+    // A session with no state file draws the `⏵` button where `⧉` stands,
     // and its cells come off the line's budget just the same.
     const controls =
-      buttonCols(words.collapse) + 1 + (1 + buttonCols(state === null ? words.enable : words.open))
+      buttonCols(GLYPHS.collapse) + 1 + (1 + buttonCols(state === null ? GLYPHS.enable : GLYPHS.open))
     const room = Math.max(0, e.props.bodyColumns - controls)
 
     if (room > 0) {
@@ -2021,12 +2047,10 @@ export const register: Register = on => {
             {index === line.length - 1 ? `${part.text} ` : part.text}
           </Text>
         ))}
-        {state === null ? (
-          <Button key="enable" label={words.enable} variant="primary" onPress={enable} />
-        ) : (
-          <Button key="open" label={words.open} variant="primary" onPress={open} />
-        )}
-        <Button key="collapse" label={words.collapse} onPress={() => update($, collapsed, () => true)} />
+        {state === null
+          ? control(ui, 'enable', words.enable, enable)
+          : control(ui, 'open', words.open, open)}
+        {control(ui, 'collapse', words.collapse, () => update($, collapsed, () => true))}
       </Box>,
     ]
 

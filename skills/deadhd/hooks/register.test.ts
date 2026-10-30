@@ -339,12 +339,40 @@ const textOf = (node: unknown): string => {
   return own + (element.children ?? []).map(textOf).join('')
 }
 
+/** Every string a drawn tree draws: a Button's label names it without being drawn. */
+const faceOf = (node: unknown): string => {
+  if (typeof node === 'string') {
+    return node
+  }
+
+  if (node === null || typeof node !== 'object') {
+    return ''
+  }
+
+  const element = node as { children?: unknown[] }
+
+  return (element.children ?? []).map(faceOf).join('')
+}
+
 /** A drawn tree as plain data: its own props and the children it holds. */
 const elementOf = (node: unknown): { type?: string; props?: Record<string, unknown>; children?: unknown[] } =>
   node as { type?: string; props?: Record<string, unknown>; children?: unknown[] }
 
 /** The rows a drawn tree holds, the outermost Box's children in order. */
 const rowsOf = (drawn: unknown): unknown[] => elementOf(drawn).children ?? []
+
+/** Every Button a drawn tree holds, its own props and children, in drawing order. */
+const buttonsOf = (node: unknown): { props: Record<string, unknown>; children: unknown[] }[] => {
+  if (node === null || typeof node !== 'object') {
+    return []
+  }
+
+  const element = elementOf(node)
+  const own =
+    element.type === 'Button' ? [{ props: element.props ?? {}, children: element.children ?? [] }] : []
+
+  return [...own, ...(element.children ?? []).flatMap(buttonsOf)]
+}
 
 /** One Text of a drawn line, as the colors and the dim flag under test read it. */
 type Painted = { text: string; color: unknown; bold: unknown; dim: unknown }
@@ -400,6 +428,14 @@ const LONG_ROW =
 /** The same row with the session's own state, which trails the run's own pieces. */
 const LONG_ROW_RUNNING = `${LONG_ROW} · ${RUNNING}`
 
+/** A control as textOf reads it: its label, then the glyph it draws on its block. */
+const controlText = (label: string, glyph: string): string => `${label} ${glyph} `
+
+/** The two controls a line ends with, as textOf reads them. */
+const OPENING = controlText('열기', '⧉')
+const COLLAPSING = controlText('접기', '−')
+const EXPANDING = controlText('펼치기', '+')
+
 /** What the engine draws when the plugin leaves the component to it. */
 const ENGINE_OWN: RenderElement = { type: 'Text', children: ['(the engine drew its own)'] }
 
@@ -424,10 +460,9 @@ describe('the band', () => {
       expect(drawn).toContain('▶ 실제 화면 확인 4분째')
       // 조용한 나이 조각이 단계 이름보다 먼저 빠지므로 이 폭에서는 나이가 서지 않는다.
       expect(drawn).not.toContain('🔄 2분 전')
-      // 다음 단계와 예상도 단계 이름과 함께 이 폭에서는 빠진다: 세션 상태 조각까지 더해
-      // 82칸을 넘기기 때문이다.
+      // 다음 단계는 이 폭에서 빠지고, 예상은 남는다.
       expect(drawn).not.toContain('⏭ 다음 정리')
-      expect(drawn).not.toContain('⏱ 예상 16:20')
+      expect(drawn).toContain('⏱ 예상 16:20')
       expect(drawn).toContain('막힘 1')
       expect(drawn).toContain('남음 2')
       expect(drawn).toContain(RUNNING)
@@ -1292,7 +1327,7 @@ describe('the status hint', () => {
       expect(elementOf(drawn).props?.flexDirection).toBe('column')
       expect(rows).toHaveLength(2)
       // 버튼 두 개는 줄 뒤에 나란히 붙는다.
-      expect(textOf(rows[0])).toBe(`${LONG_ROW_RUNNING} 열기접기`)
+      expect(textOf(rows[0])).toBe(`${LONG_ROW_RUNNING} ${OPENING}${COLLAPSING}`)
       // 엔진이 훅을 떠나는 트리에 붙이는 소유 표지(`part`)는 비교에서 뺀다.
       expect(rows[1]).toMatchObject(ENGINE_HINT)
 
@@ -1459,7 +1494,7 @@ describe('the status hint', () => {
     const rows = rowsOf(await ui.drawn())
     const painted = await paintedOf(ui)
 
-    expect(textOf(rows[0])).toBe(`${LONG_ROW_RUNNING} 열기접기`)
+    expect(textOf(rows[0])).toBe(`${LONG_ROW_RUNNING} ${OPENING}${COLLAPSING}`)
     expect(textOf(rows[1])).toBe('x'.repeat(200))
     expect(pieceOf(painted, '⏳ 남음 2')).toBeDefined()
 
@@ -1477,11 +1512,13 @@ describe('the status hint', () => {
     const rows = rowsOf(await ui.drawn())
     const painted = await paintedOf(ui)
 
-    expect(cellWidth(textOf(rows[0]))).toBeLessThanOrEqual(240)
+    // 기호로 그린 버튼의 칸을 세야 한다. textOf 는 접근성 이름인 label 까지 읽는다.
+    expect(cellWidth(faceOf(rows[0]))).toBeLessThanOrEqual(240)
     expect(textOf(rows[0])).toContain('…')
     expect(pieceOf(painted, '⏳ 남음 2')).toBeDefined()
     // The button is drawn outside the budget, so the row keeps it however tight it gets.
     expect(textOf(rows[0])).toContain('열기')
+    expect(faceOf(rows[0])).toContain('⧉')
 
     await ui.unmount()
   })
@@ -1518,10 +1555,9 @@ describe('the status hint', () => {
     expect(cut).toContain('✓ 3/6')
     expect(cellWidth(cut)).toBeLessThan(cellWidth(whole))
     // The hint line is drawn indented, so of the screen's 120 cells the four of
-    // indent and the two buttons with the space before each are not the line's
-    // to draw in. What the drawing adds beside the line (a space and the two
-    // buttons) is not its either.
-    expect(cellWidth(formatLine(normalize(long, BOARD), NOW, 98))).toBeLessThanOrEqual(98)
+    // indent and the two three-cell buttons with the space before each are not
+    // the line's to draw in.
+    expect(cellWidth(formatLine(normalize(long, BOARD), NOW, 108))).toBeLessThanOrEqual(108)
     expect(cellWidth(cut)).toBeLessThan(cellWidth(whole))
   })
 
@@ -1537,12 +1573,13 @@ describe('the status hint', () => {
       surface: 'terminal',
       viewport: { columns: 120, rows: 24 },
     })
-    const row = textOf(rowsOf(await ui.drawn())[0])
+    const row = faceOf(rowsOf(await ui.drawn())[0])
 
-    // 120칸에서 들여쓰기 4칸과 버튼 두 개(각 8칸)와 그 앞 여백을 뺀 98칸이 줄의 몫이다.
-    expect(cellWidth(row.replace(/열기접기$/, '').trimEnd())).toBeLessThanOrEqual(98)
-    // 줄에 붙은 여백과 버튼 글자까지 더해도 화면 안에 남는다.
-    expect(cellWidth(row)).toBeLessThanOrEqual(107)
+    // 120칸에서 들여쓰기 4칸과 3칸짜리 버튼 두 개, 그 앞 여백 한 칸씩을 뺀 108칸이 줄의 몫이다.
+    // 버튼 자리를 걷어내면 줄 끝 여백 한 칸을 뺀 107칸이 남는다.
+    expect(cellWidth(row.replace(/\s+⧉\s+−\s*$/, '').trimEnd())).toBe(107)
+    // 줄에 붙은 여백과 기호 버튼까지 더해도 화면 안에 남는다.
+    expect(cellWidth(row)).toBeLessThanOrEqual(120)
 
     await ui.unmount()
   })
@@ -1612,6 +1649,90 @@ describe('the status hint', () => {
     await $.command.run(open)
 
     expect(statuses).toEqual([undefined])
+  })
+})
+
+describe('the control buttons', () => {
+  type DrawnControl = { props: Record<string, unknown>; children: unknown[] }
+
+  /** The controls a drawn tree holds, by the key a press names. */
+  const controlsOf = (drawn: unknown): Map<string, DrawnControl> =>
+    new Map(
+      buttonsOf(drawn)
+        .filter(one => typeof one.props.key === 'string')
+        .map(one => [one.props.key as string, one]),
+    )
+
+  /** One control's face: the glyph it draws on its block, its colors and weight. */
+  const expectFace = (
+    control: DrawnControl | undefined,
+    label: string,
+    glyph: string,
+    background: string,
+    color: string,
+  ): void => {
+    expect(control?.props.label).toBe(label)
+    expect(control?.props.plain).toBe(true)
+
+    const face = elementOf(control?.children[0])
+
+    expect(face.type).toBe('Text')
+    expect(face.children).toEqual([` ${glyph} `])
+    expect(face.props).toMatchObject({ backgroundColor: background, color, bold: true })
+  }
+
+  test('draws the actions in the accent and the fold in quiet grey, naming each by its label', async ($, on) => {
+    const { clock } = statusWorld(on, filesOf(statusState()), ENGINE_HINT, START)
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+    const controls = controlsOf(await ui.drawn())
+
+    expectFace(controls.get('open'), '열기', '⧉', 'claude', 'inverseText')
+    expectFace(controls.get('collapse'), '접기', '−', 'subtle', 'text')
+
+    await ui.press({ key: 'collapse' })
+    await ui.unmount()
+
+    const folded = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
+    const foldedControls = controlsOf(await folded.drawn())
+
+    expectFace(foldedControls.get('open'), '열기', '⧉', 'claude', 'inverseText')
+    expectFace(foldedControls.get('expand'), '펼치기', '+', 'subtle', 'text')
+
+    await folded.unmount()
+  })
+
+  test('stands the enable button on the open one where no state file is there', async ($, on) => {
+    const { clock } = worldOf(on, configOf('band'), START)
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+    const controls = controlsOf(await ui.drawn())
+
+    expectFace(controls.get('enable'), '켜기', '⏵', 'claude', 'inverseText')
+    expectFace(controls.get('collapse'), '접기', '−', 'subtle', 'text')
+
+    await ui.unmount()
+  })
+
+  test('leaves the band line the width the two three-cell controls do not take', async ($, on) => {
+    const long = stateOf({}, { title: '아주 긴 제목이 여기에 들어 있다 '.repeat(12) })
+    const { clock } = worldOf(on, filesOf(long), START)
+
+    await startsRunning($, clock)
+
+    const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
+    const row = faceOf(rowsOf(await ui.drawn())[0])
+
+    // 본문 100칸에서 3칸짜리 버튼 두 개와 그 앞 여백 한 칸씩을 뺀 92칸이 줄의 몫이다.
+    // 버튼 자리를 걷어내면 줄 끝 여백 한 칸을 뺀 91칸이 남는다.
+    expect(cellWidth(row.replace(/\s+⧉\s+−\s*$/, '').trimEnd())).toBe(91)
+    expect(cellWidth(row)).toBeLessThanOrEqual(100)
+
+    await ui.unmount()
   })
 })
 
@@ -1866,7 +1987,7 @@ describe('the status line command', () => {
     const long = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
     const open = textOf(await long.drawn())
 
-    expect(open).toContain(`${LONG_ROW_RUNNING} 열기접기`)
+    expect(open).toContain(`${LONG_ROW_RUNNING} ${OPENING}${COLLAPSING}`)
     expect(open).not.toContain('펼치기')
 
     await long.press({ key: 'collapse' })
@@ -1875,7 +1996,7 @@ describe('the status line command', () => {
     const folded = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
     const shut = textOf(await folded.drawn())
 
-    expect(shut).toContain(`${STATUS_MARK} ${RUNNING} 열기펼치기`)
+    expect(shut).toContain(`${STATUS_MARK} ${RUNNING} ${OPENING}${EXPANDING}`)
     expect(shut).not.toContain('접기')
 
     await folded.press({ key: 'expand' })
@@ -2073,7 +2194,7 @@ describe('the HUD setting', () => {
 
     const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
 
-    expect(textOf(rowsOf(await ui.drawn())[0])).toBe(`${LONG_ROW_RUNNING} 열기접기`)
+    expect(textOf(rowsOf(await ui.drawn())[0])).toBe(`${LONG_ROW_RUNNING} ${OPENING}${COLLAPSING}`)
 
     await ui.unmount()
   })
@@ -2117,7 +2238,7 @@ describe('the HUD setting', () => {
     const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
 
     // 상태 파일이 그대로이므로 체크리스트 줄은 서고, mod 가 지켜본 조각만 빠진다.
-    expect(textOf(rowsOf(await ui.drawn())[0])).toBe(`${LONG_ROW} 열기접기`)
+    expect(textOf(rowsOf(await ui.drawn())[0])).toBe(`${LONG_ROW} ${OPENING}${COLLAPSING}`)
 
     await ui.unmount()
   })
@@ -2130,7 +2251,8 @@ describe('the HUD setting', () => {
     const ui = await $.ui.mount({ ...MOUNT, surface: 'terminal' })
 
     expect(textOf(rowsOf(await ui.drawn())[0])).toBe(
-      `${STATUS_MARK} · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · ⏱ 예상 16:20 · 막힘 1 · 남음 2 열기접기`,
+      `${STATUS_MARK} · ▓▓▓░░░ 3/6 · ▶ 실제 화면 확인 4분째 · ⏱ 예상 16:20 · 🔄 2분 전 · ` +
+        `막힘 1 · 남음 2 ${OPENING}${COLLAPSING}`,
     )
 
     await ui.unmount()
@@ -2187,7 +2309,7 @@ describe('the divider setting', () => {
     const rows = rowsOf(await ui.drawn())
 
     expect(rows).toHaveLength(2)
-    expect(textOf(rows[0])).toBe(`${LONG_ROW_RUNNING} 열기접기`)
+    expect(textOf(rows[0])).toBe(`${LONG_ROW_RUNNING} ${OPENING}${COLLAPSING}`)
 
     await ui.unmount()
   })
@@ -2225,7 +2347,7 @@ describe('the divider setting', () => {
     const ui = await $.ui.mount({ ...MOUNT_HINT, surface: 'terminal' })
     const rows = rowsOf(await ui.drawn())
 
-    expect(textOf(rows[1])).toBe(`${LONG_ROW_RUNNING} 열기접기`)
+    expect(textOf(rows[1])).toBe(`${LONG_ROW_RUNNING} ${OPENING}${COLLAPSING}`)
     expect(textOf(rows[2])).toBe('? for shortcuts')
 
     await ui.unmount()
@@ -2261,7 +2383,7 @@ describe('the divider setting', () => {
     const rows = rowsOf(await ui.drawn())
 
     expect(textOf(rows[0]).startsWith('── 진행 ')).toBe(true)
-    expect(textOf(rows[1])).toBe(`${STATUS_MARK} ${RUNNING} 열기펼치기`)
+    expect(textOf(rows[1])).toBe(`${STATUS_MARK} ${RUNNING} ${OPENING}${EXPANDING}`)
 
     await ui.unmount()
   })

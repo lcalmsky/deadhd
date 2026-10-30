@@ -74,15 +74,15 @@ The same progress can be shown three ways. The band and the status line are show
 | `statusline` | One line under the prompt | The session state and the last tool, plus the ticket key and title, the pull request of the step in progress, the next step, the completion estimate, the last update, background tasks, and compactions |
 | `html` | The browser page | The progress page above |
 
-The checklist's state file is written when `/deadhd` runs. Before that the mod watches the session's own events and draws the **session state** (`● working Nm in` / `⌨️ waiting for input Nm in`) and the **last tool** (`🔧 tool Ns ago`). The status line adds the **compactions** it watched (`🗜 compacted N`). That is why the session's state shows the moment it starts, with nothing left in the conversation. There is no page yet, so the `Enable` button stands where `Open` does; pressing it sends Claude a request to show the checklist. Running `/deadhd` does the same.
+The checklist's state file is written when `/deadhd` runs. Before that the mod watches the session's own events and draws the **session state** (`● working Nm in` / `⌨️ waiting for input Nm in`) and the **last tool** (`🔧 tool Ns ago`). The status line adds the **compactions** it watched (`🗜 compacted N`). That is why the session's state shows the moment it starts, with nothing left in the conversation. There is no page yet, so the `⏵` (Enable) button stands where `⧉` (Open) does; pressing it sends Claude a request to show the checklist. Running `/deadhd` does the same.
 
 Turn this HUD off with `python3 <skill-dir>/config.py set hud off` (the path is under [Settings](#settings)), or in `/deadhd setup`. The session state, the wait for input, and the last tool are then not drawn: the line starts once `/deadhd` has written the checklist. Turning it back on reaches the line without a restart.
 
-**The band** grows a second row when a step is stuck. `/deadhd-band` folds it back to the session state with the `Open` and `Expand` buttons.
+**The band** grows a second row when a step is stuck. `/deadhd-band` folds it back to the session state with the `⧉` (Open) and `+` (Expand) buttons.
 
 <p align="center"><img src="docs/band.en.png" alt="The band, the session HUD, and a second row for a stuck step" width="800"></p>
 
-**The status line** carries the same state file with more fields. The ticket key and the pull request of the step in progress are links you can press. When the row is wider than the terminal, the title is cut first and gets a `…`; if it still does not fit, the less important fields go first, and the session state and the done count always stay. The `Open` button at the end of the row opens the page. `/deadhd-statusline` folds it back to the session state alone. If it sits flush against another plugin's status line, `python3 <skill-dir>/config.py set divider on` (the path is under [Settings](#settings)) draws a rule above it.
+**The status line** carries the same state file with more fields. The ticket key and the pull request of the step in progress are links you can press. When the row is wider than the terminal, the title is cut first and gets a `…`; if it still does not fit, the less important fields go first, and the session state and the done count always stay. The `⧉` (Open) button at the end of the row opens the page. `/deadhd-statusline` folds it back to the session state alone. If it sits flush against another plugin's status line, `python3 <skill-dir>/config.py set divider on` (the path is under [Settings](#settings)) draws a rule above it.
 
 <p align="center"><img src="docs/statusline.en.png" alt="The status line under the prompt" width="800"></p>
 
@@ -93,7 +93,7 @@ The band and the status line are drawn by the deadhd plugin's mod (`skills/deadh
 <details>
 <summary>How the band and the status line handle the page file</summary>
 
-Under `band` and `statusline` the page file is not written straight away. The state summary and the hub are rewritten on every update; the page is written when it is first opened (`/deadhd-open`, the `Open` button) and from then on with every update. A session with no page yet shows its display name (`band`/`status line`) or `no page yet` in the hub instead of a link. A command that does not match the current display answers in one line with how to switch.
+Under `band` and `statusline` the page file is not written straight away. The state summary and the hub are rewritten on every update; the page is written when it is first opened (`/deadhd-open`, the `⧉` (Open) button) and from then on with every update. A session with no page yet shows its display name (`band`/`status line`) or `no page yet` in the hub instead of a link. A command that does not match the current display answers in one line with how to switch.
 
 </details>
 
