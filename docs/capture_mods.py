@@ -35,7 +35,7 @@ BAR_CELLS = 6
 SEP = ' · '
 STATUS_MARK = '◆'
 
-# 회색 칩으로 그리는 필드. 줄의 표지·진행·제목만 글자만 그린다(register.tsx 의 CHIP_FIELDS).
+# 기호 칸을 얻는 필드. 줄의 표지·진행·제목만 글자만 그린다(register.tsx 의 CHIP_FIELDS).
 CHIP_FIELDS = frozenset((
     'current', 'next', 'eta', 'etaBand', 'ago', 'agoQuiet', 'stuck', 'left', 'leftCount',
     'allDone', 'pr', 'blocked', 'ask', 'background', 'compacted', 'session', 'tool',
@@ -276,11 +276,11 @@ def band_run(state, hud, now):
         piece = update_piece(behind, state['lang'], busy_now(state, hud))
         fields.append(('agoQuiet' if piece[1] == 'subtle' else 'ago', [piece]))
     if state['blocked'] > 0:
-        fields.append(('stuck', [('%s %d' % (words['blocked'], state['blocked']), 'error', True)]))
+        fields.append(('stuck', [('✕ %s %d' % (words['blocked'], state['blocked']), 'error', True)]))
     if state['left'] > 0:
-        fields.append(('leftCount', [('%s %d' % (words['left'], state['left']), 'text', False)]))
+        fields.append(('leftCount', [('☐ %s %d' % (words['left'], state['left']), 'text', False)]))
     if state['allDone']:
-        fields.append(('allDone', [(words['allDone'], 'success', True)]))
+        fields.append(('allDone', [('✓ %s' % words['allDone'], 'success', True)]))
     return fields
 
 
@@ -292,7 +292,7 @@ def band_alert_fields(state):
         note = stuck['label'] if stuck['sub'] == '' else '%s (%s)' % (stuck['label'], stuck['sub'])
         fields.append(('blocked', [('✕ %s: ' % words['blocked'], 'error', True), (note, 'error', True)]))
         if stuck['state'] == 'blocked' and stuck['ask'] != '':
-            fields.append(('ask', [('%s: ' % words['ask'], 'warning', True),
+            fields.append(('ask', [('✎ %s: ' % words['ask'], 'warning', True),
                                    (stuck['ask'], 'text', False)]))
     return fields
 
@@ -506,23 +506,35 @@ def fit(fields, max_cols):
     return [f for f in fields if f[1]]
 
 
+def cell_backing(tone):
+    """아이콘 칸의 바탕 키. subtle 은 inverseText 가 안 읽혀 inactive 로, plain 은 text 로 쓴다."""
+    return 'inactive' if tone == 'subtle' else 'text' if tone == 'plain' else tone
+
+
+def leading_glyph(text):
+    points = list(text)
+    return points[0] + points[1] if len(points) > 1 and points[1] == '\ufe0f' else points[0]
+
+
 def flatten(fields):
-    """필드들을 그리는 조각으로 편다. 칩 필드는 앞뒤 여백을 조각으로 얻고, 그 조각들에 chip 표시가 붙는다."""
+    """필드들을 그리는 조각으로 편다. 칩 필드는 기호를 제 칸에 홀로 세우고 글자를 그 뒤에 붙인다."""
     parts = []
     for index, field in enumerate(fields):
         chip = is_chip(field[0])
         if index > 0:
             parts.append((gap_of(fields[index - 1], field), 'subtle', False))
-        if chip:
-            parts.append((' ' * CHIP_PAD, 'plain', False, None, True))
-        for part in field[1]:
-            if chip:
-                href = part[3] if len(part) > 3 else None
-                parts.append((part[0], part[1], part[2], href, True))
-            else:
-                parts.append(part)
-        if chip:
-            parts.append((' ' * CHIP_PAD, 'plain', False, None, True))
+        if not chip:
+            parts.extend(field[1])
+            continue
+        first = field[1][0]
+        glyph = leading_glyph(first[0])
+        rest = first[0][len(glyph):]
+        parts.append((' ' * CHIP_PAD + glyph + ' ' * CHIP_PAD, first[1], True, None, True,
+                      cell_backing(first[1])))
+        if rest:
+            parts.append((rest, first[1], first[2], href_of(first), True))
+        for part in field[1][1:]:
+            parts.append((part[0], part[1], part[2], href_of(part), True))
     return parts
 
 
@@ -708,30 +720,25 @@ def href_of(part):
     return part[3] if len(part) > 3 else None
 
 
-def chip_of(part):
-    """칩 배경 위에 그리는 조각인가. register.tsx 의 Segment.chip 과 같은 표시다."""
-    return len(part) > 4 and part[4] is True
+def background_of(part):
+    """조각이 서는 칸의 바탕 키. 칩의 기호 칸에만 있다."""
+    return part[5] if len(part) > 5 else None
 
 
 def span_of(part):
+    backing = background_of(part)
+    if backing is not None:
+        return '<span style="background:%s;color:%s;font-weight:700">%s</span>' % (
+            TONES[backing], INVERSE, esc(part[0]))
+
     return '<span style="color:%s%s%s">%s</span>' % (
         TONES[part[1]], ';font-weight:700' if part[2] else '',
         ';text-decoration:underline' if href_of(part) else '', esc(part[0]))
 
 
 def spans(parts, tail=''):
-    """조각들을 HTML 로. 칩의 조각들은 회색 배경 한 span 으로 묶는다. 버튼 앞 한 칸은 칩 밖에 둔다."""
-    out, at = [], 0
-    while at < len(parts):
-        if not chip_of(parts[at]):
-            out.append(span_of(parts[at]))
-            at += 1
-            continue
-        inner = []
-        while at < len(parts) and chip_of(parts[at]):
-            inner.append(span_of(parts[at]))
-            at += 1
-        out.append('<span style="background:%s">%s</span>' % (TONES['subtle'], ''.join(inner)))
+    """조각들을 HTML 로. 칩의 기호 칸만 tone 바탕에 inverseText 글자로 칠한다. 버튼 앞 한 칸은 칩 밖에 둔다."""
+    out = [span_of(part) for part in parts]
     if tail:
         out.append('<span>%s</span>' % esc(tail))
     return ''.join(out)
@@ -938,15 +945,15 @@ HUD = {'startedAt': '2026-10-09T15:34:53+09:00', 'turnAt': '2026-10-09T15:34:53+
 WATCHED = dict(HUD, compactions=1)
 
 def chip_piece(text):
-    """칩 하나가 그리는 글자. 앞뒤 한 칸 여백이 칩의 몫이고, 칩 사이는 한 칸이 더 선다."""
-    return ' ' * CHIP_PAD + text + ' ' * CHIP_PAD
+    """칩 하나가 그리는 글자. 기호는 앞뒤 한 칸 여백을 두고 홀로 서고, 글자는 한 칸 띄워 그 뒤에 붙는다."""
+    return ' ' * CHIP_PAD + text[0] + ' ' * CHIP_PAD + text[1:]
 
 
 BAND_EXPECT = ('◆ · ▓▓▓░░░ 3/6' + ' ' + chip_piece('▶ 실제 화면 확인 4분째') + ' '
                + chip_piece('› 다음 정리') + ' ' + chip_piece('◷ 예상 16:20') + ' '
-               + chip_piece('↻ 2분 전') + ' ' + chip_piece('막힘 1') + ' ' + chip_piece('남음 2'))
+               + chip_piece('↻ 2분 전') + ' ' + chip_piece('✕ 막힘 1') + ' ' + chip_piece('☐ 남음 2'))
 ALERT_EXPECT = chip_piece('✕ 막힘: 배포 검증 (권한 대기)')
-CUT_EXPECT = '◆ · ▓▓▓░░░ 3/6' + ' ' + chip_piece('막힘 1')
+CUT_EXPECT = '◆ · ▓▓▓░░░ 3/6' + ' ' + chip_piece('✕ 막힘 1')
 CUT_COLS = 31
 FOLDED_EXPECT = '◆' + ' ' + chip_piece('⚑ 권한 승인 대기 4분째')
 HUD_ONLY = '◆' + ' ' + chip_piece('● 작업 중 4분째') + ' ' + chip_piece('⚙ Bash 12초 전')
@@ -965,8 +972,8 @@ LONG_ROW_HUD = (LONG_ROW + ' ' + chip_piece('● 작업 중 4분째') + ' ' + ch
 TEST_FRAGMENTS = ('▶ 실제 화면 확인 4분째', '› 다음 정리', '◷ 예상 16:20', '↻ 2분 전',
                   '✕ 막힘 1: 배포 검증', '✕ 막힘: 배포 검증 (권한 대기)', '할 일: 권한을 승인해 주세요',
                   '☐ 남음 2', '⇶ 백그라운드 2', '⇊ 압축 1', '⎇ app-api#512',
-                  'CAS-1161 콘솔 dev 회귀 3회차', '● 작업 중 4분째', '⚙ Bash 실행 중',
-                  '⚙ Bash 12초 전', '⇊ 압축 2')
+                  'CAS-1161 콘솔 dev 회귀 3회차', '● 작업 중 4분째', 'Bash 실행 중',
+                  'Bash 12초 전', '⇊ 압축 2')
 
 
 def check_lines():

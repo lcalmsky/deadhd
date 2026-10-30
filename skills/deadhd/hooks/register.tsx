@@ -68,18 +68,27 @@ export type Tone =
 
 /**
  * One drawn piece of a line: `text` is what shows, `tone` what colors it, and
- * `href` the address the piece links to when it has one. `chip` marks a piece
- * drawn on the grey chip background, padding included.
+ * `href` the address the piece links to when it has one. `background` paints a
+ * block behind the piece and `color` stands in for its tone there. `chip` marks
+ * a piece of a field drawn with an icon cell.
  */
-export type Segment = { text: string; tone: Tone; bold?: boolean; href?: string; chip?: boolean }
+export type Segment = {
+  text: string
+  tone: Tone
+  bold?: boolean
+  href?: string
+  background?: ThemeKey
+  color?: ThemeKey
+  chip?: boolean
+}
 
 /** One field of a line: its pieces drawn side by side, with a gap before the next field. */
 type Field = { tag: string; parts: Segment[] }
 
 /**
- * The fields drawn as a grey chip, one cell of padding on each side. The line's
+ * The fields drawn with their leading glyph alone on a colored cell. The line's
  * own mark, its progress and its title are drawn plain; every other field a
- * line can carry is a chip.
+ * line can carry is one of these.
  */
 const CHIP_FIELDS: ReadonlySet<string> = new Set([
   'current',
@@ -103,8 +112,19 @@ const CHIP_FIELDS: ReadonlySet<string> = new Set([
 
 const isChip = (tag: string): boolean => CHIP_FIELDS.has(tag)
 
-/** Cells a chip's own padding takes, one on each side. */
+/** Cells a chip's glyph cell keeps before the glyph, and after it. */
 const CHIP_PAD = 1
+
+/** The theme key a cell is painted with: a quiet tone borrows the key its inverse words read on. */
+const cellBacking = (tone: Tone): ThemeKey => (tone === 'subtle' ? 'inactive' : tone === 'plain' ? 'text' : tone)
+
+/** The glyph a chip field opens with, a trailing emoji selector included. */
+const leadingGlyph = (text: string): string => {
+  const points = Array.from(text)
+  const glyph = points[0] ?? ''
+
+  return points[1] === String.fromCodePoint(VS16) ? glyph + points[1] : glyph
+}
 
 const WORDS: Record<
   DeadhdLang,
@@ -361,8 +381,18 @@ export function cellWidth(text: string): number {
 /** Cells a control takes when drawn: ` glyph ` on its block, the padding included. */
 const buttonCols = (glyph: string): number => cellWidth(glyph) + 2
 
+/** The colors a Text draws with: what a piece's tone names, or the block it stands on. */
+type Paint = { color?: ThemeKey; backgroundColor?: ThemeKey }
+
 /** The Text props a tone names: the theme key itself, or the text's own color. */
-const paint = (tone: Tone): { color?: ThemeKey } => (tone === 'plain' ? {} : { color: tone })
+const paint = (tone: Tone): Paint => (tone === 'plain' ? {} : { color: tone })
+
+/** The Text props a piece draws with: its own color, and the block behind it when it has one. */
+const look = (part: Segment): Paint => {
+  const colors = part.color === undefined ? paint(part.tone) : { color: part.color }
+
+  return part.background === undefined ? colors : { ...colors, backgroundColor: part.background }
+}
 
 /** One control: the glyph alone on its block, the label the name it answers to. */
 const control = (
@@ -377,10 +407,10 @@ const control = (
 )
 
 /**
- * One line's segments as drawn elements: a chip's run becomes one Text on the
- * grey chip background, the pieces inside it keeping their own tone, and a
- * linked piece inside a chip keeps its Link. The space before the controls is
- * drawn outside every chip, so a chip takes exactly the cells counted for it.
+ * One line's segments as drawn elements: each piece a Text of its own, the icon
+ * cell on the block its tone names and the words after it bare. A linked piece
+ * keeps its Link. The space before the controls is drawn after the line, so the
+ * line takes exactly the cells counted for it.
  */
 const lineElements = (
   ui: Pick<Elements['terminal'], 'Text' | 'Link'>,
@@ -390,42 +420,17 @@ const lineElements = (
   const { Text, Link } = ui
   const inline = (part: Segment, key: string): RenderElement =>
     part.href === undefined ? (
-      <Text key={key} bold={part.bold === true} {...paint(part.tone)}>
+      <Text key={key} bold={part.bold === true} {...look(part)}>
         {part.text}
       </Text>
     ) : (
       <Link key={key} href={part.href}>
-        <Text bold={part.bold === true} {...paint(part.tone)}>
+        <Text bold={part.bold === true} {...look(part)}>
           {part.text}
         </Text>
       </Link>
     )
-  const nodes: RenderElement[] = []
-  let at = 0
-
-  while (at < parts.length) {
-    const part = parts[at]!
-
-    if (part.chip !== true) {
-      nodes.push(inline(part, `${prefix}-${at}`))
-      at += 1
-      continue
-    }
-
-    const start = at
-    const cells: RenderElement[] = []
-
-    while (at < parts.length && parts[at]!.chip === true) {
-      cells.push(inline(parts[at]!, `${prefix}-${at}`))
-      at += 1
-    }
-
-    nodes.push(
-      <Text key={`${prefix}-chip-${start}`} backgroundColor="subtle">
-        {cells}
-      </Text>,
-    )
-  }
+  const nodes: RenderElement[] = parts.map((part, at) => inline(part, `${prefix}-${at}`))
 
   nodes.push(<Text key={`${prefix}-tail`}> </Text>)
 
@@ -778,16 +783,16 @@ const bandRun = (state: DeadhdState, hud: DeadhdHud, now: number): Field[] => {
   if (state.blocked > 0) {
     fields.push({
       tag: 'stuck',
-      parts: [{ text: `${words.blocked} ${state.blocked}`, tone: 'error', bold: true }],
+      parts: [{ text: `✕ ${words.blocked} ${state.blocked}`, tone: 'error', bold: true }],
     })
   }
 
   if (state.left > 0) {
-    fields.push({ tag: 'leftCount', parts: [{ text: `${words.left} ${state.left}`, tone: 'text' }] })
+    fields.push({ tag: 'leftCount', parts: [{ text: `☐ ${words.left} ${state.left}`, tone: 'text' }] })
   }
 
   if (state.allDone) {
-    fields.push({ tag: 'allDone', parts: [{ text: words.allDone, tone: 'success', bold: true }] })
+    fields.push({ tag: 'allDone', parts: [{ text: `✓ ${words.allDone}`, tone: 'success', bold: true }] })
   }
 
   return fields
@@ -814,7 +819,7 @@ const bandAlertFields = (state: DeadhdState): Field[] => {
     fields.push({
       tag: 'ask',
       parts: [
-        { text: `${words.ask}: `, tone: 'warning', bold: true },
+        { text: `✎ ${words.ask}: `, tone: 'warning', bold: true },
         { text: state.stuck.ask, tone: 'text' },
       ],
     })
@@ -982,11 +987,11 @@ const updatePiece = (minutes: number, lang: DeadhdLang, busy: boolean): Segment 
 const fieldWidth = (field: Field): number =>
   field.parts.reduce((cells, part) => cells + cellWidth(part.text), 0)
 
-/** The gap between two fields: a chip's padding stands in for the separator beside it. */
+/** The gap between two fields: a chip's glyph cell spans the air the separator would. */
 const gapOf = (left: Field, right: Field): string =>
   isChip(left.tag) || isChip(right.tag) ? ' ' : SEP
 
-/** Cells the whole line takes: its pieces, every chip's padding and the gaps between fields. */
+/** Cells the whole line takes: its pieces, every chip's glyph-cell air and the gaps between fields. */
 const lineWidth = (fields: readonly Field[]): number => {
   let cells = 0
 
@@ -1202,8 +1207,9 @@ const fit = (fields: Field[], maxCols: number): Field[] => {
 
 /**
  * One line's fields as the pieces a drawing lays out, the gaps between fields
- * and every chip's padding included. A chip's pieces carry `chip`, so a drawing
- * paints one background behind them as a run.
+ * included. A chip field opens with its glyph on its own cell, one cell of air
+ * on each side and the cell painted in the field's tone, then the words after
+ * the glyph bare. The two pieces take the cells the glyph's padding did.
  */
 const flatten = (fields: readonly Field[]): Segment[] => {
   const parts: Segment[] = []
@@ -1215,19 +1221,34 @@ const flatten = (fields: readonly Field[]): Segment[] => {
       parts.push({ text: gapOf(before, field), tone: 'subtle' })
     }
 
-    const chip = isChip(field.tag)
-    const pad: Segment = { text: ' '.repeat(CHIP_PAD), tone: 'plain', chip: true }
+    const first = field.parts[0]
 
-    if (chip) {
-      parts.push(pad)
+    if (!isChip(field.tag) || first === undefined) {
+      parts.push(...field.parts)
+
+      return
     }
 
-    for (const part of field.parts) {
-      parts.push(chip ? { ...part, chip: true } : part)
+    const glyph = leadingGlyph(first.text)
+    const padded = ' '.repeat(CHIP_PAD)
+
+    parts.push({
+      text: `${padded}${glyph}${padded}`,
+      tone: first.tone,
+      bold: true,
+      background: cellBacking(first.tone),
+      color: 'inverseText',
+      chip: true,
+    })
+
+    const rest = first.text.slice(glyph.length)
+
+    if (rest !== '') {
+      parts.push({ ...first, text: rest, chip: true })
     }
 
-    if (chip) {
-      parts.push(pad)
+    for (const part of field.parts.slice(1)) {
+      parts.push({ ...part, chip: true })
     }
   })
 
