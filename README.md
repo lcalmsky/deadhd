@@ -182,7 +182,7 @@ Claude Code 에서 플러그인을 설치합니다.
 
 <table width="100%">
 <tr>
-<td width="42%" valign="top"><img src="docs/pulse.png" alt="Pulse 팝오버의 진행 중 세션 행에 펼쳐진 deadhd 단계" width="360"></td>
+<td width="42%" valign="top"><img src="https://raw.githubusercontent.com/lcalmsky/pulse/main/docs/images/deadhd-steps.png" alt="Pulse 팝오버의 진행 중 세션 행에 펼쳐진 deadhd 단계" width="360"></td>
 <td valign="top">
 
 [Pulse](https://github.com/lcalmsky/pulse) 는 Claude Code 세션을 macOS 메뉴 막대에서 보는 별도 앱입니다. deadhd 가 쓰는 상태 파일을 그대로 읽으므로, 터미널을 보고 있지 않을 때도 **진행 중인 세션 행에 체크리스트가 붙습니다.**
@@ -390,7 +390,7 @@ python3 -m unittest skills/deadhd/test_render.py
 ```
 
 예시 그림 열네 장은 Chrome 을 설치한 환경에서 다음 명령으로 다시 만듭니다. 모든 그림은 2배율, 폭 1600px 로 찍고 README 에서 `width="800"` 으로 보여 줍니다.
-`docs/pulse.png` 와 `docs/pulse.en.png` 는 캡처하지 않고 [Pulse 저장소](https://github.com/lcalmsky/pulse) 의 `docs/images/deadhd-steps.png`·`deadhd-steps.en.png` 를 복사한 것입니다.
+「Pulse 와 함께 쓰기」 절의 그림은 캡처하지 않고 [Pulse 저장소](https://github.com/lcalmsky/pulse) 의 `docs/images/deadhd-steps.png`·`deadhd-steps.en.png` 를 직접 가리킵니다. Pulse 가 그림을 바꾸면 이 README 에도 바로 반영됩니다.
 
 ```bash
 python3 docs/capture_themes.py && python3 docs/capture_themes.py --lang en   # themes.png, themes.en.png

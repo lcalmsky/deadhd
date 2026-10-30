@@ -182,7 +182,7 @@ A preset bundles the family, weight, and letter spacing, and the default `defaul
 
 <table width="100%">
 <tr>
-<td width="42%" valign="top"><img src="docs/pulse.en.png" alt="deadhd steps expanded inside a working row of the Pulse popover" width="360"></td>
+<td width="42%" valign="top"><img src="https://raw.githubusercontent.com/lcalmsky/pulse/main/docs/images/deadhd-steps.en.png" alt="deadhd steps expanded inside a working row of the Pulse popover" width="360"></td>
 <td valign="top">
 
 [Pulse](https://github.com/lcalmsky/pulse) is a separate app that shows Claude Code sessions in the macOS menu bar. It reads the same state files deadhd writes, so **working rows carry the checklist** even when the terminal is out of view.
@@ -390,7 +390,7 @@ python3 -m unittest skills/deadhd/test_render.py
 ```
 
 The fourteen example images are regenerated on a machine with Chrome via the commands below. Every image is captured at 2× scale and 1600px wide, and shown in the README at `width="800"`.
-`docs/pulse.png` and `docs/pulse.en.png` are not captured here; they are copies of `docs/images/deadhd-steps.png` and `deadhd-steps.en.png` from the [Pulse repository](https://github.com/lcalmsky/pulse).
+The image in "Using it with Pulse" is not captured here; it points directly at `docs/images/deadhd-steps.png` and `deadhd-steps.en.png` in the [Pulse repository](https://github.com/lcalmsky/pulse), so a new Pulse image shows up in this README as soon as Pulse changes it.
 
 ```bash
 python3 docs/capture_themes.py && python3 docs/capture_themes.py --lang en   # themes.png, themes.en.png

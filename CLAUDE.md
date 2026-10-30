@@ -13,7 +13,7 @@
    - 게시 전에 `skills/deadhd` 에 커밋되지 않은 파일(`__pycache__` 포함)이 없는지 확인하고, 엔진이 만든 `skills/deadhd/.claude-plugin/types/` 와 `skills/deadhd/tsconfig.json` 은 지운다. `types/` 에는 이 컴퓨터 사용자의 MCP 도구 목록이 들어 있어 공개 묶음에 실리면 안 된다(`git status --short` 에는 `.gitignore` 때문에 보이지 않으니 `ls skills/deadhd/.claude-plugin/` 로 확인한다).
    - 게시는 Orca 가 실행 중인 이 컴퓨터에서 `orca skills share --skill <deadhd 의 Claude home ID> --bundle-name "deadhd vX.Y.Z" --json` 으로 한다. ID 는 `orca skills installed --json` 에서 찾는다. Orca 설정의 「에이전트와 Orca CLI 가 기술 링크를 게시하도록 허용」이 꺼져 있으면 사용자에게 앱에서 게시해 달라고 한다.
    - README 의 `<a id="orca-install"></a>` 앵커는 지우지 않는다. 외부 글이 `https://github.com/lcalmsky/deadhd#orca-install` 로 이 절을 가리킨다.
-7. Pulse 저장소(`~/git-repo/pulse`)를 반드시 함께 확인한다. 직전 deadhd 릴리즈 뒤의 Pulse 변경(`git -C ~/git-repo/pulse log`)과 Pulse README·README.en 의 「deadhd 와 함께 쓰기」 절을 읽고, deadhd README 두 언어의 「Pulse 와 함께 쓰기」 절이 그 내용과 맞는지 대조해 고친다. `docs/pulse.png`·`docs/pulse.en.png` 는 Pulse 의 `docs/images/deadhd-steps.png`·`deadhd-steps.en.png` 와 해시를 비교해 다르면 다시 복사한다. 이번 deadhd 변경이 Pulse 가 읽는 상태 파일이나 Pulse 가 쓰는 `render.py`·`serve.py` 에 닿으면 Pulse 쪽에 고칠 것이 있는지도 사용자에게 알린다.
+7. Pulse 저장소(`~/git-repo/pulse`)를 반드시 함께 확인한다. 직전 deadhd 릴리즈 뒤의 Pulse 변경(`git -C ~/git-repo/pulse log`)과 Pulse README·README.en 의 「deadhd 와 함께 쓰기」 절을 읽고, deadhd README 두 언어의 「Pulse 와 함께 쓰기」 절이 그 내용과 맞는지 대조해 고친다. 그 절의 그림은 Pulse 저장소의 `docs/images/deadhd-steps.png`·`deadhd-steps.en.png` 를 raw 주소로 직접 가리키므로 복사하지 않는다. Pulse 가 그림 파일 이름이나 경로를 바꿨으면 README 의 주소를 고친다. 이번 deadhd 변경이 Pulse 가 읽는 상태 파일이나 Pulse 가 쓰는 `render.py`·`serve.py` 에 닿으면 Pulse 쪽에 고칠 것이 있는지도 사용자에게 알린다.
 
 플러그인 업데이트는 `version` 문자열로 판정된다. 버전을 올리지 않고 커밋만 푸시하면, 이미 설치한 사람은 `claude plugin update` 를 실행해도 "already at the latest version" 이 나오고 예전 파일을 계속 쓴다.
 
@@ -37,7 +37,7 @@ python3 docs/capture_board.py && python3 docs/capture_board.py --lang en     # b
 python3 docs/capture_mods.py && python3 docs/capture_mods.py --lang en       # band.png, band.en.png, statusline.png, statusline.en.png
 ```
 
-`docs/pulse.png`·`docs/pulse.en.png` 는 캡처하지 않는다. Pulse 저장소(`~/git-repo/pulse`)의 `docs/images/deadhd-steps.png`·`deadhd-steps.en.png` 사본이라, Pulse 쪽 그림이 바뀌면 다시 복사한다. 릴리즈마다 위 7번 절차로 확인한다.
+「Pulse 와 함께 쓰기」 절의 그림은 캡처하지 않는다. Pulse 저장소의 `docs/images/deadhd-steps.png`·`deadhd-steps.en.png` 를 raw 주소로 직접 가리킨다. 릴리즈마다 위 7번 절차로 글을 대조한다.
 
 화면에 보이는 새 기능을 추가하면 그 기능이 그림에 드러나도록 데모 데이터나 캡처 스크립트를 고쳐 README 예시 그림에 반드시 넣는다.
 
